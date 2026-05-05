@@ -156,3 +156,13 @@ MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
 # Default primary key field type
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+CORS_ALLOW_ALL_ORIGINS = True # Allow Vercel to connect
+CORS_ALLOW_CREDENTIALS = True
+
+# Required for Django 4.0+ when using HTTPS (Render)
+CSRF_TRUSTED_ORIGINS = [
+    "https://*.onrender.com",
+    "https://*.vercel.app"
+]
+
