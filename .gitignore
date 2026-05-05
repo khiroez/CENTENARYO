@@ -1,0 +1,26 @@
+# Django
+*.log
+*.pot
+*.pyc
+__pycache__/
+local_settings.py
+db.sqlite3
+db.sqlite3-journal
+media
+static/
+.env
+
+# Next.js
+node_modules/
+.next/
+out/
+build/
+.DS_Store
+*.pem
+
+# IDEs
+.vscode/
+.idea/
+venv/
+env/
+dist/
