@@ -12,11 +12,17 @@ class Command(BaseCommand):
         Disbursement.objects.all().delete()
         Senior.objects.all().delete()
         
-        # Ensure Admin & Staff users exist
+        # Ensure Admin user exists
         admin_user, _ = User.objects.get_or_create(username='admin', is_staff=True)
         admin_user.set_password('admin123')
         admin_user.save()
         UserProfile.objects.update_or_create(user=admin_user, defaults={'role': 'ADMIN'})
+
+        # Ensure Staff user exists
+        staff_user, _ = User.objects.get_or_create(username='staff', is_staff=False)
+        staff_user.set_password('staff123')
+        staff_user.save()
+        UserProfile.objects.update_or_create(user=staff_user, defaults={'role': 'STAFF'})
 
         barangays = ['San Jose', 'Poblacion', 'San Roque', 'Magallanes', 'Rizal', 'Mabini', 'Barangay 1']
         last_names = ['Garcia', 'Bautista', 'Dela Cruz', 'Lopez', 'Cruz', 'Santos', 'Reyes', 'Aquino']
