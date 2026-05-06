@@ -99,7 +99,7 @@ export default function Sidebar() {
           className="flex items-center justify-center space-x-2 px-4 py-3 w-full bg-rose-500/10 hover:bg-rose-500/20 rounded-xl text-rose-400 hover:text-rose-300 transition-all border border-rose-500/10 hover:border-rose-500/30"
         >
           <LogOut size={18} />
-          <span className="font-medium text-sm">Mag-sign out</span>
+          <span className="font-medium text-sm">Sign out</span>
         </button>
       </div>
     </aside>

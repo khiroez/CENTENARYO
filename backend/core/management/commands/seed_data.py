@@ -24,13 +24,13 @@ class Command(BaseCommand):
         staff_user.save()
         UserProfile.objects.update_or_create(user=staff_user, defaults={'role': 'STAFF'})
 
-        barangays = ['San Jose', 'Poblacion', 'San Roque', 'Magallanes', 'Rizal', 'Mabini', 'Barangay 1']
+        barangays = ['San Jose', 'Poblacion', 'San Roque', 'Magallanes', 'Rizal', 'Mabini', 'San Isidro']
         last_names = ['Garcia', 'Bautista', 'Dela Cruz', 'Lopez', 'Cruz', 'Santos', 'Reyes', 'Aquino']
         first_names = ['Maria', 'Juan', 'Jose', 'Rosa', 'Antonio', 'Corazon', 'Luz', 'Carmen']
         
         today = date.today()
         
-        self.stdout.write('Generating Seniors...')
+        self.stdout.write('Generating Seniors with Fraud Scenarios...')
         
         # We want to test specific milestones
         milestone_ages = [78, 79, 80, 85, 90, 95, 100, 101]
@@ -48,9 +48,21 @@ class Command(BaseCommand):
                 target_age = random.randint(75, 102)
                 
             dob = today.replace(year=today.year - target_age) - timedelta(days=random.randint(0, 364))
-            
             osca_id = f"OSCA-2026-10{i:03d}"
             
+            # FRAUD SCENARIO INJECTION
+            primary_ben = f"{random.choice(first_names)} {ln}"
+            reps = [{'name': f"{random.choice(first_names)} {random.choice(last_names)}", 'relation': 'Relative'}]
+            
+            # Scenario A: Juan Dela Cruz as Syndicate Rep (First 5 seniors in San Isidro)
+            if i < 5:
+                brgy = 'San Isidro'
+                reps = [{'name': 'JUAN DELA CRUZ', 'relation': 'Authorized Representative'}]
+            
+            # Scenario B: Maria Santos as Shared Beneficiary (Seniors 10 to 13)
+            if 10 <= i <= 13:
+                primary_ben = 'MARIA SANTOS'
+
             # Realistic Annex A Data
             annex_data = {
                 'res_house': str(random.randint(1, 200)),
@@ -58,10 +70,11 @@ class Command(BaseCommand):
                 'res_brgy': brgy,
                 'res_city': 'Cavite City',
                 'res_prov': 'Cavite',
-                'primary_ben_name': f"{random.choice(first_names)} {ln}",
+                'primary_ben_name': primary_ben,
                 'primary_ben_rel': random.choice(['Child', 'Grandchild', 'Spouse']),
                 'utilization': random.sample(['FOOD', 'MEDICINE', 'HEALTH SERVICES', 'HOUSEHOLD NEEDS'], random.randint(1, 3)),
-                'contact_number': f"0917{random.randint(1000000, 9999999)}"
+                'contact_number': f"0917{random.randint(1000000, 9999999)}",
+                'reps': reps
             }
             
             s = Senior.objects.create(

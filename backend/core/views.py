@@ -167,15 +167,22 @@ class DisbursementViewSet(viewsets.ModelViewSet):
             dob = senior.date_of_birth
             age = today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
             
+            # Determine Quarter based on Senior's Birth Month
+            birth_month = dob.month
+            if 1 <= birth_month <= 3: senior_quarter = 'Q1'
+            elif 4 <= birth_month <= 6: senior_quarter = 'Q2'
+            elif 7 <= birth_month <= 9: senior_quarter = 'Q3'
+            else: senior_quarter = 'Q4'
+
             amount = 0
             is_milestone = False
             
             # RA 11982 Milestones
             if age == 100:
-                amount = 100000 # Correct Centenarian Amount
+                amount = 100000 
                 is_milestone = True
             elif age in [80, 85, 90, 95]:
-                amount = 10000 # Milestone Gift
+                amount = 10000
                 is_milestone = True
             
             if is_milestone:
@@ -183,7 +190,7 @@ class DisbursementViewSet(viewsets.ModelViewSet):
                 exists = Disbursement.objects.filter(
                     senior=senior, 
                     disbursement_type='MILESTONE_GIFT',
-                    amount=amount, # check same amount to avoid duplicate milestone gifts
+                    amount=amount,
                     year=year
                 ).exists()
                 
@@ -192,7 +199,7 @@ class DisbursementViewSet(viewsets.ModelViewSet):
                         senior=senior,
                         disbursement_type='MILESTONE_GIFT',
                         amount=amount,
-                        quarter=quarter,
+                        quarter=senior_quarter, # Dynamic based on birthday
                         year=year,
                         status='PENDING',
                         reference_number=f"ECA-{year}-{senior.id}-{age}"
@@ -212,6 +219,46 @@ class AnomalyFlagViewSet(viewsets.ModelViewSet):
     queryset = AnomalyFlag.objects.filter(is_resolved=False).order_by('-confidence_score')
     serializer_class = AnomalyFlagSerializer
     permission_classes = [IsAuthenticated, IsAdmin]
+    pagination_class = StandardResultsSetPagination
+    filter_backends = [filters.SearchFilter]
+    search_fields = ['senior__first_name', 'senior__last_name', 'senior__osca_id', 'flag_reason']
+
+    @action(detail=True, methods=['post'])
+    def mark_as_safe(self, request, pk=None):
+        flag = self.get_object()
+        senior = flag.senior
+        
+        # 1. Resolve the flag
+        flag.is_resolved = True
+        flag.resolved_by = request.user
+        flag.save()
+        
+        # 2. Ensure senior is ACTIVE
+        senior.status = 'ACTIVE'
+        senior.save()
+        
+        return Response({'status': 'Record marked as safe and flag resolved.'})
+
+    @action(detail=True, methods=['post'])
+    def suspend_record(self, request, pk=None):
+        flag = self.get_object()
+        senior = flag.senior
+        
+        # 1. Suspend the senior
+        senior.status = 'SUSPENDED'
+        senior.save()
+        
+        # 2. Flag all PENDING disbursements for this senior
+        Disbursement.objects.filter(senior=senior, status='PENDING').update(status='CANCELLED') 
+        # (Using CANCELLED or we can add a 'FLAGGED' status if preferred, 
+        # but for now let's use a clear 'CANCELLED' to stop payout)
+        
+        # 3. Mark flag as resolved (meaning it's been handled)
+        flag.is_resolved = True
+        flag.resolved_by = request.user
+        flag.save()
+        
+        return Response({'status': 'Senior suspended and disbursements frozen.'})
 
 class AuditLogViewSet(viewsets.ReadOnlyModelViewSet):
     """
@@ -238,8 +285,24 @@ def dashboard_stats(request):
 
     total_seniors = Senior.objects.count()
     total_payouts = Disbursement.objects.filter(status='RELEASED').count()
+    pending_payouts = Disbursement.objects.filter(status='PENDING').count()
     active_anomalies = AnomalyFlag.objects.filter(is_resolved=False).count()
     
+    # 1. Document Verification Percentage
+    # A senior is "Verified" if they have PSA, ID, and Photo
+    from django.db.models import Q
+    verified_seniors = Senior.objects.filter(
+        ~Q(psa_cert_file='') & ~Q(psa_cert_file__isnull=True) &
+        ~Q(primary_id_file='') & ~Q(primary_id_file__isnull=True) &
+        ~Q(picture_2x2_file='') & ~Q(picture_2x2_file__isnull=True)
+    ).count()
+    
+    verified_percentage = round((verified_seniors / total_seniors * 100), 1) if total_seniors > 0 else 0
+    
+    # 2. Last Sync (based on latest Audit Log or Senior Update)
+    last_audit = AuditLog.objects.order_by('-created_at').first()
+    last_sync = last_audit.created_at.isoformat() if last_audit else today.isoformat()
+
     # Prescriptive Analytics: Budget Forecast
     upcoming_seniors = Senior.objects.filter(
         date_of_birth__gt=date_80_years_ago, 
@@ -251,9 +314,12 @@ def dashboard_stats(request):
     return Response({
         'total_seniors': total_seniors,
         'total_payouts': total_payouts,
+        'pending_payouts': pending_payouts,
         'active_anomalies': active_anomalies,
         'upcoming_seniors': upcoming_seniors,
         'estimated_budget': estimated_budget,
+        'verified_percentage': verified_percentage,
+        'last_sync': last_sync
     })
 
 @api_view(['GET'])
@@ -301,20 +367,87 @@ def ai_report_data(request):
     med_percentage = (med_utilization / total_active_with_data * 100) if total_active_with_data > 0 else 0
 
     # 4. Ghost Pensioner Anomaly (Audit of Mortality vs Registry)
-    date_95_years_ago = today.replace(year=today.year - 95)
+    # CLEAR OLD SURVIVAL FLAGS FIRST
+    AnomalyFlag.objects.filter(flag_reason__icontains="Survival Rate").delete()
+    
+    date_90_years_ago = today.replace(year=today.year - 90)
     # Filter only very old seniors who are still marked as ACTIVE
-    oldest_seniors = Senior.objects.filter(date_of_birth__lte=date_95_years_ago, status='ACTIVE')
-    brgy_stats = oldest_seniors.values('barangay').annotate(count=Count('id')).filter(count__gte=3)
+    oldest_seniors = Senior.objects.filter(date_of_birth__lte=date_90_years_ago, status='ACTIVE')
+    brgy_stats = oldest_seniors.values('barangay').annotate(count=Count('id')).filter(count__gte=2)
     
     ghost_warnings = []
     for item in brgy_stats:
-        # If a barangay has multiple 95+ seniors but ZERO deaths reported in the system
+        # If a barangay has multiple 90+ seniors but ZERO deaths reported in the system
         has_deceased = Senior.objects.filter(barangay=item['barangay'], status='DECEASED').exists()
         if not has_deceased:
+            reason = f"Unnatural Survival Rate: {item['count']} seniors aged 90+ in this barangay with 0 reported deaths."
+            
+            # AUTO-FLAG these individual seniors
+            for s_obj in oldest_seniors.filter(barangay=item['barangay']):
+                AnomalyFlag.objects.get_or_create(
+                    senior=s_obj,
+                    flag_reason=reason,
+                    defaults={'confidence_score': 0.85}
+                )
+
             ghost_warnings.append({
                 'barangay': item['barangay'],
                 'count_95plus': item['count'],
-                'message': f"Anomaly: {item['count']} seniors aged 95+ in this barangay with 0 reported deaths."
+                'message': reason
+            })
+
+    # 5. Syndicate / Shared Representative Detection (REPRESENTATIVES ONLY)
+    # Clear old syndicate flags first to avoid stale data (based on keywords)
+    AnomalyFlag.objects.filter(flag_reason__icontains="Syndicate Risk").delete()
+    
+    person_counts = Counter()
+    person_to_details = {} # name -> {'barangays': [], 'senior_data': {senior_id: set(roles)}}
+    
+    for s in seniors:
+        s_data = s.annex_a_data or {}
+        
+        # ONLY Check Representatives
+        reps = s_data.get('reps', [])
+        for r in reps:
+            r_name = r.get('name', '').strip().upper()
+            if r_name and len(r_name) > 3:
+                person_counts[r_name] += 1
+                if r_name not in person_to_details:
+                    person_to_details[r_name] = {'barangays': [], 'senior_data': {}}
+                
+                if s.id not in person_to_details[r_name]['senior_data']:
+                    person_to_details[r_name]['senior_data'][s.id] = set()
+                
+                person_to_details[r_name]['senior_data'][s.id].add('Authorized Rep')
+                person_to_details[r_name]['barangays'].append(s.barangay)
+    
+    syndicate_warnings = []
+    for name, count in person_counts.items():
+        if count >= 3:
+            details = person_to_details[name]
+            brgy_counts = Counter(details['barangays'])
+            top_brgy = brgy_counts.most_common(1)[0][0]
+            
+            # AUTO-FLAGGING: Per-senior specific messages
+            for s_id, roles in details['senior_data'].items():
+                try:
+                    s_obj = Senior.objects.get(id=s_id)
+                    # More accurate reason
+                    reason = f"Syndicate Risk: {name} is listed as Authorized Rep for {count} seniors."
+                    
+                    AnomalyFlag.objects.get_or_create(
+                        senior=s_obj,
+                        flag_reason=reason,
+                        defaults={'confidence_score': 0.95}
+                    )
+                except Senior.DoesNotExist:
+                    continue
+
+            syndicate_warnings.append({
+                'rep_name': name,
+                'count': count,
+                'barangay': top_brgy,
+                'message': f"Listed as Authorized Rep for {count} seniors."
             })
 
     return Response({
@@ -328,5 +461,6 @@ def ai_report_data(request):
             'recommendation': 'Prioritize Door-to-Door Payout' if med_percentage > 50 else 'Standard Payout'
         },
         'ghost_warnings': ghost_warnings,
+        'syndicate_warnings': syndicate_warnings, 
         'data_integrity': 'HIGH' if total_active_with_data > 0 else 'LOW_DATA'
     })

@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { Banknote, Search, CheckCircle, Clock, AlertCircle, Filter, ChevronLeft, ChevronRight, Download, X, History } from 'lucide-react';
 import { authFetch } from '@/lib/api';
+import { useUI } from '@/context/UIContext';
 
 const renderStatusBadge = (status: string) => {
   switch (status?.toUpperCase()) {
@@ -41,7 +42,36 @@ export default function DisbursementsPage() {
   const [selectedDisbursement, setSelectedDisbursement] = useState<any>(null);
   const [disbursementHistory, setDisbursementHistory] = useState<any[]>([]);
   const [isHistoryLoading, setIsHistoryLoading] = useState(false);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const { showModal, showConfirm } = useUI();
 
+  const handleGeneratePayroll = async () => {
+    setIsGenerating(true);
+    try {
+      const res = await authFetch(`${process.env.NEXT_PUBLIC_API_URL}/disbursements/generate_payroll/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ quarter: 'Q1', year: new Date().getFullYear() })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        showModal('success', 'Payroll Generated!', data.message);
+        fetchDisbursements();
+      }
+    } catch (error) {
+      console.error("Error generating payroll:", error);
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  const openPayrollConfirm = () => {
+    showConfirm(
+        'Generate Quarterly Payroll?',
+        'This will automatically identify all eligible seniors and create pending disbursement records for the current quarter.',
+        handleGeneratePayroll
+    );
+  };
   const fetchSeniorHistory = async (seniorId: number) => {
     setIsHistoryLoading(true);
     try {
@@ -169,9 +199,9 @@ export default function DisbursementsPage() {
             Disbursements & Payouts
           </h1>
           <p className="text-slate-500 mt-3 font-medium">
-            I-monitor ang mga cash gifts at pensyon na ipinapamahagi sa mga senior citizens.
+            Monitor cash gifts and pensions distributed to senior citizens.
             <span className="ml-2 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-50 text-emerald-600 border border-emerald-100">
-              {totalRecords} transaksyon
+              {totalRecords} transactions
             </span>
           </p>
         </div>
@@ -183,7 +213,7 @@ export default function DisbursementsPage() {
               type="text"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Search Ref ID o Pangalan..."
+              placeholder="Search Ref ID or Name..."
               className="w-full pl-11 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:bg-white focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-400 transition-all text-sm font-medium shadow-sm"
             />
           </form>
@@ -195,11 +225,24 @@ export default function DisbursementsPage() {
               onChange={(e) => { setStatusFilter(e.target.value); setCurrentPage(1); }}
               className="w-full md:w-auto pl-11 pr-10 py-3 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-400 bg-white text-slate-700 text-sm font-medium cursor-pointer transition-all shadow-sm appearance-none"
             >
-              <option value="all">Lahat ng Status</option>
+              <option value="all">All Statuses</option>
               <option value="PENDING">Pending Payouts</option>
               <option value="RELEASED">Released</option>
             </select>
           </div>
+
+          <button 
+            onClick={openPayrollConfirm}
+            disabled={isGenerating}
+            className="flex items-center justify-center gap-2 px-5 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl shadow-lg shadow-indigo-500/20 transition-all hover:-translate-y-0.5 whitespace-nowrap text-sm font-bold w-full md:w-auto disabled:opacity-50"
+          >
+            {isGenerating ? (
+              <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+            ) : (
+              <History size={18} />
+            )}
+            Generate Payroll
+          </button>
 
           <button 
             onClick={exportLBPReport}
@@ -211,6 +254,8 @@ export default function DisbursementsPage() {
         </div>
       </div>
 
+      {/* Removed local Confirmation Modal - Using Global UIContext */}
+
       {/* Disbursements Table */}
       <div className="bg-white rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-slate-200/60 overflow-hidden">
         <div className="overflow-x-auto">
@@ -218,12 +263,12 @@ export default function DisbursementsPage() {
             <thead className="bg-slate-50/80 border-b border-slate-200/80 text-[11px] uppercase tracking-wider text-slate-500 font-bold">
               <tr>
                 <th className="px-8 py-5">Ref ID</th>
-                <th className="px-8 py-5">Benepisyaryo</th>
+                <th className="px-8 py-5">Beneficiary</th>
                 <th className="px-8 py-5">Barangay</th>
-                <th className="px-8 py-5">Halaga</th>
-                <th className="px-8 py-5">Quarter / Taon</th>
+                <th className="px-8 py-5">Amount</th>
+                <th className="px-8 py-5">Quarter / Year</th>
                 <th className="px-8 py-5">Status</th>
-                <th className="px-8 py-5 text-right">Aksyon</th>
+                <th className="px-8 py-5 text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -232,14 +277,14 @@ export default function DisbursementsPage() {
                   <td colSpan={7} className="p-20 text-center text-slate-500">
                     <div className="flex flex-col justify-center items-center gap-4">
                       <div className="w-10 h-10 border-4 border-emerald-100 border-t-emerald-600 rounded-full animate-spin"></div>
-                      <span className="font-semibold">Kinukuha ang mga transaksyon...</span>
+                      <span className="font-semibold">Fetching transactions...</span>
                     </div>
                   </td>
                 </tr>
               ) : disbursements.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="p-20 text-center text-slate-500 font-medium">
-                    Walang nahanap na disbursement record.
+                    No disbursement records found.
                   </td>
                 </tr>
               ) : (
@@ -412,7 +457,7 @@ export default function DisbursementsPage() {
         {!isLoading && totalPages > 1 && (
           <div className="p-5 border-t border-slate-100 flex items-center justify-between bg-slate-50/50">
             <span className="text-sm font-medium text-slate-500">
-              Pahina <span className="text-slate-800 font-bold">{currentPage}</span> mula sa <span className="text-slate-800 font-bold">{totalPages}</span>
+              Page <span className="text-slate-800 font-bold">{currentPage}</span> of <span className="text-slate-800 font-bold">{totalPages}</span>
             </span>
             <div className="flex gap-2">
               <button

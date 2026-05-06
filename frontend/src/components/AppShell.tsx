@@ -6,6 +6,8 @@ import { useEffect } from 'react';
 import Sidebar from '@/components/Sidebar';
 import Header from '@/components/Header';
 import { Loader2 } from 'lucide-react';
+import { NotificationProvider } from '@/context/NotificationContext';
+import { UIProvider } from '@/context/UIContext';
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const { user, isLoading } = useAuth();
@@ -37,7 +39,11 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
   // Login page: no sidebar or header
   if (isLoginPage) {
-    return <>{children}</>;
+    return (
+      <UIProvider>
+        <NotificationProvider>{children}</NotificationProvider>
+      </UIProvider>
+    );
   }
 
   // Not logged in and not on login page: don't render anything (redirect happening)
@@ -47,14 +53,18 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
   // Authenticated: show full dashboard layout
   return (
-    <div className="h-full flex overflow-hidden bg-slate-50 text-slate-900">
-      <Sidebar />
-      <div className="flex-1 flex flex-col h-full overflow-hidden">
-        <Header />
-        <main className="flex-1 overflow-y-auto p-8">
-          {children}
-        </main>
-      </div>
-    </div>
+    <UIProvider>
+      <NotificationProvider>
+        <div className="h-full flex overflow-hidden bg-slate-50 text-slate-900">
+          <Sidebar />
+          <div className="flex-1 flex flex-col h-full overflow-hidden">
+            <Header />
+            <main className="flex-1 overflow-y-auto p-8">
+              {children}
+            </main>
+          </div>
+        </div>
+      </NotificationProvider>
+    </UIProvider>
   );
 }

@@ -19,17 +19,24 @@ import {
   Ghost,
   AlertCircle,
   FileText,
-  Printer
+  Printer,
+  CheckCircle,
+  Clock
 } from 'lucide-react';
 import { authFetch } from '@/lib/api';
+import { useAuth } from '@/context/AuthContext';
 
 export default function Dashboard() {
+  const { isAdmin } = useAuth();
   const [stats, setStats] = useState({
     total_seniors: 0,
     total_payouts: 0,
+    pending_payouts: 0,
     active_anomalies: 0,
     upcoming_seniors: 0,
-    estimated_budget: 0
+    estimated_budget: 0,
+    verified_percentage: 0,
+    last_sync: ""
   });
   
   const [aiReport, setAiReport] = useState<any>(null);
@@ -78,20 +85,33 @@ export default function Dashboard() {
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 bg-white p-10 rounded-[40px] border border-slate-100 shadow-sm relative overflow-hidden">
         <div className="absolute top-0 right-0 w-80 h-80 bg-indigo-50 rounded-full blur-3xl opacity-40 -translate-y-1/2 translate-x-1/4"></div>
         <div className="relative z-10">
-          <h1 className="text-4xl font-black text-slate-900 tracking-tight">System Oversight</h1>
+          <h1 className="text-4xl font-black text-slate-900 tracking-tight">
+            {isAdmin ? 'System Oversight' : 'Operational Command'}
+          </h1>
           <p className="text-slate-500 mt-2 font-bold uppercase tracking-widest text-xs flex items-center gap-2">
             <Activity size={16} className="text-emerald-500" />
-            Decision Maker Analytics Dashboard
+            {isAdmin ? 'Decision Maker Analytics Dashboard' : 'Staff Operational Workspace'}
           </p>
         </div>
         <div className="relative z-10 flex gap-3">
-          <button 
-            onClick={fetchAiReport}
-            className="px-8 py-4 bg-slate-900 hover:bg-black text-white rounded-2xl shadow-xl shadow-slate-200 transition-all hover:-translate-y-1 flex items-center gap-3 font-black uppercase tracking-widest text-[10px]"
-          >
-            <FileBarChart size={18} />
-            Generate Intelligence Briefing
-          </button>
+          {isAdmin && (
+            <button 
+              onClick={fetchAiReport}
+              className="px-8 py-4 bg-slate-900 hover:bg-black text-white rounded-2xl shadow-xl shadow-slate-200 transition-all hover:-translate-y-1 flex items-center gap-3 font-black uppercase tracking-widest text-[10px]"
+            >
+              <FileBarChart size={18} />
+              Generate Intelligence Briefing
+            </button>
+          )}
+          {!isAdmin && (
+            <Link 
+              href="/seniors"
+              className="px-8 py-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl shadow-xl shadow-indigo-200 transition-all hover:-translate-y-1 flex items-center gap-3 font-black uppercase tracking-widest text-[10px]"
+            >
+              <Users size={18} />
+              Open Registry
+            </Link>
+          )}
         </div>
       </div>
 
@@ -135,75 +155,133 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* Anomalies Card */}
-        <div className="group bg-white p-8 rounded-[40px] border border-slate-100 shadow-sm hover:shadow-xl hover:shadow-rose-500/5 transition-all duration-500 relative overflow-hidden">
-          <div className="absolute top-0 right-0 p-8 text-rose-50 group-hover:text-rose-100 transition-colors">
-            <AlertTriangle size={80} strokeWidth={1} />
-          </div>
-          <div className="relative z-10 space-y-6">
-            <div className="bg-rose-50 text-rose-600 w-14 h-14 rounded-2xl flex items-center justify-center shadow-inner">
-              <AlertTriangle size={24} strokeWidth={2.5} />
+        {/* Anomalies Card (Admin) or Milestones (Staff) */}
+        {isAdmin ? (
+          <div className="group bg-white p-8 rounded-[40px] border border-slate-100 shadow-sm hover:shadow-xl hover:shadow-rose-500/5 transition-all duration-500 relative overflow-hidden">
+            <div className="absolute top-0 right-0 p-8 text-rose-50 group-hover:text-rose-100 transition-colors">
+              <AlertTriangle size={80} strokeWidth={1} />
             </div>
-            <div>
-              <h3 className="text-slate-400 font-black uppercase tracking-widest text-[10px]">Anomaly Detections</h3>
-              <p className="text-5xl font-black text-slate-900 mt-1 tabular-nums">{isLoading ? '...' : stats.active_anomalies}</p>
-            </div>
-            <Link href="/anomalies" className="flex items-center gap-2 text-rose-600 font-black uppercase tracking-widest text-[10px] group-hover:gap-3 transition-all">
-              Fraud Review <ArrowUpRight size={14} />
-            </Link>
-          </div>
-        </div>
-      </div>
-
-      {/* Analytics Insights */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        <div className="bg-slate-900 p-10 rounded-[48px] text-white relative overflow-hidden shadow-2xl">
-          <div className="absolute bottom-0 right-0 w-64 h-64 bg-indigo-500/10 rounded-full blur-3xl translate-y-1/2 translate-x-1/2"></div>
-          <div className="relative z-10 flex flex-col h-full justify-between">
-            <div className="space-y-6">
-              <div className="flex items-center gap-3">
-                <div className="p-2 bg-indigo-500/20 rounded-lg text-indigo-400"><Target size={20} /></div>
-                <h3 className="text-xs font-black uppercase tracking-[0.2em] text-indigo-400">Prescriptive Analytics</h3>
+            <div className="relative z-10 space-y-6">
+              <div className="bg-rose-50 text-rose-600 w-14 h-14 rounded-2xl flex items-center justify-center shadow-inner">
+                <AlertTriangle size={24} strokeWidth={2.5} />
               </div>
-              <h2 className="text-3xl font-black leading-tight">Automated Intelligence <br/><span className="text-indigo-400">Reports Available</span></h2>
-              <p className="text-slate-400 text-sm font-medium leading-relaxed max-w-sm">
-                Our AI analyzes patterns in representative lists, utilization data, and mortality rates to prevent fraud and optimize budget allocation.
-              </p>
+              <div>
+                <h3 className="text-slate-400 font-black uppercase tracking-widest text-[10px]">Anomaly Detections</h3>
+                <p className="text-5xl font-black text-slate-900 mt-1 tabular-nums">{isLoading ? '...' : stats.active_anomalies}</p>
+              </div>
+              <Link href="/anomalies" className="flex items-center gap-2 text-rose-600 font-black uppercase tracking-widest text-[10px] group-hover:gap-3 transition-all">
+                Fraud Review <ArrowUpRight size={14} />
+              </Link>
             </div>
-            <button 
-              onClick={fetchAiReport}
-              className="mt-12 w-fit flex items-center gap-3 px-8 py-4 bg-white text-slate-900 rounded-2xl font-black uppercase tracking-widest text-[10px] hover:bg-indigo-50 transition-all"
-            >
-              Analyze System Patterns
-              <ChevronRight size={16} />
-            </button>
+          </div>
+        ) : (
+          <div className="group bg-white p-8 rounded-[40px] border border-slate-100 shadow-sm hover:shadow-xl hover:shadow-indigo-500/5 transition-all duration-500 relative overflow-hidden">
+            <div className="absolute top-0 right-0 p-8 text-indigo-50 group-hover:text-indigo-100 transition-colors">
+              <CreditCard size={80} strokeWidth={1} />
+            </div>
+            <div className="relative z-10 space-y-6">
+              <div className="bg-indigo-50 text-indigo-600 w-14 h-14 rounded-2xl flex items-center justify-center shadow-inner">
+                <CreditCard size={24} strokeWidth={2.5} />
+              </div>
+              <div>
+                <h3 className="text-slate-400 font-black uppercase tracking-widest text-[10px]">Pending Payouts</h3>
+                <p className="text-5xl font-black text-slate-900 mt-1 tabular-nums">{isLoading ? '...' : stats.pending_payouts}</p>
+              </div>
+              <Link href="/disbursements" className="flex items-center gap-2 text-indigo-600 font-black uppercase tracking-widest text-[10px] group-hover:gap-3 transition-all">
+                Action Required <ArrowUpRight size={14} />
+              </Link>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Analytics Insights (Conditional) */}
+      {isAdmin ? (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+          <div className="bg-slate-900 p-10 rounded-[48px] text-white relative overflow-hidden shadow-2xl">
+            <div className="absolute bottom-0 right-0 w-64 h-64 bg-indigo-500/10 rounded-full blur-3xl translate-y-1/2 translate-x-1/2"></div>
+            <div className="relative z-10 flex flex-col h-full justify-between">
+              <div className="space-y-6">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-indigo-500/20 rounded-lg text-indigo-400"><Target size={20} /></div>
+                  <h3 className="text-xs font-black uppercase tracking-[0.2em] text-indigo-400">Prescriptive Analytics</h3>
+                </div>
+                <h2 className="text-3xl font-black leading-tight">Automated Intelligence <br/><span className="text-indigo-400">Reports Available</span></h2>
+                <p className="text-slate-400 text-sm font-medium leading-relaxed max-w-sm">
+                  Our AI analyzes patterns in representative lists, utilization data, and mortality rates to prevent fraud and optimize budget allocation.
+                </p>
+              </div>
+              <button 
+                onClick={fetchAiReport}
+                className="mt-12 w-fit flex items-center gap-3 px-8 py-4 bg-white text-slate-900 rounded-2xl font-black uppercase tracking-widest text-[10px] hover:bg-indigo-50 transition-all"
+              >
+                Analyze System Patterns
+                <ChevronRight size={16} />
+              </button>
+            </div>
+          </div>
+
+          <div className="bg-white p-10 rounded-[48px] border border-slate-100 shadow-sm flex flex-col">
+              <div className="flex items-center justify-between mb-10">
+                  <h3 className="text-xs font-black uppercase tracking-[0.2em] text-slate-400">Security Health</h3>
+                  <span className="px-3 py-1 bg-emerald-50 text-emerald-600 text-[10px] font-black rounded-full border border-emerald-100">ALL SYSTEMS GO</span>
+              </div>
+              <div className="space-y-8 flex-1">
+                  <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-4">
+                          <div className="w-10 h-10 rounded-xl bg-slate-50 flex items-center justify-center text-slate-400"><ShieldAlert size={20} /></div>
+                          <div><p className="text-xs font-black text-slate-900 uppercase">Audit Integrity</p><p className="text-[10px] font-bold text-slate-400 tracking-wider">Signals Active</p></div>
+                      </div>
+                      <div className="w-32 h-1 bg-slate-100 rounded-full overflow-hidden"><div className="w-[100%] h-full bg-indigo-500"></div></div>
+                  </div>
+                  <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-4">
+                          <div className="w-10 h-10 rounded-xl bg-slate-50 flex items-center justify-center text-slate-400"><AlertCircle size={20} /></div>
+                          <div><p className="text-xs font-black text-slate-900 uppercase">Anomaly Detection</p><p className="text-[10px] font-bold text-slate-400 tracking-wider">98% Accuracy</p></div>
+                      </div>
+                      <div className="w-32 h-1 bg-slate-100 rounded-full overflow-hidden"><div className="w-[98%] h-full bg-emerald-500"></div></div>
+                  </div>
+              </div>
+              <Link href="/auditlogs" className="mt-10 py-5 bg-slate-50 hover:bg-slate-100 rounded-3xl text-center text-[10px] font-black uppercase tracking-widest text-slate-600 transition-all border border-slate-100">Access Secure Audit Trail</Link>
           </div>
         </div>
-
-        <div className="bg-white p-10 rounded-[48px] border border-slate-100 shadow-sm flex flex-col">
-            <div className="flex items-center justify-between mb-10">
-                <h3 className="text-xs font-black uppercase tracking-[0.2em] text-slate-400">Security Health</h3>
-                <span className="px-3 py-1 bg-emerald-50 text-emerald-600 text-[10px] font-black rounded-full border border-emerald-100">ALL SYSTEMS GO</span>
-            </div>
-            <div className="space-y-8 flex-1">
-                <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-4">
-                        <div className="w-10 h-10 rounded-xl bg-slate-50 flex items-center justify-center text-slate-400"><ShieldAlert size={20} /></div>
-                        <div><p className="text-xs font-black text-slate-900 uppercase">Audit Integrity</p><p className="text-[10px] font-bold text-slate-400 tracking-wider">Signals Active</p></div>
+      ) : (
+        <div className="bg-white p-12 rounded-[48px] border border-slate-100 shadow-sm relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-96 h-96 bg-indigo-50 rounded-full blur-3xl opacity-50 -translate-y-1/2 translate-x-1/2"></div>
+            <div className="relative z-10 grid grid-cols-1 md:grid-cols-2 gap-12 items-center">
+                <div className="space-y-8">
+                    <div className="flex items-center gap-3">
+                        <div className="p-2 bg-indigo-100 rounded-lg text-indigo-600"><UserCheck size={20} /></div>
+                        <h3 className="text-xs font-black uppercase tracking-widest text-indigo-600">Operational Focus</h3>
                     </div>
-                    <div className="w-32 h-1 bg-slate-100 rounded-full overflow-hidden"><div className="w-[100%] h-full bg-indigo-500"></div></div>
-                </div>
-                <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-4">
-                        <div className="w-10 h-10 rounded-xl bg-slate-50 flex items-center justify-center text-slate-400"><AlertCircle size={20} /></div>
-                        <div><p className="text-xs font-black text-slate-900 uppercase">Anomaly Detection</p><p className="text-[10px] font-bold text-slate-400 tracking-wider">98% Accuracy</p></div>
+                    <h2 className="text-4xl font-black text-slate-900 leading-tight">Registry Accuracy <br/><span className="text-indigo-600">& Payout Readiness</span></h2>
+                    <p className="text-slate-500 font-medium leading-relaxed">
+                        Ensure all senior citizens are correctly encoded. High-quality data prevents disbursement delays and guarantees every beneficiary receives their milestone awards on time.
+                    </p>
+                    <div className="flex flex-wrap gap-4">
+                        <Link href="/seniors" className="px-8 py-4 bg-indigo-600 text-white rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-lg shadow-indigo-200">Start Encoding</Link>
+                        <Link href="/disbursements" className="px-8 py-4 bg-white border border-slate-200 text-slate-600 rounded-2xl font-black uppercase tracking-widest text-[10px]">View Payouts</Link>
                     </div>
-                    <div className="w-32 h-1 bg-slate-100 rounded-full overflow-hidden"><div className="w-[98%] h-full bg-emerald-500"></div></div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                    <div className="p-6 bg-slate-50 rounded-3xl border border-slate-100 space-y-4">
+                        <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center text-indigo-600 shadow-sm"><FileText size={20} /></div>
+                        <p className="text-[10px] font-black text-slate-400 uppercase">Documents</p>
+                        <p className="text-xl font-black text-slate-900 tabular-nums">{stats.verified_percentage}%</p>
+                        <p className="text-[10px] font-bold text-emerald-500 uppercase tracking-widest">Verified</p>
+                    </div>
+                    <div className="p-6 bg-slate-50 rounded-3xl border border-slate-100 space-y-4">
+                        <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center text-emerald-600 shadow-sm"><CheckCircle size={20} /></div>
+                        <p className="text-[10px] font-black text-slate-400 uppercase">Registry</p>
+                        <p className="text-sm font-black text-slate-900 truncate">
+                          {stats.last_sync ? new Date(stats.last_sync).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : '...'}
+                        </p>
+                        <p className="text-[10px] font-bold text-indigo-500 uppercase tracking-widest">Last Update</p>
+                    </div>
                 </div>
             </div>
-            <Link href="/auditlogs" className="mt-10 py-5 bg-slate-50 hover:bg-slate-100 rounded-3xl text-center text-[10px] font-black uppercase tracking-widest text-slate-600 transition-all border border-slate-100">Access Secure Audit Trail</Link>
         </div>
-      </div>
+      )}
 
       {/* --- AI INTELLIGENCE BRIEFING MODAL --- */}
       {isModalOpen && (
@@ -252,14 +330,15 @@ export default function Dashboard() {
                                         Strategy: {aiReport.logistics.recommendation}
                                     </div>
                                 </div>
-                            </div>
-
-                            {/* 4. Ghost Pensioner Anomaly */}
-                            <div className="p-8 bg-slate-50 rounded-[40px] border border-slate-200 space-y-6 relative overflow-hidden group">
+                            </div>                            {/* 4. Ghost Pensioner Anomaly */}
+                            <Link href="/anomalies" className="block p-8 bg-slate-50 rounded-[40px] border border-slate-200 space-y-6 relative overflow-hidden group hover:bg-slate-100 transition-all cursor-pointer">
                                 <div className="absolute top-0 right-0 p-6 text-slate-200 group-hover:text-slate-300 transition-colors"><Ghost size={64} /></div>
                                 <div className="relative z-10 space-y-4">
                                     <div className="flex items-center gap-3 text-slate-600"><ShieldAlert size={20} /><h3 className="text-xs font-black uppercase tracking-widest">Mortality Audit</h3></div>
-                                    <h4 className="text-xl font-black text-slate-900">Unnatural Survival Rate</h4>
+                                    <h4 className="text-xl font-black text-slate-900 flex items-center justify-between">
+                                        Unnatural Survival Rate
+                                        <ChevronRight size={20} className="text-slate-400 opacity-0 group-hover:opacity-100 -translate-x-4 group-hover:translate-x-0 transition-all" />
+                                    </h4>
                                     {aiReport.ghost_warnings.length > 0 ? (
                                         <div className="space-y-3">
                                             {aiReport.ghost_warnings.map((w: any) => (
@@ -268,14 +347,57 @@ export default function Dashboard() {
                                                     <p className="text-[10px] font-bold text-rose-600 uppercase tracking-widest mt-1">Warning: {w.message}</p>
                                                 </div>
                                             ))}
-                                            <div className="mt-4 p-4 bg-slate-900 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest text-center">ACTION: Immediate Spot Inspection</div>
+                                            <div className="mt-4 p-4 bg-slate-900 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest text-center">CLICK TO INVESTIGATE</div>
                                         </div>
                                     ) : (
                                         <p className="text-xs font-bold text-slate-500 italic">Mortality rates are within normal national statistics.</p>
                                     )}
                                 </div>
-                            </div>
+                            </Link>
 
+                            {/* 5. Syndicate / Shared Representative Detection (REAL DATA) */}
+                            <Link href="/anomalies" className="block p-8 bg-rose-50 rounded-[40px] border border-rose-100 space-y-6 relative overflow-hidden group hover:bg-rose-100 transition-all cursor-pointer">
+                                <div className="absolute top-0 right-0 p-6 text-rose-100 group-hover:text-rose-200 transition-colors"><ShieldAlert size={64} /></div>
+                                <div className="relative z-10 space-y-4">
+                                    <div className="flex items-center gap-3 text-rose-600"><ShieldAlert size={20} /><h3 className="text-xs font-black uppercase tracking-widest text-rose-500">Fraud Prevention</h3></div>
+                                    <h4 className="text-xl font-black text-slate-900 flex items-center justify-between">
+                                        Syndicate / Shared Rep. Detection
+                                        <ChevronRight size={20} className="text-rose-400 opacity-0 group-hover:opacity-100 -translate-x-4 group-hover:translate-x-0 transition-all" />
+                                    </h4>
+                                    
+                                    {aiReport.syndicate_warnings && aiReport.syndicate_warnings.length > 0 ? (
+                                        <div className="space-y-4">
+                                            {aiReport.syndicate_warnings.map((w: any, idx: number) => (
+                                                <div key={idx} className="bg-white p-6 rounded-[32px] border border-rose-200 shadow-sm space-y-4">
+                                                    <div className="flex items-start gap-3">
+                                                        <div className="p-2 bg-rose-100 text-rose-600 rounded-xl"><AlertCircle size={18} /></div>
+                                                        <div>
+                                                            <p className="text-xs font-black text-slate-900 uppercase">Suspicious {w.roles} Match</p>
+                                                            <p className="text-[10px] font-medium text-slate-500 leading-tight mt-1">
+                                                                <span className="font-black text-slate-900">"{w.rep_name}"</span> is linked to <span className="text-rose-600 font-bold">{w.count} different seniors</span> in Brgy. {w.barangay}.
+                                                            </p>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                            <div className="pt-2">
+                                                <p className="text-[9px] font-black text-rose-600 uppercase tracking-widest mb-2 text-center">System Recommendation:</p>
+                                                <div className="p-4 bg-rose-600 text-white rounded-2xl text-[10px] font-black text-center leading-tight shadow-lg shadow-rose-200">
+                                                    CLICK TO REVIEW ALL RECORDS
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <div className="bg-white p-8 rounded-[32px] border border-emerald-100 shadow-sm text-center">
+                                            <div className="w-12 h-12 bg-emerald-50 text-emerald-500 rounded-full flex items-center justify-center mx-auto mb-4">
+                                                <CheckCircle size={24} />
+                                            </div>
+                                            <p className="text-xs font-black text-slate-900 uppercase">System Secure</p>
+                                            <p className="text-[10px] font-medium text-slate-400 mt-1">No suspicious shared representatives detected.</p>
+                                        </div>
+                                    )}
+                                </div>
+                            </Link>
                         </div>
                     )}
                 </div>
