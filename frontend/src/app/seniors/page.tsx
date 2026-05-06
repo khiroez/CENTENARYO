@@ -45,7 +45,6 @@ export default function SeniorRegistryPage() {
         method: 'DELETE'
       });
       if (res.ok) {
-        setConfirmModal(prev => ({ ...prev, isOpen: false }));
         fetchSeniors();
       }
     } catch (error) {
