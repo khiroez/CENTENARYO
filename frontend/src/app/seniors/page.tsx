@@ -71,7 +71,7 @@ export default function SeniorRegistryPage() {
     citizenship: 'Filipino', dual_citizenship_details: '',
     spouse_name: '', spouse_citizenship: '',
     children: [''], 
-    reps: [{ name: '', relation: '' }],
+    reps: [{ name: '', relation: '', contact: '' }],
     contact_number: '', email: '',
     primary_ben_name: '', primary_ben_rel: '',
     cont_ben_name: '', cont_ben_rel: '',
