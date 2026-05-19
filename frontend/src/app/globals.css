@@ -29,3 +29,88 @@ body {
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
   background: #cbd5e1;
 }
+
+/* ==========================================================================
+   🖨️ HIGH-PRECISION SINGLE-PAGE PRINT STYLES
+   ========================================================================== */
+@media print {
+  /* Hide all normal layout containers and screen elements */
+  body > *:not(#print-briefing-sheet) {
+    display: none !important;
+  }
+
+  /* Show only the printable briefing sheet */
+  #print-briefing-sheet {
+    display: block !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+    font-family: 'Courier New', Courier, monospace, Arial, sans-serif !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    height: 99% !important;
+    margin: 0 !important;
+    padding: 10px !important;
+    box-sizing: border-box !important;
+    page-break-inside: avoid !important;
+    page-break-after: avoid !important;
+  }
+
+  /* Minimalist borders, typography, and clean spacing */
+  #print-briefing-sheet h1, 
+  #print-briefing-sheet h2, 
+  #print-briefing-sheet h3 {
+    color: #000000 !important;
+    font-weight: bold !important;
+    margin-top: 0 !important;
+  }
+
+  #print-briefing-sheet hr {
+    border: none !important;
+    border-top: 1.5px dashed #000000 !important;
+    margin: 12px 0 !important;
+  }
+
+  #print-briefing-sheet table {
+    width: 100% !important;
+    border-collapse: collapse !important;
+  }
+
+  #print-briefing-sheet th, 
+  #print-briefing-sheet td {
+    border: 1px solid #000000 !important;
+    padding: 6px 10px !important;
+    text-align: left !important;
+    font-size: 10pt !important;
+  }
+
+  #print-briefing-sheet th {
+    background-color: #f1f1f1 !important;
+    font-weight: bold !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  .print-header-logo {
+    font-size: 18pt !important;
+    text-align: center !important;
+    font-weight: 900 !important;
+  }
+
+  .print-subtitle {
+    font-size: 11pt !important;
+    text-align: center !important;
+    margin-bottom: 15px !important;
+    text-transform: uppercase !important;
+  }
+
+  .print-footer-signature {
+    margin-top: 40px !important;
+    display: flex !important;
+    justify-content: space-between !important;
+  }
+}
+
+/* Hide print layout in normal screen view */
+#print-briefing-sheet {
+  display: none;
+}
