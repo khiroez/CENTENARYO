@@ -94,31 +94,95 @@ export default function DisbursementsPage() {
     }
   }, [isDetailModalOpen, selectedDisbursement]);
 
-  const exportLBPReport = () => {
-    // Basic CSV Export Logic
-    const headers = ["Reference Number", "Senior Name", "OSCA ID", "Barangay", "Amount", "Quarter", "Year", "Status"];
-    const csvRows = [headers.join(",")];
+  const exportExcelReport = () => {
+    // Advanced HTML Excel Spreadsheet Generation
+    const headers = [
+      "Reference Number", 
+      "OSCA ID", 
+      "Beneficiary Name", 
+      "Barangay", 
+      "Disbursement Type", 
+      "Milestone Age", 
+      "Amount (PHP)", 
+      "Quarter", 
+      "Year", 
+      "Release Date", 
+      "Status", 
+      "Date Created"
+    ];
+    
+    let tableHtml = `
+      <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
+      <head>
+        <!--[if gte mso 9]>
+        <xml>
+          <x:ExcelWorkbook>
+            <x:ExcelWorksheets>
+              <x:ExcelWorksheet>
+                <x:Name>Payouts Report</x:Name>
+                <x:WorksheetOptions>
+                  <x:DisplayGridlines/>
+                </x:WorksheetOptions>
+              </x:ExcelWorksheet>
+            </x:ExcelWorksheets>
+          </x:ExcelWorkbook>
+        </xml>
+        <![endif]-->
+        <meta http-equiv="content-type" content="text/plain; charset=UTF-8"/>
+        <style>
+          table { border-collapse: collapse; width: 100%; }
+          th { font-weight: bold; background-color: #f1f5f9; border: 1px solid #cbd5e1; padding: 8px; font-family: sans-serif; font-size: 10pt; }
+          td { border: 1px solid #cbd5e1; padding: 8px; font-family: sans-serif; font-size: 10pt; }
+        </style>
+      </head>
+      <body>
+        <h2>CENTENARYO Disbursements & Payouts Report</h2>
+        <p>Report Filter: ${statusFilter.toUpperCase()} | Generated Date: ${new Date().toLocaleDateString()}</p>
+        <table>
+          <thead>
+            <tr>
+              ${headers.map(h => `<th>${h}</th>`).join('')}
+            </tr>
+          </thead>
+          <tbody>
+    `;
     
     disbursements.forEach(d => {
-      const row = [
-        `"${d.reference_number || ''}"`,
-        `"${d.senior_name || ''}"`,
-        `"${d.senior_osca_id || ''}"`,
-        `"${d.senior_barangay || ''}"`,
-        d.amount,
-        d.quarter,
-        d.year,
-        d.status
-      ];
-      csvRows.push(row.join(","));
+      const typeLabel = d.disbursement_type === 'SOCIAL_PENSION' ? 'Social Pension' : 'Milestone Gift';
+      const ageLabel = d.disbursement_type === 'SOCIAL_PENSION' ? 'N/A' : (d.milestone_age || '—');
+      const dateCreated = d.created_at ? new Date(d.created_at).toLocaleDateString() : '—';
+      
+      tableHtml += `
+        <tr>
+          <td style="mso-number-format:'\\@';">${d.reference_number || ''}</td>
+          <td style="mso-number-format:'\\@';">${d.senior_osca_id || ''}</td>
+          <td>${d.senior_name || ''}</td>
+          <td>${d.senior_barangay || ''}</td>
+          <td>${typeLabel}</td>
+          <td>${ageLabel}</td>
+          <td style="mso-number-format:'#\\,##0\\.00';">${parseFloat(d.amount).toFixed(2)}</td>
+          <td>${d.quarter || ''}</td>
+          <td>${d.year || ''}</td>
+          <td>${d.release_date || '—'}</td>
+          <td>${d.status || ''}</td>
+          <td>${dateCreated}</td>
+        </tr>
+      `;
     });
     
-    const blob = new Blob([csvRows.join("\n")], { type: 'text/csv;charset=utf-8;' });
+    tableHtml += `
+          </tbody>
+        </table>
+      </body>
+      </html>
+    `;
+    
+    const blob = new Blob([tableHtml], { type: 'application/vnd.ms-excel;charset=utf-8;' });
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.setAttribute('hidden', '');
     a.setAttribute('href', url);
-    a.setAttribute('download', `LBP_REPORT_${statusFilter.toUpperCase()}_${new Date().toISOString().split('T')[0]}.csv`);
+    a.setAttribute('download', `Payouts_Report_${statusFilter.toUpperCase()}_${new Date().toISOString().split('T')[0]}.xls`);
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -245,11 +309,11 @@ export default function DisbursementsPage() {
           </button>
 
           <button 
-            onClick={exportLBPReport}
+            onClick={exportExcelReport}
             className="flex items-center justify-center gap-2 px-5 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl shadow-lg shadow-emerald-500/20 transition-all hover:-translate-y-0.5 whitespace-nowrap text-sm font-bold w-full md:w-auto"
           >
             <Download size={18} />
-            Export LBP Report
+            Export Excel
           </button>
         </div>
       </div>
