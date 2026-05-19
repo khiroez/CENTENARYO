@@ -8,15 +8,16 @@ router = DefaultRouter()
 router.register(r'seniors', views.SeniorViewSet, basename='senior')
 router.register(r'disbursements', views.DisbursementViewSet, basename='disbursement')
 router.register(r'anomalies', views.AnomalyFlagViewSet)
-router.register(r'auditlogs', views.AuditLogViewSet)
+router.register(r'auditlogs', views.AuditLogViewSet, basename='auditlog')
 
 urlpatterns = [
     # JWT Authentication Endpoints
-    path('token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
+    path('token/', views.CustomTokenObtainPairView.as_view(), name='token_obtain_pair'),
     path('token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
     
     # Current User Endpoint (returns role for RBAC)
     path('me/', views.get_current_user, name='current_user'),
+    path('logout/', views.logout_user, name='logout_user'),
     
     # Ang ating mga API endpoints
     path('stats/', views.dashboard_stats, name='dashboard-stats'),

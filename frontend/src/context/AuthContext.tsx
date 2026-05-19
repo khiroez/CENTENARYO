@@ -108,6 +108,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const logout = () => {
+    // Awtomatikong abisuhan ang backend para ma-log ang LOGOUT activity sa AuditLog
+    const savedToken = localStorage.getItem('centenaryo_access_token');
+    if (savedToken) {
+      try {
+        fetch(`${API_URL}/logout/`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${savedToken}`,
+            'Content-Type': 'application/json'
+          }
+        });
+      } catch (err) {
+        console.error("Logout API error:", err);
+      }
+    }
+
     localStorage.removeItem('centenaryo_access_token');
     localStorage.removeItem('centenaryo_refresh_token');
     setToken(null);

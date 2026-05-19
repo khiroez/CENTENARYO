@@ -159,9 +159,9 @@ export default function SeniorRegistryPage() {
   const getStatusStyle = (status: string) => {
     switch(status) {
         case 'ACTIVE': return 'bg-emerald-50 text-emerald-600 border-emerald-100';
-        case 'DECEASED': return 'bg-slate-100 text-slate-500 border-slate-200';
-        case 'TRANSFERRED': return 'bg-indigo-50 text-indigo-600 border-indigo-100';
-        case 'SUSPENDED': return 'bg-rose-50 text-rose-600 border-rose-200';
+        case 'DECEASED': return 'bg-rose-50 text-rose-600 border-rose-100';
+        case 'TRANSFERRED': return 'bg-slate-100 text-slate-500 border-slate-200';
+        case 'SUSPENDED': return 'bg-amber-50 text-amber-600 border-amber-100';
         default: return 'bg-slate-50 text-slate-500 border-slate-100';
     }
   };
@@ -183,6 +183,8 @@ export default function SeniorRegistryPage() {
       osca_id_serial: oscaParts[2] || '',
       res_brgy: senior.barangay,
       status: senior.status || 'ACTIVE',
+      sex: senior.sex || '',
+      civil_status: senior.civil_status || '',
       consent_privacy: true,
       consent_truth: true,
       psa_cert_url: senior.psa_cert_file || '',
@@ -240,6 +242,8 @@ export default function SeniorRegistryPage() {
       fd.append('barangay', formData.res_brgy);
       fd.append('status', formData.status);
       fd.append('is_active', (formData.status === 'ACTIVE').toString());
+      fd.append('sex', formData.sex);
+      fd.append('civil_status', formData.civil_status);
       
       const cleanAnnexData = { ...formData };
       delete (cleanAnnexData as any).psa_cert_file;
@@ -505,7 +509,7 @@ export default function SeniorRegistryPage() {
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-12">
+                    <div className="grid grid-cols-1 md:grid-cols-5 gap-6 mb-12">
                       <div className="col-span-2 space-y-2">
                           <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-1.5">
                             Birthdate *
@@ -549,7 +553,20 @@ export default function SeniorRegistryPage() {
                             </div>
                           </div>
                         </label>
-                        <select value={formData.sex} onChange={(e) => setFormData({...formData, sex: e.target.value})} className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold"><option value="">Select...</option><option value="Male">Male</option><option value="Female">Female</option></select>
+                        <select required value={formData.sex} onChange={(e) => setFormData({...formData, sex: e.target.value})} className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold"><option value="">Select...</option><option value="Male">Male</option><option value="Female">Female</option></select>
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-1.5">
+                          Civil Status
+                          <div className="group relative">
+                            <Info size={12} className="text-slate-300 cursor-help" />
+                            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 p-2 bg-slate-800 text-white text-[10px] rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-20 font-medium text-center shadow-xl">
+                              Legal civil status for pension verification.
+                              <div className="absolute top-full left-1/2 -translate-x-1/2 border-8 border-transparent border-t-slate-800"></div>
+                            </div>
+                          </div>
+                        </label>
+                        <select required value={formData.civil_status} onChange={(e) => setFormData({...formData, civil_status: e.target.value})} className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold"><option value="">Select...</option><option value="SINGLE">Single</option><option value="MARRIED">Married</option><option value="WIDOWED">Widowed</option><option value="SEPARATED">Separated</option></select>
                       </div>
                     </div>
 
@@ -861,15 +878,15 @@ export default function SeniorRegistryPage() {
                             <span className="text-xs font-black uppercase tracking-widest">Active / Eligible</span>
                             <CheckSquare size={18} className="opacity-0 group-hover:opacity-100 transition-opacity" />
                         </button>
-                        <button onClick={() => handleStatusUpdate('DECEASED')} className="flex items-center justify-between px-6 py-4 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-2xl border border-slate-200 transition-all group">
+                        <button onClick={() => handleStatusUpdate('DECEASED')} className="flex items-center justify-between px-6 py-4 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-2xl border border-rose-100 transition-all group">
                             <span className="text-xs font-black uppercase tracking-widest">Deceased</span>
                             <X size={18} className="opacity-0 group-hover:opacity-100 transition-opacity" />
                         </button>
-                        <button onClick={() => handleStatusUpdate('TRANSFERRED')} className="flex items-center justify-between px-6 py-4 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-2xl border border-indigo-100 transition-all group">
+                        <button onClick={() => handleStatusUpdate('TRANSFERRED')} className="flex items-center justify-between px-6 py-4 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-2xl border border-slate-200 transition-all group">
                             <span className="text-xs font-black uppercase tracking-widest">Transferred LGU</span>
                             <RefreshCcw size={18} className="opacity-0 group-hover:opacity-100 transition-opacity" />
                         </button>
-                        <button onClick={() => handleStatusUpdate('SUSPENDED')} className="flex items-center justify-between px-6 py-4 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-2xl border border-rose-100 transition-all group">
+                        <button onClick={() => handleStatusUpdate('SUSPENDED')} className="flex items-center justify-between px-6 py-4 bg-amber-50 hover:bg-amber-100 text-amber-700 rounded-2xl border border-amber-100 transition-all group">
                             <span className="text-xs font-black uppercase tracking-widest">Suspended / Fraud</span>
                             <AlertCircle size={18} className="opacity-0 group-hover:opacity-100 transition-opacity" />
                         </button>

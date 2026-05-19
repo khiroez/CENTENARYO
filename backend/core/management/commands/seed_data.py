@@ -1,5 +1,5 @@
 from django.core.management.base import BaseCommand
-from core.models import Senior, Disbursement, UserProfile
+from core.models import Senior, Disbursement, UserProfile, AuditLog
 from django.contrib.auth.models import User
 from datetime import date, timedelta
 import random
@@ -11,6 +11,7 @@ class Command(BaseCommand):
         self.stdout.write('Cleaning old data...')
         Disbursement.objects.all().delete()
         Senior.objects.all().delete()
+        AuditLog.objects.all().delete()
         
         # Ensure Admin user exists
         admin_user, _ = User.objects.get_or_create(username='admin', is_staff=True)
@@ -77,13 +78,29 @@ class Command(BaseCommand):
                 'reps': reps
             }
             
+            # Determine sex based on first name and civil status with matching distribution weights
+            sex = 'Male' if fn in ['Juan', 'Jose', 'Antonio'] else 'Female'
+            civil_status = random.choices(['SINGLE', 'MARRIED', 'WIDOWED', 'SEPARATED'], weights=[6, 54, 38, 2])[0]
+            
+            # Deterministically seed statuses to match exact target ratios (88 Active, 4 Deceased, 4 Suspended, 4 Transferred)
+            if i < 4:
+                status = 'DECEASED'
+            elif i < 8:
+                status = 'SUSPENDED'
+            elif i < 12:
+                status = 'TRANSFERRED'
+            else:
+                status = 'ACTIVE'
+
             s = Senior.objects.create(
                 first_name=fn,
                 last_name=ln,
                 date_of_birth=dob,
                 osca_id=osca_id,
                 barangay=brgy,
-                status='ACTIVE',
+                status=status,
+                sex=sex,
+                civil_status=civil_status,
                 annex_a_data=annex_data
             )
             seniors_created.append(s)
@@ -130,5 +147,32 @@ class Command(BaseCommand):
                     reference_number=f"ECA-2026-{s.id}-{age}",
                     release_date=today if random.random() > 0.5 else None
                 )
+
+        # Seed mock user logins
+        self.stdout.write('Generating mock user logins...')
+        AuditLog.objects.create(
+            user=admin_user,
+            action='LOGIN',
+            target_model='User',
+            target_object_id=str(admin_user.id),
+            changes_summary=f"User admin logged in successfully.",
+            ip_address='192.168.1.5'
+        )
+        AuditLog.objects.create(
+            user=staff_user,
+            action='LOGIN',
+            target_model='User',
+            target_object_id=str(staff_user.id),
+            changes_summary=f"User staff logged in successfully.",
+            ip_address='192.168.1.12'
+        )
+        AuditLog.objects.create(
+            user=admin_user,
+            action='LOGIN',
+            target_model='User',
+            target_object_id=str(admin_user.id),
+            changes_summary=f"User admin logged in successfully.",
+            ip_address='127.0.0.1'
+        )
 
         self.stdout.write(self.style.SUCCESS(f'Successfully seeded {len(seniors_created)} seniors and milestones!'))

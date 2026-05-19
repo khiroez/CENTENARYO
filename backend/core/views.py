@@ -4,7 +4,40 @@ from rest_framework.permissions import IsAuthenticated, BasePermission, AllowAny
 from rest_framework.response import Response
 from rest_framework.pagination import PageNumberPagination
 from .models import Senior, Disbursement, AuditLog, AnomalyFlag, UserProfile
+from rest_framework_simplejwt.views import TokenObtainPairView
 from .serializers import SeniorSerializer, DisbursementSerializer, AuditLogSerializer, AnomalyFlagSerializer
+
+class CustomTokenObtainPairView(TokenObtainPairView):
+    """
+    Subclass ng TokenObtainPairView para mag-log ng LOGIN action sa AuditLog
+    sa tuwing may matagumpay na login (JWT token generation).
+    """
+    def post(self, request, *args, **kwargs):
+        response = super().post(request, *args, **kwargs)
+        if response.status_code == 200:
+            username = request.data.get('username')
+            from django.contrib.auth.models import User
+            try:
+                user = User.objects.get(username=username)
+                
+                # Alamin ang IP address ng kliente
+                x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
+                if x_forwarded_for:
+                    ip = x_forwarded_for.split(',')[0]
+                else:
+                    ip = request.META.get('REMOTE_ADDR')
+                
+                AuditLog.objects.create(
+                    user=user,
+                    action='LOGIN',
+                    target_model='User',
+                    target_object_id=str(user.id),
+                    changes_summary=f"User {user.username} logged in successfully.",
+                    ip_address=ip
+                )
+            except User.DoesNotExist:
+                pass
+        return response
 
 
 class IsAdmin(BasePermission):
@@ -42,8 +75,33 @@ def get_current_user(request):
         'first_name': user.first_name,
         'last_name': user.last_name,
         'role': role,
-        'is_superuser': user.is_superuser,
     })
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def logout_user(request):
+    """
+    /api/logout/ - Logs the logout event to AuditLog.
+    """
+    user = request.user
+    
+    # Alamin ang IP address ng kliente
+    x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
+    if x_forwarded_for:
+        ip = x_forwarded_for.split(',')[0]
+    else:
+        ip = request.META.get('REMOTE_ADDR')
+        
+    AuditLog.objects.create(
+        user=user,
+        action='LOGOUT',
+        target_model='User',
+        target_object_id=str(user.id),
+        changes_summary=f"User {user.username} logged out successfully.",
+        ip_address=ip
+    )
+    return Response({'status': 'Logged out successfully.'})
+
 # Pagination configuration para mabilis at hindi bumagsak ang server
 class StandardResultsSetPagination(PageNumberPagination):
     page_size = 50
@@ -265,9 +323,33 @@ class AuditLogViewSet(viewsets.ReadOnlyModelViewSet):
     API endpoint para sa Audit Logs (Read Only).
     ADMIN ONLY - Para sa oversight at compliance.
     """
-    queryset = AuditLog.objects.all().order_by('-created_at')
+    queryset = AuditLog.objects.all()
     serializer_class = AuditLogSerializer
     permission_classes = [IsAuthenticated, IsAdmin]
+    pagination_class = StandardResultsSetPagination
+
+    def get_queryset(self):
+        queryset = AuditLog.objects.all().order_by('-created_at')
+        
+        # 1. Action Filter (CREATE, UPDATE, DELETE, LOGIN)
+        action_param = self.request.query_params.get('action', 'all')
+        if action_param and action_param != 'all':
+            if action_param.upper() == 'LOGIN':
+                queryset = queryset.filter(action__in=['LOGIN', 'LOGOUT'])
+            else:
+                queryset = queryset.filter(action=action_param.upper())
+            
+        # 2. Search Term Filter (User, Model, or Summary content)
+        search_param = self.request.query_params.get('search', '')
+        if search_param:
+            from django.db.models import Q
+            queryset = queryset.filter(
+                Q(user__username__icontains=search_param) |
+                Q(target_model__icontains=search_param) |
+                Q(changes_summary__icontains=search_param)
+            )
+            
+        return queryset
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
@@ -311,6 +393,79 @@ def dashboard_stats(request):
     
     estimated_budget = upcoming_seniors * 10000
 
+    # --- ADVANCED STATS FOR CHARTS & GRAPHS ---
+    # A. Status Breakdown (for Mortality/Registry "Death Chart")
+    active_count = Senior.objects.filter(status='ACTIVE').count()
+    deceased_count = Senior.objects.filter(status='DECEASED').count()
+    suspended_count = Senior.objects.filter(status='SUSPENDED').count()
+    transferred_count = Senior.objects.filter(status='TRANSFERRED').count()
+    
+    status_breakdown = {
+        'active': active_count,
+        'deceased': deceased_count,
+        'suspended': suspended_count,
+        'transferred': transferred_count,
+    }
+
+    # B. Active Milestones Breakdown (for Age distribution Bar Chart)
+    milestone_breakdown = {
+        'm80': 0,
+        'm85': 0,
+        'm90': 0,
+        'm95': 0,
+        'm100': 0,
+    }
+    for s in Senior.objects.filter(status='ACTIVE'):
+        dob = s.date_of_birth
+        age = today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
+        if age >= 100:
+            milestone_breakdown['m100'] += 1
+        elif age >= 95:
+            milestone_breakdown['m95'] += 1
+        elif age >= 90:
+            milestone_breakdown['m90'] += 1
+        elif age >= 85:
+            milestone_breakdown['m85'] += 1
+        elif age >= 80:
+            milestone_breakdown['m80'] += 1
+
+    # C. Financial Stats Summary
+    from django.db.models import Sum
+    released_amount = Disbursement.objects.filter(status='RELEASED').aggregate(total=Sum('amount'))['total'] or 0
+    pending_amount = Disbursement.objects.filter(status='PENDING').aggregate(total=Sum('amount'))['total'] or 0
+    cancelled_amount = Disbursement.objects.filter(status='CANCELLED').aggregate(total=Sum('amount'))['total'] or 0
+    
+    financial_stats = {
+        'released_amount': float(released_amount),
+        'pending_amount': float(pending_amount),
+        'cancelled_amount': float(cancelled_amount),
+    }
+
+    # D. Top Barangays Breakdown (for LGU Volume Hotspots)
+    from django.db.models import Count
+    top_barangays = Senior.objects.values('barangay').annotate(count=Count('id')).order_by('-count')[:5]
+    barangay_breakdown = [
+        {'name': b['barangay'].upper() if b['barangay'] else 'CENTRAL LGU', 'count': b['count']}
+        for b in top_barangays
+    ]
+
+    # E. Sex breakdown (real database queries from new sex column)
+    male_count = Senior.objects.filter(sex='Male').count()
+    female_count = Senior.objects.filter(sex='Female').count()
+    sex_breakdown = {
+        'male': male_count,
+        'female': female_count,
+        'other': 0
+    }
+
+    # F. Civil Status breakdown (real database queries from new civil_status column)
+    civil_status_breakdown = {
+        'single': Senior.objects.filter(civil_status='SINGLE').count(),
+        'married': Senior.objects.filter(civil_status='MARRIED').count(),
+        'widowed': Senior.objects.filter(civil_status='WIDOWED').count(),
+        'separated': Senior.objects.filter(civil_status='SEPARATED').count(),
+    }
+
     return Response({
         'total_seniors': total_seniors,
         'total_payouts': total_payouts,
@@ -319,8 +474,15 @@ def dashboard_stats(request):
         'upcoming_seniors': upcoming_seniors,
         'estimated_budget': estimated_budget,
         'verified_percentage': verified_percentage,
-        'last_sync': last_sync
+        'last_sync': last_sync,
+        'status_breakdown': status_breakdown,
+        'milestone_breakdown': milestone_breakdown,
+        'financial_stats': financial_stats,
+        'barangay_breakdown': barangay_breakdown,
+        'sex_breakdown': sex_breakdown,
+        'civil_status_breakdown': civil_status_breakdown
     })
+
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])

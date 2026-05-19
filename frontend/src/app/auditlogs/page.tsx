@@ -56,6 +56,8 @@ export default function AuditLogsPage() {
         return <span className="px-2.5 py-1 bg-rose-50 text-rose-600 border border-rose-200 rounded-lg text-[10px] font-black tracking-widest uppercase">DELETE</span>;
       case 'LOGIN':
         return <span className="px-2.5 py-1 bg-indigo-50 text-indigo-600 border border-indigo-200 rounded-lg text-[10px] font-black tracking-widest uppercase">LOGIN</span>;
+      case 'LOGOUT':
+        return <span className="px-2.5 py-1 bg-slate-50 text-slate-600 border border-slate-200 rounded-lg text-[10px] font-black tracking-widest uppercase">LOGOUT</span>;
       default:
         return <span className="px-2.5 py-1 bg-slate-100 text-slate-600 border border-slate-200 rounded-lg text-[10px] font-black tracking-widest uppercase">{action || 'SYSTEM'}</span>;
     }

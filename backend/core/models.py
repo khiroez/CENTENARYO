@@ -8,6 +8,16 @@ class Senior(models.Model):
         ('TRANSFERRED', 'Transferred'),
         ('SUSPENDED', 'Suspended/Fraud'),
     ]
+    SEX_CHOICES = [
+        ('Male', 'Male'),
+        ('Female', 'Female'),
+    ]
+    CIVIL_STATUS_CHOICES = [
+        ('SINGLE', 'Single'),
+        ('MARRIED', 'Married'),
+        ('WIDOWED', 'Widowed'),
+        ('SEPARATED', 'Separated'),
+    ]
 
     first_name = models.CharField(max_length=100)
     last_name = models.CharField(max_length=100)
@@ -18,6 +28,8 @@ class Senior(models.Model):
     is_indigent = models.BooleanField(default=False)
     is_active = models.BooleanField(default=True)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='ACTIVE')
+    sex = models.CharField(max_length=10, choices=SEX_CHOICES, default='Male')
+    civil_status = models.CharField(max_length=20, choices=CIVIL_STATUS_CHOICES, default='SINGLE')
     
     # Machine Learning / Analytics fields
     risk_score = models.FloatField(default=0.0, help_text="Anomaly risk score from Random Forest model")
