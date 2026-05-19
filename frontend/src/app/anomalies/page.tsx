@@ -203,14 +203,13 @@ export default function AnomalyReviewPage() {
                 <th className="px-8 py-5">Flag ID</th>
                 <th className="px-8 py-5">Senior Record</th>
                 <th className="px-8 py-5">Anomaly Details (AI Reason)</th>
-                <th className="px-8 py-5">Confidence Score</th>
                 <th className="px-8 py-5 text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-slate-700">
               {isLoading ? (
                 <tr>
-                  <td colSpan={5} className="p-20 text-center">
+                  <td colSpan={4} className="p-20 text-center">
                     <div className="flex flex-col items-center gap-4">
                       <div className="w-10 h-10 border-4 border-rose-100 border-t-rose-600 rounded-full animate-spin"></div>
                       <span className="font-semibold text-slate-500">Scanning flags...</span>
@@ -219,7 +218,7 @@ export default function AnomalyReviewPage() {
                 </tr>
               ) : anomalies.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="p-20 text-center font-bold text-slate-400">
+                  <td colSpan={4} className="p-20 text-center font-bold text-slate-400">
                     No suspicious patterns detected. System secure.
                   </td>
                 </tr>
@@ -243,17 +242,6 @@ export default function AnomalyReviewPage() {
                         <p className="text-xs font-medium text-amber-800 leading-relaxed italic">
                           {anomaly.flag_reason}
                         </p>
-                      </div>
-                    </td>
-                    <td className="px-8 py-5">
-                      <div className="flex flex-col gap-1.5 w-32">
-                        <div className="flex justify-between text-[10px] font-black uppercase tracking-widest text-slate-400">
-                            <span>AI Certainty</span>
-                            <span className="text-rose-500">{(anomaly.confidence_score * 100).toFixed(0)}%</span>
-                        </div>
-                        <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
-                            <div className="h-full bg-rose-500 rounded-full" style={{ width: `${anomaly.confidence_score * 100}%` }}></div>
-                        </div>
                       </div>
                     </td>
                     <td className="px-8 py-6 text-right">
@@ -404,7 +392,7 @@ export default function AnomalyReviewPage() {
             <div className="px-10 py-8 border-t border-slate-100 bg-slate-50/50 flex justify-between items-center">
                 <div className="flex items-center gap-3 text-rose-500">
                     <ShieldAlert size={20} />
-                    <span className="text-[10px] font-black uppercase tracking-widest">AI Threat Level: HIGH (Syndicate Pattern)</span>
+                    <span className="text-[10px] font-black uppercase tracking-widest">AI Status: Flagged for Review</span>
                 </div>
                 <div className="flex gap-4">
                     <button onClick={() => { setIsProfileModalOpen(false); openConfirm('safe', anomalies.find(a => a.senior === selectedSenior.id)?.id); }} className="px-8 py-4 bg-emerald-600 text-white rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-xl shadow-emerald-200 transition-all">Mark as Safe</button>
