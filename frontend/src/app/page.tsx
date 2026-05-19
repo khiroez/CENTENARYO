@@ -133,6 +133,23 @@ export default function Dashboard() {
     }
   };
 
+  const handlePrint = () => {
+    const printEl = document.getElementById('print-briefing-sheet');
+    const modalContainer = document.getElementById('briefing-modal-container');
+    if (!printEl) return;
+
+    // Pansamantalang ilipat ang printable div bilang direct child ng document.body
+    document.body.appendChild(printEl);
+
+    // I-trigger ang browser print dialog
+    window.print();
+
+    // Ibalik ang printable div sa orihinal nitong container pagkatapos mag-print
+    if (modalContainer) {
+      modalContainer.appendChild(printEl);
+    }
+  };
+
   // Triggers interactive prescriptive actions
   const triggerPrescriptiveAction = (actionName: string) => {
     setActiveActionModal(actionName);
@@ -884,7 +901,7 @@ export default function Dashboard() {
                 </div>
 
                 <div className="px-12 py-8 bg-slate-50/80 border-t border-slate-100 flex gap-4">
-                    <button onClick={() => window.print()} className="flex-1 py-5 bg-slate-900 text-white rounded-3xl font-black uppercase tracking-widest text-[10px] shadow-xl shadow-slate-200 hover:-translate-y-1 transition-all flex items-center justify-center gap-3">
+                    <button onClick={handlePrint} className="flex-1 py-5 bg-slate-900 text-white rounded-3xl font-black uppercase tracking-widest text-[10px] shadow-xl shadow-slate-200 hover:-translate-y-1 transition-all flex items-center justify-center gap-3">
                         <Printer size={18} />
                         Export PDF Intelligence Report
                     </button>
@@ -955,124 +972,126 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* --- HIGH-PRECISION PRINT BRIEFING SHEET --- */}
-      {aiReport && (
-        <div id="print-briefing-sheet">
-          <div className="print-header-logo">REPUBLIC OF THE PHILIPPINES</div>
-          <div className="print-subtitle">National Commission of Senior Citizens (NCSC)</div>
-          <div style={{ textAlign: 'center', fontWeight: 'bold', fontSize: '13pt', marginBottom: '20px', textTransform: 'uppercase' }}>
-            R.A. 11982 COMPLIANCE AUDIT & AI INTELLIGENCE BRIEFING
-          </div>
-          
-          <table style={{ marginBottom: '20px' }}>
-            <tbody>
-              <tr>
-                <td style={{ fontWeight: 'bold', width: '30%' }}>REPORT TYPE</td>
-                <td>AI PRESCRIPTIVE DECISION BRIEFING</td>
-                <td style={{ fontWeight: 'bold', width: '20%' }}>DATE GENERATED</td>
-                <td>{new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}</td>
-              </tr>
-              <tr>
-                <td style={{ fontWeight: 'bold' }}>SYSTEM STATUS</td>
-                <td>SECURE & COMPLIANT (R.A. 10173)</td>
-                <td style={{ fontWeight: 'bold' }}>LGU REGISTRY</td>
-                <td>ACTIVE COHORTS (80-100 YRS)</td>
-              </tr>
-            </tbody>
-          </table>
-
-          <h3 style={{ borderBottom: '1.5px solid #000', paddingBottom: '3px', fontSize: '11pt', marginTop: '15px', textTransform: 'uppercase' }}>
-            I. FINANCIAL COMPLIANCE & BUDGET FORECAST
-          </h3>
-          <table style={{ marginBottom: '10px' }}>
-            <thead>
-              <tr>
-                <th>Anticipated New Beneficiaries</th>
-                <th>Recommended Funding Allocation</th>
-                <th>Target Disbursement Type</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td>{aiReport.budget_forecast.upcoming_beneficiaries} Milestone Seniors</td>
-                <td>PHP {aiReport.budget_forecast.recommended_funding.toLocaleString()}.00</td>
-                <td>R.A. 11982 Milestone Financial Gifts</td>
-              </tr>
-            </tbody>
-          </table>
-          <p style={{ fontSize: '9.5pt', margin: '5px 0 15px 0', fontStyle: 'italic', lineHeight: '1.3' }}>
-            <strong>Prescriptive Directive:</strong> A supplemental funding request should be routed immediately to the Department of Budget and Management (DBM) to guarantee zero payout delays for the upcoming cohort cycle.
-          </p>
-
-          <h3 style={{ borderBottom: '1.5px solid #000', paddingBottom: '3px', fontSize: '11pt', marginTop: '15px', textTransform: 'uppercase' }}>
-            II. LOGISTICAL STRATEGY & COHORT MEDICINE UTILIZATION
-          </h3>
-          <table style={{ marginBottom: '10px' }}>
-            <thead>
-              <tr>
-                <th>Primary Utilization Type</th>
-                <th>Medicine/Health Share</th>
-                <th>Recommended Distribution Mode</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td>Healthcare & Medication Support</td>
-                <td>{aiReport.logistics.medical_utilization_rate}% of Total Registry</td>
-                <td>{aiReport.logistics.recommendation}</td>
-              </tr>
-            </tbody>
-          </table>
-          <p style={{ fontSize: '9.5pt', margin: '5px 0 15px 0', fontStyle: 'italic', lineHeight: '1.3' }}>
-            <strong>Operational Strategy:</strong> Establish a dedicated medical transport coordinate program. Provide door-to-door distribution teams for highly vulnerable senior citizen cohorts utilization.
-          </p>
-
-          <h3 style={{ borderBottom: '1.5px solid #000', paddingBottom: '3px', fontSize: '11pt', marginTop: '15px', textTransform: 'uppercase' }}>
-            III. MORTALITY AUDIT & GHOST VOTER PREVENTION
-          </h3>
-          <div style={{ padding: '8px', border: '1.5px solid #000', fontSize: '9.5pt', marginBottom: '15px', lineHeight: '1.3' }}>
-            {aiReport.ghost_warnings.length > 0 ? (
-              <ul style={{ margin: 0, paddingLeft: '20px' }}>
-                {aiReport.ghost_warnings.map((w: any, idx: number) => (
-                  <li key={idx} style={{ marginBottom: '5px' }}>
-                    <strong>Brgy. {w.barangay}:</strong> {w.message} (Requires immediate clean-up audit).
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <span>✔ SYSTEM SECURE: Mortality rates and survival density ratios are within normal national statistics.</span>
-            )}
-          </div>
-
-          <h3 style={{ borderBottom: '1.5px solid #000', paddingBottom: '3px', fontSize: '11pt', marginTop: '15px', textTransform: 'uppercase' }}>
-            IV. FRAUD PROTECTION & REPRESENTATIVE AUDIT
-          </h3>
-          <div style={{ padding: '8px', border: '1.5px solid #000', fontSize: '9.5pt', marginBottom: '15px', lineHeight: '1.3' }}>
-            {aiReport.syndicate_warnings && aiReport.syndicate_warnings.length > 0 ? (
-              <ul style={{ margin: 0, paddingLeft: '20px' }}>
-                {aiReport.syndicate_warnings.map((w: any, idx: number) => (
-                  <li key={idx} style={{ marginBottom: '5px' }}>
-                    <strong>WARNING (Brgy. {w.barangay}):</strong> Representative <strong>"{w.rep_name}"</strong> matches <strong>{w.count}</strong> different senior claims. Immediate field audit recommended.
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <span>✔ SYSTEM SECURE: No suspicious shared or duplicate representative claim patterns detected in registry.</span>
-            )}
-          </div>
-
-          <div className="print-footer-signature">
-            <div style={{ width: '45%', borderTop: '1.5px solid #000', marginTop: '40px', paddingTop: '5px', textAlign: 'center', fontSize: '9.5pt' }}>
-              <strong>CENTENARYO SYSTEM ENGINE</strong><br />
-              Authorized AI Intelligence Generator
+      {/* --- HIGH-PRECISION PRINT BRIEFING SHEET CONTAINER --- */}
+      <div id="briefing-modal-container">
+        {aiReport && (
+          <div id="print-briefing-sheet">
+            <div className="print-header-logo">REPUBLIC OF THE PHILIPPINES</div>
+            <div className="print-subtitle">National Commission of Senior Citizens (NCSC)</div>
+            <div style={{ textAlign: 'center', fontWeight: 'bold', fontSize: '13pt', marginBottom: '20px', textTransform: 'uppercase' }}>
+              R.A. 11982 COMPLIANCE AUDIT & AI INTELLIGENCE BRIEFING
             </div>
-            <div style={{ width: '45%', borderTop: '1.5px solid #000', marginTop: '40px', paddingTop: '5px', textAlign: 'center', fontSize: '9.5pt' }}>
-              <strong>LGU ADMINISTRATOR / DECISION MAKER</strong><br />
-              Signature over Printed Name / Date
+            
+            <table style={{ marginBottom: '20px' }}>
+              <tbody>
+                <tr>
+                  <td style={{ fontWeight: 'bold', width: '30%' }}>REPORT TYPE</td>
+                  <td>AI PRESCRIPTIVE DECISION BRIEFING</td>
+                  <td style={{ fontWeight: 'bold', width: '20%' }}>DATE GENERATED</td>
+                  <td>{new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}</td>
+                </tr>
+                <tr>
+                  <td style={{ fontWeight: 'bold' }}>SYSTEM STATUS</td>
+                  <td>SECURE & COMPLIANT (R.A. 10173)</td>
+                  <td style={{ fontWeight: 'bold' }}>LGU REGISTRY</td>
+                  <td>ACTIVE COHORTS (80-100 YRS)</td>
+                </tr>
+              </tbody>
+            </table>
+
+            <h3 style={{ borderBottom: '1.5px solid #000', paddingBottom: '3px', fontSize: '11pt', marginTop: '15px', textTransform: 'uppercase' }}>
+              I. FINANCIAL COMPLIANCE & BUDGET FORECAST
+            </h3>
+            <table style={{ marginBottom: '10px' }}>
+              <thead>
+                <tr>
+                  <th>Anticipated New Beneficiaries</th>
+                  <th>Recommended Funding Allocation</th>
+                  <th>Target Disbursement Type</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>{aiReport.budget_forecast.upcoming_beneficiaries} Milestone Seniors</td>
+                  <td>PHP {aiReport.budget_forecast.recommended_funding.toLocaleString()}.00</td>
+                  <td>R.A. 11982 Milestone Financial Gifts</td>
+                </tr>
+              </tbody>
+            </table>
+            <p style={{ fontSize: '9.5pt', margin: '5px 0 15px 0', fontStyle: 'italic', lineHeight: '1.3' }}>
+              <strong>Prescriptive Directive:</strong> A supplemental funding request should be routed immediately to the Department of Budget and Management (DBM) to guarantee zero payout delays for the upcoming cohort cycle.
+            </p>
+
+            <h3 style={{ borderBottom: '1.5px solid #000', paddingBottom: '3px', fontSize: '11pt', marginTop: '15px', textTransform: 'uppercase' }}>
+              II. LOGISTICAL STRATEGY & COHORT MEDICINE UTILIZATION
+            </h3>
+            <table style={{ marginBottom: '10px' }}>
+              <thead>
+                <tr>
+                  <th>Primary Utilization Type</th>
+                  <th>Medicine/Health Share</th>
+                  <th>Recommended Distribution Mode</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Healthcare & Medication Support</td>
+                  <td>{aiReport.logistics.medical_utilization_rate}% of Total Registry</td>
+                  <td>{aiReport.logistics.recommendation}</td>
+                </tr>
+              </tbody>
+            </table>
+            <p style={{ fontSize: '9.5pt', margin: '5px 0 15px 0', fontStyle: 'italic', lineHeight: '1.3' }}>
+              <strong>Operational Strategy:</strong> Establish a dedicated medical transport coordinate program. Provide door-to-door distribution teams for highly vulnerable senior citizen cohorts utilization.
+            </p>
+
+            <h3 style={{ borderBottom: '1.5px solid #000', paddingBottom: '3px', fontSize: '11pt', marginTop: '15px', textTransform: 'uppercase' }}>
+              III. MORTALITY AUDIT & GHOST VOTER PREVENTION
+            </h3>
+            <div style={{ padding: '8px', border: '1.5px solid #000', fontSize: '9.5pt', marginBottom: '15px', lineHeight: '1.3' }}>
+              {aiReport.ghost_warnings.length > 0 ? (
+                <ul style={{ margin: 0, paddingLeft: '20px' }}>
+                  {aiReport.ghost_warnings.map((w: any, idx: number) => (
+                    <li key={idx} style={{ marginBottom: '5px' }}>
+                      <strong>Brgy. {w.barangay}:</strong> {w.message} (Requires immediate clean-up audit).
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <span>✔ SYSTEM SECURE: Mortality rates and survival density ratios are within normal national statistics.</span>
+              )}
+            </div>
+
+            <h3 style={{ borderBottom: '1.5px solid #000', paddingBottom: '3px', fontSize: '11pt', marginTop: '15px', textTransform: 'uppercase' }}>
+              IV. FRAUD PROTECTION & REPRESENTATIVE AUDIT
+            </h3>
+            <div style={{ padding: '8px', border: '1.5px solid #000', fontSize: '9.5pt', marginBottom: '15px', lineHeight: '1.3' }}>
+              {aiReport.syndicate_warnings && aiReport.syndicate_warnings.length > 0 ? (
+                <ul style={{ margin: 0, paddingLeft: '20px' }}>
+                  {aiReport.syndicate_warnings.map((w: any, idx: number) => (
+                    <li key={idx} style={{ marginBottom: '5px' }}>
+                      <strong>WARNING (Brgy. {w.barangay}):</strong> Representative <strong>"{w.rep_name}"</strong> matches <strong>{w.count}</strong> different senior claims. Immediate field audit recommended.
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <span>✔ SYSTEM SECURE: No suspicious shared or duplicate representative claim patterns detected in registry.</span>
+              )}
+            </div>
+
+            <div className="print-footer-signature">
+              <div style={{ width: '45%', borderTop: '1.5px solid #000', marginTop: '40px', paddingTop: '5px', textAlign: 'center', fontSize: '9.5pt' }}>
+                <strong>CENTENARYO SYSTEM ENGINE</strong><br />
+                Authorized AI Intelligence Generator
+              </div>
+              <div style={{ width: '45%', borderTop: '1.5px solid #000', marginTop: '40px', paddingTop: '5px', textAlign: 'center', fontSize: '9.5pt' }}>
+                <strong>LGU ADMINISTRATOR / DECISION MAKER</strong><br />
+                Signature over Printed Name / Date
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
 
     </div>
   );
