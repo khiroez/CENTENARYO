@@ -147,14 +147,6 @@ export default function Header() {
                 </div>
             )}
         </div>
-
-        <div className={`h-10 w-10 text-white rounded-full flex items-center justify-center shadow-lg cursor-pointer hover:-translate-y-0.5 transition-all ${
-          isAdmin
-            ? 'bg-gradient-to-tr from-emerald-600 to-teal-500 shadow-emerald-500/30'
-            : 'bg-gradient-to-tr from-indigo-600 to-violet-500 shadow-indigo-500/30'
-        }`}>
-          <User size={18} />
-        </div>
       </div>
     </header>
   );
