@@ -3,14 +3,14 @@
   "version": "1.0.0",
   "description": "Desktop Application wrapper for CENTENARYO",
   "main": "main.js",
+  "author": "CENTENARYO LGU",
   "scripts": {
     "start": "electron .",
     "dist": "electron-builder --win"
   },
-  "dependencies": {
-    "electron": "^28.2.0"
-  },
+  "dependencies": {},
   "devDependencies": {
+    "electron": "^28.2.0",
     "electron-builder": "^24.9.1"
   },
   "build": {
