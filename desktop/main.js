@@ -156,10 +156,14 @@ function createMainWindow() {
 function startServers() {
   const rootPath = path.resolve(__dirname, '..');
   
-  // 1. Spawning Django Backend (Direct Executable Spawn - No shell needed)
-  console.log("Spawning Django Backend Process...");
-  backendProcess = spawn('venv\\Scripts\\python.exe', ['manage.py', 'runserver'], { 
-    cwd: path.join(rootPath, 'backend')
+  // Resolve absolute path to the virtual environment python binary
+  const pythonPath = path.join(rootPath, 'backend', 'venv', 'Scripts', 'python.exe');
+  
+  // 1. Spawning Django Backend (Absolute Executable Spawn)
+  console.log(`Spawning Django Backend Process at: ${pythonPath}`);
+  backendProcess = spawn(pythonPath, ['manage.py', 'runserver'], { 
+    cwd: path.join(rootPath, 'backend'),
+    env: process.env
   });
 
   backendProcess.stdout.on('data', (data) => {
@@ -170,10 +174,11 @@ function startServers() {
     console.error(`[Backend stderr]: ${data}`);
   });
 
-  // 2. Spawning Next.js Frontend (Direct Batch Executable Spawn - No shell needed)
+  // 2. Spawning Next.js Frontend (Direct Batch Executable Spawn with Env Inheritance)
   console.log("Spawning Next.js Frontend Process...");
   frontendProcess = spawn('npm.cmd', ['run', 'dev'], { 
-    cwd: path.join(rootPath, 'frontend')
+    cwd: path.join(rootPath, 'frontend'),
+    env: process.env
   });
 
   frontendProcess.stdout.on('data', (data) => {
