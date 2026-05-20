@@ -1,0 +1,12 @@
+{
+  "name": "centenaryo-desktop",
+  "version": "1.0.0",
+  "description": "Desktop Application wrapper for CENTENARYO",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "dependencies": {
+    "electron": "^28.2.0"
+  }
+}
