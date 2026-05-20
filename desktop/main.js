@@ -164,7 +164,7 @@ function startServers() {
   console.log("Spawning Django Backend Process...");
   backendProcess = spawn('cmd.exe', [
     '/c', 
-    `call venv\\Scripts\\activate.bat && python manage.py migrate && python manage.py runserver`
+    `venv\\Scripts\\python.exe manage.py migrate && venv\\Scripts\\python.exe manage.py runserver`
   ], { 
     shell: true,
     cwd: path.join(rootPath, 'backend')
