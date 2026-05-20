@@ -162,10 +162,7 @@ function startServers() {
   
   // 1. Spawning Django Backend
   console.log("Spawning Django Backend Process...");
-  backendProcess = spawn('cmd.exe', [
-    '/c', 
-    `venv\\Scripts\\python.exe manage.py runserver`
-  ], { 
+  backendProcess = spawn('venv\\Scripts\\python.exe', ['manage.py', 'runserver'], { 
     shell: true,
     cwd: path.join(rootPath, 'backend')
   });
@@ -180,10 +177,7 @@ function startServers() {
 
   // 2. Spawning Next.js Frontend
   console.log("Spawning Next.js Frontend Process...");
-  frontendProcess = spawn('cmd.exe', [
-    '/c', 
-    `npm run dev`
-  ], { 
+  frontendProcess = spawn('npm', ['run', 'dev'], { 
     shell: true,
     cwd: path.join(rootPath, 'frontend')
   });
