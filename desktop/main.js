@@ -9,17 +9,13 @@ let backendProcess;
 let frontendProcess;
 let isShuttingDown = false;
 
-// Helper to kill process tree in Windows
+// Helper to kill process tree in Windows without using cmd.exe
 function killProcess(proc, label) {
   if (!proc) return;
   console.log(`Terminating ${label} process tree...`);
   try {
-    exec(`taskkill /F /T /PID ${proc.pid}`, (err) => {
-      if (err) {
-        // Fallback standard kill
-        proc.kill('SIGINT');
-      }
-    });
+    // Spawn taskkill directly as a native executable to avoid cmd.exe shell lookups
+    spawn('taskkill.exe', ['/F', '/T', '/PID', proc.pid]);
   } catch (e) {
     proc.kill('SIGINT');
   }
@@ -160,10 +156,9 @@ function createMainWindow() {
 function startServers() {
   const rootPath = path.resolve(__dirname, '..');
   
-  // 1. Spawning Django Backend
+  // 1. Spawning Django Backend (Direct Executable Spawn - No shell needed)
   console.log("Spawning Django Backend Process...");
   backendProcess = spawn('venv\\Scripts\\python.exe', ['manage.py', 'runserver'], { 
-    shell: true,
     cwd: path.join(rootPath, 'backend')
   });
 
@@ -175,10 +170,9 @@ function startServers() {
     console.error(`[Backend stderr]: ${data}`);
   });
 
-  // 2. Spawning Next.js Frontend
+  // 2. Spawning Next.js Frontend (Direct Batch Executable Spawn - No shell needed)
   console.log("Spawning Next.js Frontend Process...");
-  frontendProcess = spawn('npm', ['run', 'dev'], { 
-    shell: true,
+  frontendProcess = spawn('npm.cmd', ['run', 'dev'], { 
     cwd: path.join(rootPath, 'frontend')
   });
 
