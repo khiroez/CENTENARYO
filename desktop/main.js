@@ -164,8 +164,11 @@ function startServers() {
   console.log("Spawning Django Backend Process...");
   backendProcess = spawn('cmd.exe', [
     '/c', 
-    `cd /d "${path.join(rootPath, 'backend')}" && call venv\\Scripts\\activate.bat && python manage.py migrate && python manage.py runserver`
-  ], { shell: true });
+    `call venv\\Scripts\\activate.bat && python manage.py migrate && python manage.py runserver`
+  ], { 
+    shell: true,
+    cwd: path.join(rootPath, 'backend')
+  });
 
   backendProcess.stdout.on('data', (data) => {
     console.log(`[Backend stdout]: ${data}`);
@@ -179,8 +182,11 @@ function startServers() {
   console.log("Spawning Next.js Frontend Process...");
   frontendProcess = spawn('cmd.exe', [
     '/c', 
-    `cd /d "${path.join(rootPath, 'frontend')}" && npm run dev`
-  ], { shell: true });
+    `npm run dev`
+  ], { 
+    shell: true,
+    cwd: path.join(rootPath, 'frontend')
+  });
 
   frontendProcess.stdout.on('data', (data) => {
     console.log(`[Frontend stdout]: ${data}`);
