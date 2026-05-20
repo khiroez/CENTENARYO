@@ -4,9 +4,30 @@
   "description": "Desktop Application wrapper for CENTENARYO",
   "main": "main.js",
   "scripts": {
-    "start": "electron ."
+    "start": "electron .",
+    "dist": "electron-builder --win"
   },
   "dependencies": {
     "electron": "^28.2.0"
+  },
+  "devDependencies": {
+    "electron-builder": "^24.9.1"
+  },
+  "build": {
+    "appId": "com.centenaryo.app",
+    "productName": "CENTENARYO",
+    "win": {
+      "target": "nsis"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "CENTENARYO"
+    },
+    "directories": {
+      "output": "dist"
+    }
   }
 }
