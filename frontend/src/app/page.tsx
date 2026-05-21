@@ -781,7 +781,7 @@ export default function Dashboard() {
 
       {/* --- AI INTELLIGENCE BRIEFING MODAL --- */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/60 backdrop-blur-md p-4 animate-in fade-in duration-300">
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-900/60 backdrop-blur-md p-4 animate-in fade-in duration-300">
             <div className="bg-white rounded-[50px] shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden border border-slate-200 flex flex-col">
                 <div className="px-12 py-10 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
                     <div className="flex items-center gap-4">
@@ -913,7 +913,7 @@ export default function Dashboard() {
 
       {/* --- PRESCRIPTIVE ACTION EXECUTION MODAL --- */}
       {activeActionModal && (
-        <div className="fixed inset-0 z-[150] flex items-center justify-center bg-slate-950/70 backdrop-blur-md p-4 animate-in fade-in duration-300">
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-950/70 backdrop-blur-md p-4 animate-in fade-in duration-300">
           <div className="bg-white rounded-[50px] shadow-2xl w-full max-w-lg overflow-hidden border border-slate-200 flex flex-col p-10 space-y-8 relative">
             
             {/* Modal Glow Accent */}

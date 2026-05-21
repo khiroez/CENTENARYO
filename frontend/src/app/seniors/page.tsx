@@ -404,7 +404,7 @@ export default function SeniorRegistryPage() {
 
       {/* --- FORM MODAL (WITH AGE RESTORED) --- */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 animate-in fade-in duration-300">
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 animate-in fade-in duration-300">
           <div className="bg-white rounded-[32px] shadow-2xl w-full max-w-6xl max-h-[92vh] flex flex-col overflow-hidden border border-slate-200">
             <form id="annex-a-form" onSubmit={handleFormSubmit} className="flex flex-col h-full overflow-hidden">
               <div className="flex justify-between items-center px-10 py-8 border-b border-slate-100 bg-slate-50/50">
@@ -864,7 +864,7 @@ export default function SeniorRegistryPage() {
 
       {/* --- STATUS UPDATE MODAL (MISSING COMPONENT RESTORED) --- */}
       {isStatusModalOpen && selectedSeniorForStatus && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/60 backdrop-blur-md p-4 animate-in zoom-in duration-200">
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-900/60 backdrop-blur-md p-4 animate-in zoom-in duration-200">
             <div className="bg-white rounded-[40px] shadow-2xl w-full max-w-md overflow-hidden border border-slate-200">
                 <div className="p-10 text-center space-y-6">
                     <div className="w-20 h-20 bg-rose-50 text-rose-600 rounded-3xl flex items-center justify-center mx-auto shadow-inner"><UserX size={40} /></div>

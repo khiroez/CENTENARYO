@@ -427,7 +427,7 @@ export default function DisbursementsPage() {
 
       {/* --- DISBURSEMENT DETAIL MODAL --- */}
       {isDetailModalOpen && selectedDisbursement && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/60 backdrop-blur-md p-4 animate-in fade-in duration-300">
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-900/60 backdrop-blur-md p-4 animate-in fade-in duration-300">
           <div className="bg-white rounded-[40px] shadow-2xl w-full max-w-lg overflow-hidden border border-slate-100 animate-in zoom-in-95 duration-300">
             <div className="p-8 bg-slate-50 border-b border-slate-100 flex justify-between items-center">
               <div>
