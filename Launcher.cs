@@ -67,7 +67,6 @@ class Program {
         }
 
         // 4. Poll Next.js local server on Port 3000 until it is fully compiled and active
-        bool isReady = false;
         
         // Wait at least 2 seconds before checking
         Thread.Sleep(2000);
@@ -79,7 +78,6 @@ class Program {
                     request.Timeout = 1500;
                     using (HttpWebResponse response = (HttpWebResponse)request.GetResponse()) {
                         if (response.StatusCode == HttpStatusCode.OK) {
-                            isReady = true;
                             break;
                         }
                     }
@@ -93,13 +91,42 @@ class Program {
             Thread.Sleep(5000);
         }
 
-        // 5. Open browser once system is guaranteed to be ready
+        // 5. Open in a Standalone App Window (App Mode) using Chrome or Edge
+        bool launched = false;
+        
+        // Try Chrome App Mode first
         try {
-            Process.Start(new ProcessStartInfo("http://localhost:3000") { UseShellExecute = true });
+            ProcessStartInfo chromeApp = new ProcessStartInfo();
+            chromeApp.FileName = "chrome.exe";
+            chromeApp.Arguments = "--app=http://localhost:3000";
+            Process.Start(chromeApp);
+            launched = true;
         } catch {
+            // Chrome is not installed, fallback to Microsoft Edge
+        }
+
+        // Try Microsoft Edge App Mode if Chrome is missing
+        if (!launched) {
             try {
-                Process.Start("explorer.exe", "http://localhost:3000");
-            } catch {}
+                ProcessStartInfo edgeApp = new ProcessStartInfo();
+                edgeApp.FileName = "msedge.exe";
+                edgeApp.Arguments = "--app=http://localhost:3000";
+                Process.Start(edgeApp);
+                launched = true;
+            } catch {
+                // Fallback to default browser if both app modes fail
+            }
+        }
+
+        // Ultimate fallback to default browser shell association if app modes are blocked
+        if (!launched) {
+            try {
+                Process.Start(new ProcessStartInfo("http://localhost:3000") { UseShellExecute = true });
+            } catch {
+                try {
+                    Process.Start("explorer.exe", "http://localhost:3000");
+                } catch {}
+            }
         }
     }
 }
