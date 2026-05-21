@@ -72,7 +72,7 @@ export default function LoginPage() {
                 type="text"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                placeholder="admin or staff"
+                placeholder="Username"
                 required
                 className="w-full px-4 py-3.5 bg-white/[0.06] border border-white/10 rounded-xl text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500/50 transition-all text-sm font-medium"
               />
@@ -116,29 +116,6 @@ export default function LoginPage() {
               )}
             </button>
           </form>
-
-          {/* Quick-login help */}
-          <div className="mt-8 pt-6 border-t border-white/5">
-            <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-3">Test Accounts</p>
-            <div className="grid grid-cols-2 gap-3">
-              <button
-                type="button"
-                onClick={() => { setUsername('admin'); setPassword('admin123'); }}
-                className="p-3 bg-white/[0.04] border border-white/10 rounded-xl text-left hover:bg-white/[0.08] transition-all group"
-              >
-                <p className="text-emerald-400 font-bold text-xs group-hover:text-emerald-300">🕵️ ADMIN</p>
-                <p className="text-slate-500 text-[10px] font-medium mt-0.5">admin / admin123</p>
-              </button>
-              <button
-                type="button"
-                onClick={() => { setUsername('staff'); setPassword('staff123'); }}
-                className="p-3 bg-white/[0.04] border border-white/10 rounded-xl text-left hover:bg-white/[0.08] transition-all group"
-              >
-                <p className="text-blue-400 font-bold text-xs group-hover:text-blue-300">👨‍💻 STAFF</p>
-                <p className="text-slate-500 text-[10px] font-medium mt-0.5">staff / staff123</p>
-              </button>
-            </div>
-          </div>
         </div>
 
         <p className="text-center text-slate-600 text-xs mt-6 font-medium">
