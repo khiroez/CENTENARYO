@@ -26,8 +26,8 @@ export default function Sidebar() {
   return (
     <aside className="w-72 bg-gradient-to-b from-[#0f172a] to-[#1e293b] text-white min-h-screen hidden md:flex flex-col border-r border-slate-800 shadow-2xl z-20">
       <div className="p-6 flex items-center space-x-3 border-b border-white/5">
-        <div className="bg-indigo-500 p-2.5 rounded-xl shadow-lg shadow-indigo-500/20">
-          <Activity className="text-white" size={24} />
+        <div className="bg-white/5 p-1 rounded-xl border border-white/10 w-11 h-11 flex items-center justify-center overflow-hidden">
+          <img src="/logo.png" alt="CENTENARYO Logo" className="w-full h-full object-contain" />
         </div>
         <div>
           <h1 className="text-xl font-bold tracking-tight text-white">CENTENARYO</h1>

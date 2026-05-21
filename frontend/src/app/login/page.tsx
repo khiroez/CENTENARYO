@@ -42,8 +42,8 @@ export default function LoginPage() {
       <div className="relative z-10 w-full max-w-md px-6">
         {/* Logo / Title */}
         <div className="text-center mb-10">
-          <div className="inline-flex items-center justify-center w-20 h-20 bg-white/10 backdrop-blur-xl rounded-2xl border border-white/10 mb-6 shadow-2xl">
-            <Shield className="text-emerald-400" size={40} />
+          <div className="inline-flex items-center justify-center w-20 h-20 bg-white/5 backdrop-blur-xl rounded-2xl border border-white/10 mb-6 shadow-2xl overflow-hidden p-3">
+            <img src="/logo.png" alt="CENTENARYO Logo" className="w-full h-full object-contain" />
           </div>
           <h1 className="text-4xl font-black text-white tracking-tight">CENTENARYO</h1>
           <p className="text-slate-400 mt-2 font-medium text-sm">
