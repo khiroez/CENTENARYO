@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Threading;
 using System.Windows.Forms;
+using System.Net;
 
 class Program {
     [STAThread]
@@ -35,10 +36,10 @@ class Program {
         // Wait brief moment for ports to clear
         Thread.Sleep(1000);
 
-        // 2. Launch Django Backend Process (Directly, completely silent)
+        // 2. Launch Django Backend Process (Silently via cmd.exe to inherit system path)
         ProcessStartInfo backendInfo = new ProcessStartInfo();
-        backendInfo.FileName = Path.Combine(backendDir, "venv\\Scripts\\python.exe");
-        backendInfo.Arguments = "manage.py runserver";
+        backendInfo.FileName = "cmd.exe";
+        backendInfo.Arguments = "/c venv\\Scripts\\python.exe manage.py runserver";
         backendInfo.WorkingDirectory = backendDir;
         backendInfo.CreateNoWindow = true;
         backendInfo.UseShellExecute = false;
@@ -50,13 +51,10 @@ class Program {
             return;
         }
 
-        // Wait 2 seconds for backend initialization
-        Thread.Sleep(2000);
-
-        // 3. Launch Next.js Frontend Process (Directly, completely silent)
+        // 3. Launch Next.js Frontend Process (Silently via cmd.exe to resolve global npm script)
         ProcessStartInfo frontendInfo = new ProcessStartInfo();
-        frontendInfo.FileName = "npm.cmd";
-        frontendInfo.Arguments = "run dev";
+        frontendInfo.FileName = "cmd.exe";
+        frontendInfo.Arguments = "/c npm run dev";
         frontendInfo.WorkingDirectory = frontendDir;
         frontendInfo.CreateNoWindow = true;
         frontendInfo.UseShellExecute = false;
@@ -68,8 +66,34 @@ class Program {
             return;
         }
 
-        // Wait 3 seconds for frontend compilation to warm up and open browser
-        Thread.Sleep(3000);
+        // 4. Poll Next.js local server on Port 3000 until it is fully compiled and active
+        bool isReady = false;
+        
+        // Wait at least 2 seconds before checking
+        Thread.Sleep(2000);
+
+        try {
+            for (int i = 0; i < 20; i++) { // Poll for up to 30 seconds
+                try {
+                    HttpWebRequest request = (HttpWebRequest)WebRequest.Create("http://localhost:3000");
+                    request.Timeout = 1500;
+                    using (HttpWebResponse response = (HttpWebResponse)request.GetResponse()) {
+                        if (response.StatusCode == HttpStatusCode.OK) {
+                            isReady = true;
+                            break;
+                        }
+                    }
+                } catch {
+                    // Backend or Frontend is still compiling in background, retry
+                }
+                Thread.Sleep(1500);
+            }
+        } catch {
+            // Fallback if network requests throw critical exceptions
+            Thread.Sleep(5000);
+        }
+
+        // 5. Open browser once system is guaranteed to be ready
         try {
             Process.Start(new ProcessStartInfo("http://localhost:3000") { UseShellExecute = true });
         } catch {
