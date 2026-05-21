@@ -3,7 +3,7 @@
  * Automatically attaches the JWT Bearer token from localStorage.
  */
 export async function authFetch(url: string, options: RequestInit = {}): Promise<Response> {
-  const token = localStorage.getItem('centenaryo_access_token');
+  const token = sessionStorage.getItem('centenaryo_access_token');
   
   const headers: Record<string, string> = {
     ...(options.headers as Record<string, string> || {}),

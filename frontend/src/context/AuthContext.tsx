@@ -61,7 +61,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // On mount: check for saved token
   useEffect(() => {
-    const savedToken = localStorage.getItem('centenaryo_access_token');
+    const savedToken = sessionStorage.getItem('centenaryo_access_token');
     if (savedToken) {
       setToken(savedToken);
       fetchMe(savedToken).finally(() => setIsLoading(false));
@@ -84,8 +84,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const refreshToken = data.refresh;
 
         // Save tokens
-        localStorage.setItem('centenaryo_access_token', accessToken);
-        localStorage.setItem('centenaryo_refresh_token', refreshToken);
+        sessionStorage.setItem('centenaryo_access_token', accessToken);
+        sessionStorage.setItem('centenaryo_refresh_token', refreshToken);
         setToken(accessToken);
 
         // Fetch user info
@@ -109,7 +109,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const logout = () => {
     // Awtomatikong abisuhan ang backend para ma-log ang LOGOUT activity sa AuditLog
-    const savedToken = localStorage.getItem('centenaryo_access_token');
+    const savedToken = sessionStorage.getItem('centenaryo_access_token');
     if (savedToken) {
       try {
         fetch(`${API_URL}/logout/`, {
@@ -124,8 +124,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     }
 
-    localStorage.removeItem('centenaryo_access_token');
-    localStorage.removeItem('centenaryo_refresh_token');
+    sessionStorage.removeItem('centenaryo_access_token');
+    sessionStorage.removeItem('centenaryo_refresh_token');
     setToken(null);
     setUser(null);
   };
