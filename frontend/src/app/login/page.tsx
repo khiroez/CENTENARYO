@@ -53,8 +53,7 @@ export default function LoginPage() {
 
         {/* Login Card */}
         <div className="bg-white/[0.07] backdrop-blur-2xl border border-white/10 rounded-3xl p-8 shadow-2xl">
-          <h2 className="text-xl font-bold text-white mb-1">Sign In</h2>
-          <p className="text-slate-400 text-sm mb-8">Enter your credentials to access the system.</p>
+          <h2 className="text-xl font-bold text-white mb-6">Sign In</h2>
 
           {error && (
             <div className="flex items-center gap-3 bg-rose-500/10 border border-rose-500/20 text-rose-300 p-4 rounded-xl mb-6 text-sm font-medium">
@@ -104,7 +103,7 @@ export default function LoginPage() {
             <button
               type="submit"
               disabled={isSubmitting}
-              className="w-full py-4 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl shadow-lg shadow-emerald-600/20 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm mt-2"
+              className="w-full py-4 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl shadow-lg shadow-emerald-600/20 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm mt-6"
             >
               {isSubmitting ? (
                 <>
