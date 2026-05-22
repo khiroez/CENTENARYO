@@ -22,7 +22,6 @@ class Program {
 
             string baseDir = AppDomain.CurrentDomain.BaseDirectory;
             string backendDir = Path.Combine(baseDir, "backend");
-            string frontendDir = Path.Combine(baseDir, "frontend");
 
             // 1. Clean up any existing running instances of node or python to free ports
             try {
@@ -58,8 +57,8 @@ class Program {
                 Thread.Sleep(50);
             }
 
-            // 3. Launch Django Backend Process (Silently, with --noreload to save CPU/Memory)
-            UpdateSplashText("Inihahanda ang Python Backend...");
+            // 3. Launch Django Backend Process (Silently, serving both API and Frontend static pages)
+            UpdateSplashText("Inihahanda ang Python Backend & React App...");
             ProcessStartInfo backendInfo = new ProcessStartInfo();
             backendInfo.FileName = "cmd.exe";
             backendInfo.Arguments = "/c venv\\Scripts\\python.exe manage.py runserver --noreload";
@@ -75,24 +74,7 @@ class Program {
                 return;
             }
 
-            // 4. Launch Next.js Frontend Process in Production Mode (Starts instantly)
-            UpdateSplashText("Inihahanda ang Next.js Frontend...");
-            ProcessStartInfo frontendInfo = new ProcessStartInfo();
-            frontendInfo.FileName = "cmd.exe";
-            frontendInfo.Arguments = "/c npm run start";
-            frontendInfo.WorkingDirectory = frontendDir;
-            frontendInfo.CreateNoWindow = true;
-            frontendInfo.UseShellExecute = false;
-
-            try {
-                Process.Start(frontendInfo);
-            } catch (Exception ex) {
-                CloseSplashScreen();
-                MessageBox.Show("Failed to start Next.js Frontend:\n" + ex.Message, "CENTENARYO System Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                return;
-            }
-
-            // 5. Poll Next.js local server on Port 3000 until it is active
+            // 4. Poll local server on Port 8000 until it is active
             UpdateSplashText("Kumokonekta sa local server...");
             
             // Wait at least 1 second before checking
@@ -101,7 +83,7 @@ class Program {
             try {
                 for (int i = 0; i < 30; i++) { // Poll for up to 30 seconds
                     try {
-                        HttpWebRequest request = (HttpWebRequest)WebRequest.Create("http://localhost:3000");
+                        HttpWebRequest request = (HttpWebRequest)WebRequest.Create("http://localhost:8000");
                         request.Timeout = 1000;
                         using (HttpWebResponse response = (HttpWebResponse)request.GetResponse()) {
                             if (response.StatusCode == HttpStatusCode.OK) {
@@ -120,14 +102,14 @@ class Program {
             // Close the splash screen
             CloseSplashScreen();
 
-            // 6. Open in a Standalone App Window (App Mode) using Chrome or Edge
+            // 5. Open in a Standalone App Window (App Mode) using Chrome or Edge
             bool launched = false;
             
             // Try Chrome App Mode first
             try {
                 ProcessStartInfo chromeApp = new ProcessStartInfo();
                 chromeApp.FileName = "chrome.exe";
-                chromeApp.Arguments = "--app=http://localhost:3000";
+                chromeApp.Arguments = "--app=http://localhost:8000";
                 Process.Start(chromeApp);
                 launched = true;
             } catch {
@@ -139,7 +121,7 @@ class Program {
                 try {
                     ProcessStartInfo edgeApp = new ProcessStartInfo();
                     edgeApp.FileName = "msedge.exe";
-                    edgeApp.Arguments = "--app=http://localhost:3000";
+                    edgeApp.Arguments = "--app=http://localhost:8000";
                     Process.Start(edgeApp);
                     launched = true;
                 } catch {
@@ -150,10 +132,10 @@ class Program {
             // Ultimate fallback to default browser shell association if app modes are blocked
             if (!launched) {
                 try {
-                    Process.Start(new ProcessStartInfo("http://localhost:3000") { UseShellExecute = true });
+                    Process.Start(new ProcessStartInfo("http://localhost:8000") { UseShellExecute = true });
                 } catch {
                     try {
-                        Process.Start("explorer.exe", "http://localhost:3000");
+                        Process.Start("explorer.exe", "http://localhost:8000");
                     } catch {}
                 }
             }
