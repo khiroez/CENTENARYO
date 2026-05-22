@@ -21,11 +21,22 @@ if exist "venv" (
 echo Nag-i-install ng Backend Python Dependencies (pip)...
 call venv\Scripts\python.exe -m pip install --upgrade pip
 call venv\Scripts\python.exe -m pip install -r requirements.txt
+
+echo.
+echo Inihahanda ang Database at Seed Data...
+echo Patatakbuhin ang database migrations...
+call venv\Scripts\python.exe manage.py migrate
+echo Awtomatikong nag-se-seed ng default accounts (admin/staff) at mock data...
+call venv\Scripts\python.exe manage.py seed_data
 cd ..
 
 echo.
 echo [2/3] Inihahanda ang Frontend Node Environment...
 cd frontend
+if not exist ".env.local" (
+    echo Gumagawa ng .env.local file para sa API connection...
+    echo NEXT_PUBLIC_API_URL=http://localhost:8000/api> .env.local
+)
 echo Nag-i-install ng Frontend Node Packages (npm)...
 call npm install
 cd ..
@@ -40,6 +51,14 @@ echo 🎉 HAWAK MO NA ANG KONTROL! HANDANG-HANDA NA ANG PC NA ITO!
 echo ===================================================
 echo Maaari mo nang patakbuhin ang application sa pamamagitan ng:
 echo    Double-click sa: CENTENARYO.exe sa root directory!
+echo.
+echo Mga default account credentials para sa login:
+echo   - Admin Account:
+echo       Username: admin
+echo       Password: admin123
+echo   - Staff Account:
+echo       Username: staff
+echo       Password: staff123
 echo ===================================================
 echo.
 pause

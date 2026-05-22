@@ -207,21 +207,43 @@ class DisbursementViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['POST'])
     def generate_payroll(self, request):
         """
-        One-Click Payroll Generator (RA 11982 Compliant)
-        Awtomatikong tinitingnan ang mga seniors na nag-birthday sa quarter na ito
-        at gumagawa ng PENDING disbursements.
+        One-Click Payroll Generator (RA 11982 & RA 11916 Compliant)
+        Generates pending disbursements for eligible milestones and social pensions
+        constrained by the current date/quarter limits of the target year.
         """
         from datetime import date
         today = date.today()
-        # Halimbawa: Q3 2026
-        quarter = request.data.get('quarter', 'Q3')
-        year = request.data.get('year', today.year)
+        
+        try:
+            year = int(request.data.get('year', today.year))
+        except (ValueError, TypeError):
+            year = today.year
+            
+        # Determine current quarter number based on today's month
+        if 1 <= today.month <= 3:
+            current_q_num = 1
+        elif 4 <= today.month <= 6:
+            current_q_num = 2
+        elif 7 <= today.month <= 9:
+            current_q_num = 3
+        else:
+            current_q_num = 4
+            
+        # Calculate maximum eligible quarter for the target year
+        if year < today.year:
+            max_eligible_q_num = 4
+        elif year == today.year:
+            max_eligible_q_num = current_q_num
+        else:
+            max_eligible_q_num = 0
+            
+        eligible_quarters = ['Q1', 'Q2', 'Q3', 'Q4'][:max_eligible_q_num]
         
         active_seniors = Senior.objects.filter(status='ACTIVE')
         created_count = 0
         
         for senior in active_seniors:
-            # Calculate age for milestone check
+            # 1. Calculate age for milestone check
             dob = senior.date_of_birth
             age = today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
             
@@ -232,10 +254,9 @@ class DisbursementViewSet(viewsets.ModelViewSet):
             elif 7 <= birth_month <= 9: senior_quarter = 'Q3'
             else: senior_quarter = 'Q4'
 
+            # Milestone Gifts (RA 11982)
             amount = 0
             is_milestone = False
-            
-            # RA 11982 Milestones
             if age == 100:
                 amount = 100000 
                 is_milestone = True
@@ -243,7 +264,7 @@ class DisbursementViewSet(viewsets.ModelViewSet):
                 amount = 10000
                 is_milestone = True
             
-            if is_milestone:
+            if is_milestone and (senior_quarter in eligible_quarters):
                 # Check if already generated for this milestone
                 exists = Disbursement.objects.filter(
                     senior=senior, 
@@ -263,6 +284,29 @@ class DisbursementViewSet(viewsets.ModelViewSet):
                         reference_number=f"ECA-{year}-{senior.id}-{age}"
                     )
                     created_count += 1
+
+            # 2. Social Pension (RA 11916) for Indigent Seniors
+            if senior.is_indigent:
+                for q in eligible_quarters:
+                    # Check if already generated for this quarter and year
+                    exists_pension = Disbursement.objects.filter(
+                        senior=senior,
+                        disbursement_type='SOCIAL_PENSION',
+                        quarter=q,
+                        year=year
+                    ).exists()
+                    
+                    if not exists_pension:
+                        Disbursement.objects.create(
+                            senior=senior,
+                            disbursement_type='SOCIAL_PENSION',
+                            amount=3000.00, # 1,000 per month = 3,000 per quarter
+                            quarter=q,
+                            year=year,
+                            status='PENDING',
+                            reference_number=f"SP-{q}-{year}-{senior.id}"
+                        )
+                        created_count += 1
         
         return Response({
             'message': f'Payroll generated successfully. {created_count} new disbursements created.',

@@ -25,7 +25,7 @@ class Senior(models.Model):
     date_of_birth = models.DateField()
     osca_id = models.CharField(max_length=50, unique=True, help_text="Official OSCA ID Number")
     barangay = models.CharField(max_length=100)
-    is_indigent = models.BooleanField(default=False)
+    is_indigent = models.BooleanField(default=True)
     is_active = models.BooleanField(default=True)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='ACTIVE')
     sex = models.CharField(max_length=10, choices=SEX_CHOICES, default='Male')

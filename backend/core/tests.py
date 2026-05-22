@@ -31,7 +31,8 @@ class PayrollGenerationTestCase(TestCase):
             date_of_birth=dob_80,
             osca_id="OSCA-80001",
             barangay="Barangay I",
-            status="ACTIVE"
+            status="ACTIVE",
+            is_indigent=False
         )
 
         # 2. Senior 2: Exactly 100 years old today (Eligible)
@@ -42,7 +43,8 @@ class PayrollGenerationTestCase(TestCase):
             date_of_birth=dob_100,
             osca_id="OSCA-10001",
             barangay="Barangay II",
-            status="ACTIVE"
+            status="ACTIVE",
+            is_indigent=False
         )
 
         # 3. Senior 3: 79 years old today (Not eligible yet)
@@ -53,7 +55,8 @@ class PayrollGenerationTestCase(TestCase):
             date_of_birth=dob_79,
             osca_id="OSCA-79001",
             barangay="Barangay III",
-            status="ACTIVE"
+            status="ACTIVE",
+            is_indigent=False
         )
 
         # 4. Senior 4: 80 years old but SUSPENDED/DECEASED (Not eligible)
@@ -63,7 +66,8 @@ class PayrollGenerationTestCase(TestCase):
             date_of_birth=dob_80,
             osca_id="OSCA-80002",
             barangay="Barangay I",
-            status="SUSPENDED"
+            status="SUSPENDED",
+            is_indigent=False
         )
 
         # Trigger the generate_payroll POST request
@@ -105,7 +109,8 @@ class PayrollGenerationTestCase(TestCase):
             date_of_birth=dob_85,
             osca_id="OSCA-85001",
             barangay="Barangay IV",
-            status="ACTIVE"
+            status="ACTIVE",
+            is_indigent=False
         )
 
         view = DisbursementViewSet.as_view({'post': 'generate_payroll'})
@@ -124,3 +129,60 @@ class PayrollGenerationTestCase(TestCase):
         # Should not create duplicate
         self.assertEqual(response2.data['created_count'], 0)
         self.assertEqual(Disbursement.objects.filter(senior=senior).count(), 1)
+
+    def test_social_pension_generation_for_indigent_seniors(self):
+        """
+        Verify that active indigent seniors get social pensions generated
+        only up to the current quarter based on the system date.
+        """
+        today = date.today()
+        # Create an active indigent senior
+        indigent_senior = Senior.objects.create(
+            first_name="Indigent",
+            last_name="Senior",
+            date_of_birth=today.replace(year=today.year - 70), # 70 y/o (no milestone)
+            osca_id="OSCA-INDIGENT-01",
+            barangay="Poblacion",
+            status="ACTIVE",
+            is_indigent=True
+        )
+
+        # Create an active NON-indigent senior (should not get social pension)
+        non_indigent_senior = Senior.objects.create(
+            first_name="Regular",
+            last_name="Senior",
+            date_of_birth=today.replace(year=today.year - 70),
+            osca_id="OSCA-REGULAR-01",
+            barangay="Poblacion",
+            status="ACTIVE",
+            is_indigent=False
+        )
+
+        # Determine current expected quarter number based on today's month
+        if 1 <= today.month <= 3:
+            expected_quarters = ['Q1']
+        elif 4 <= today.month <= 6:
+            expected_quarters = ['Q1', 'Q2']
+        elif 7 <= today.month <= 9:
+            expected_quarters = ['Q1', 'Q2', 'Q3']
+        else:
+            expected_quarters = ['Q1', 'Q2', 'Q3', 'Q4']
+
+        view = DisbursementViewSet.as_view({'post': 'generate_payroll'})
+        request = self.factory.post('/api/disbursements/generate_payroll/', {}, format='json')
+        force_authenticate(request, user=self.admin_user)
+        response = view(request)
+
+        self.assertEqual(response.status_code, 200)
+
+        # Verify that indigent senior got social pensions for all expected quarters
+        pensions = Disbursement.objects.filter(senior=indigent_senior, disbursement_type='SOCIAL_PENSION')
+        self.assertEqual(pensions.count(), len(expected_quarters))
+        for p in pensions:
+            self.assertIn(p.quarter, expected_quarters)
+            self.assertEqual(p.amount, 3000.00)
+            self.assertEqual(p.status, 'PENDING')
+
+        # Verify that regular senior got NO social pensions
+        regular_pensions = Disbursement.objects.filter(senior=non_indigent_senior, disbursement_type='SOCIAL_PENSION')
+        self.assertEqual(regular_pensions.count(), 0)

@@ -60,6 +60,31 @@ class SeniorSerializer(serializers.ModelSerializer):
         model = Senior
         fields = '__all__'
 
+    def validate_date_of_birth(self, value):
+        from datetime import date
+        today = date.today()
+        age = today.year - value.year - ((today.month, today.day) < (value.month, value.day))
+        if age < 78:
+            raise serializers.ValidationError("Senior citizen must be at least 78 years old to be registered.")
+        return value
+
+    def validate(self, data):
+        civil_status = data.get('civil_status', '')
+        annex_a_data = data.get('annex_a_data', {})
+        
+        # If civil status is not MARRIED (e.g. SINGLE, WIDOWED, SEPARATED), ensure spouse details are cleared in annex_a_data
+        if civil_status != 'MARRIED':
+            if isinstance(annex_a_data, dict):
+                annex_a_data['spouse_name'] = ''
+                annex_a_data['spouse_citizenship'] = ''
+                data['annex_a_data'] = annex_a_data
+        
+        # Ensure is_indigent defaults to True for newly registered seniors so they get social pensions
+        if 'is_indigent' not in data:
+            data['is_indigent'] = True
+        
+        return data
+
 class AuditLogSerializer(serializers.ModelSerializer):
     class Meta:
         model = AuditLog
