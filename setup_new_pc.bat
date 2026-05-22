@@ -39,6 +39,8 @@ if not exist ".env.local" (
 )
 echo Nag-i-install ng Frontend Node Packages (npm)...
 call npm install
+echo Gumagawa ng optimized production build para sa mabilis na startup...
+call npm run build
 cd ..
 
 echo.
