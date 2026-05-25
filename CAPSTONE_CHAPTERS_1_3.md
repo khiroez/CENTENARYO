@@ -1,121 +1,111 @@
-# 🇵🇭 CENTENARYO: Capstone Chapters 1-3 Draft Documentation
-### System Specifications & Research Framework for the Local LGU Administrative Portal (R.A. 11982)
+# 🇵🇭 CENTENARYO: Capstone Thesis Documentation
+## Technical Specifications, System Workflows, and Implementation Framework (R.A. 11982)
 
 ---
 
 ## 🏛️ CHAPTER 1: INTRODUCTION
 
 ### 1.1 Project Context & Background
-The government of the Philippines enacted **Republic Act No. 11982** (The Expanded Centenarian Act), amending R.A. 10868, to provide financial milestones to senior citizens. The law grants:
-*   **₱10,000** upon reaching the ages of **80, 85, 90, and 95** (Milestone Gifts).
-*   **₱100,000** upon reaching the age of **100** (Centenarian Award).
+In the Philippines, the government enacted **Republic Act No. 11982** (The Expanded Centenarian Act), amending R.A. 10868, to honor Filipino senior citizens by granting financial milestones at key developmental ages:
+*   **₱10,000 Milestone Gift**: Awarded to senior citizens upon reaching the ages of **80, 85, 90, and 95**.
+*   **₱100,000 Centenarian Award**: Awarded to senior citizens upon reaching the milestone age of **100**.
 
-At the Local Government Unit (LGU) level, administering this program has introduced major administrative bottlenecks. Registries are often managed on paper records or unstandardized spreadsheets. This fragmentation leads to:
-1.  **Deceased Registry Overlaps (Ghost Voters)**: Disbursements mistakenly queued or released to deceased citizens.
-2.  **Disbursement Delays**: Difficulty in tracking birthday milestones dynamically.
-3.  **Data Integrity Loss**: Poor formatting of numeric IDs (e.g. leading zeros in OSCA IDs dropping off in CSV files).
+At the Local Government Unit (LGU) and National Commission of Senior Citizens (NCSC) levels, administering this social welfare program introduces significant operational bottlenecks. Registries are frequently maintained on disconnected paper files or unstandardized spreadsheets. This fragmentation leads to:
+1.  **Deceased Registry Overlaps (Ghost Beneficiaries)**: Lack of real-time death-verification records leads to disbursements mistakenly queued, processed, or released to deceased individuals.
+2.  **Disbursement Delays**: Spreadsheets cannot calculate age dynamically relative to the current date, forcing staff to perform manual mathematical age computations for thousands of records.
+3.  **Data Integrity & Format Loss**: Basic spreadsheet tools routinely drop leading zeros in OSCA IDs or misformat numerical strings upon CSV import/export.
+4.  **Security Vulnerabilities & Lack of Audit Trails**: Normal spreadsheets lack trace logs, making records susceptible to unauthorized modification, identity theft, or double-claiming.
 
-**CENTENARYO** was developed to address these issues by providing a local, standalone, offline-ready desktop administration portal. The system automates milestone calculations, monitors registration anomalies using machine learning, and maintains a strict transaction audit trail.
+**CENTENARYO** was developed to resolve these issues by providing a local, standalone, offline-ready desktop administration portal. The system automates milestone calculations, implements a secure document verification gateway, monitors registration anomalies using machine learning, and maintains a strict transaction audit trail.
 
 ---
 
 ### 1.2 Statement of the Problem
-The implementation of R.A. 11982 at the local government level suffers from three core operational challenges:
-*   **Problem 1: Fragmentation of Senior Citizen Data**  
-    LGUs lack a local, unified registry that dynamically tracks ages. Spreadsheets do not update ages relative to the current calendar date, requiring staff to perform manual age calculations for thousands of entries, which introduces human error.
-*   **Problem 2: Susceptibility to Disbursement Fraud & Double Claims**  
-    Without real-time compliance audits, registries are vulnerable to double-claiming, identity theft, or payout releases to deceased individuals. There is no automated layer to identify statistical anomalies during the registration process.
-*   **Problem 3: Technical Deployment Barriers for LGU Operators**  
-    Conventional web systems depend on persistent internet connections, which are unreliable in remote LGUs. Conversely, local database setups are complex, requiring command-line installations (Node.js, Python, database servers) that non-technical office staff cannot manage or troubleshoot.
+The local implementation of R.A. 11982 at the LGU level suffers from four core technical and operational challenges:
+1.  **Fragmentation of Beneficiary Registries**: LGUs manage records across separate local files that do not dynamically sync or update senior citizen ages. Manual age tracking is highly prone to human error, resulting in missed milestones or duplicate payments.
+2.  **Registry Fraud and Ghost Claims**: Without automated verification layers, registry records are susceptible to identity hijacking. Payouts can be claimed multiple times under different spelling variations or processed for deceased individuals whose deaths went unrecorded in the system.
+3.  **Browser Download Hijacking and Document Security Risks**: Traditional web-based file management tools rely on browser-level downloads or native browser PDF embeds. In LGU offices, third-party download accelerators (such as Internet Download Manager - IDM) hijack document preview requests, forcing the PDF to download locally to the workstation instead of presenting it inline. This exposes sensitive Personally Identifiable Information (PII) on public workstations and disrupts the review process.
+4.  **Deployment Barriers for Offline Workstations**: Standard enterprise systems depend on persistent cloud connectivity and complex local database setups (requiring command-line Node.js, Python, and database configuration). Non-technical LGU encoders cannot troubleshoot or configure these setups on offline, local workstations.
 
 ---
 
 ### 1.3 Objectives of the Study
 #### General Objective:
-To design, develop, and implement a secure, standalone, offline-ready LGU Desktop System called **CENTENARYO** to manage senior citizen registration, automate milestone financial payrolls, detect registry anomalies using machine learning, and verify disbursements.
+To design, develop, and implement **CENTENARYO**, an intelligent, secure, standalone desktop administration portal that automates milestone payroll calculations, enforces document verification, detects registration anomalies using machine learning, and logs audit trails offline for local LGUs under R.A. 11982.
 
 #### Specific Objectives:
-1.  **Develop a Zero-Configuration Native C# Launcher** (`CENTENARYO.exe`) to clean ports, manage backend/frontend background processes, and open the system in a clean, standalone desktop window.
-2.  **Implement an Automated Milestone Engine** that calculates ages dynamically from birthdates and automatically queues disbursements without manual intervention.
-3.  **Incorporate a Machine Learning (Random Forest) Classifier** to flag anomalies (e.g. duplicate IDs, birthdate contradictions) and instantly freeze affected payouts.
-4.  **Integrate an Audit Logging Module** to track all system actions (Login, Logout, Create, Update, Delete) along with client IP addresses to comply with the **Data Privacy Act (R.A. 10173)**.
-5.  **Enable Offline Portability** using a local database format (`db.sqlite3`), allowing the entire system to be shared or copied across office workstations via a flash drive.
+1.  **Zero-Configuration Native C# Launcher**: Develop a launcher (`CENTENARYO.exe`) that manages background database/server processes, performs port hygiene (cleaning port 8000), and launches the portal in a dedicated standalone app window.
+2.  **Dynamic Milestone Engine**: Program an automated engine that calculates senior citizen ages relative to the system date and queues disbursement records without manual intervention.
+3.  **Custom Inline Canvas-Based PDF Viewer**: Integrate an in-memory canvas-based PDF renderer (`PdfViewer`) that fetches files as raw `ArrayBuffer` blocks, bypassing browser extension downloads and preventing IDM hijacking.
+4.  **Mandatory Upload Gatekeeper**: Enforce mandatory document verification requiring PSA Birth Certificates, OSCA IDs, and 2x2 photos within strict file limits (2kb to 20mb) to prevent incomplete submissions.
+5.  **AI Anomaly Monitor**: Build a Random Forest Classifier to score registration risks (duplicate IDs, demographic velocity, milestone abnormalities) and automatically freeze pending payouts.
+6.  **Secured Role-Based Access (RBAC)**: Partition operational roles, restricting document reviews, override actions, and IP audit trails exclusively to Administrator profiles.
 
 ---
 
 ### 1.4 Scope and Limitations
 #### Scope:
-*   **Target Population**: Senior citizens residing in the LGU jurisdiction.
-*   **System Functions**: Annex A digital registration, demographic analysis (sex/civil status ratios), automatic milestone payroll generation, secure disbursement logs, Excel reports, ML anomaly resolution, and login/logout session auditing.
-*   **Deployment Profile**: Offline-ready desktop application deployed directly on LGU local workstations.
+*   **Functional Registry**: Supports Annex A profiling (names, birthdate, sex, barangay, and civil status including Divorced and Separated with spouse inputs).
+*   **Security & Audit**: Implements session auditing (logins/logouts with IP addresses) and data modifications (CREATE, UPDATE, DELETE).
+*   **Deployment**: Portable SQLite database (`db.sqlite3`) and Django/Next.js stack packaged into a single Windows directory using PyInstaller.
 
 #### Limitations:
-*   **Offline Standalone Mode**: The application does not sync data to a cloud environment by default to maintain data privacy and offline autonomy.
-*   **Workstation Dependency**: Data is stored locally on the host machine (`db.sqlite3`). Multi-computer access requires sharing the folder over a local network (LAN) or manual file syncing.
+*   **Offline Standalone Mode**: Does not sync data to a cloud database by default. Data is stored on the host computer.
+*   **Local Network Sync**: Multi-user operations require host folder sharing over a Local Area Network (LAN).
 
 ---
 
-## 🛠️ CHAPTER 2: THEORETICAL & CONCEPTUAL FRAMEWORK
-
-### 2.1 Technical System Framework
-The architecture of **CENTENARYO** utilizes a hybrid desktop model. It runs local server instances silently in the background while presenting the interface inside a frameless native browser window:
-
-```mermaid
-graph TD
-    Launcher[Native C# Launcher: CENTENARYO.exe] -->|Spawns Silently| Python[Python Backend: Django REST]
-    Launcher -->|Spawns Silently| NextJS[Next.js Frontend: React UI]
-    Launcher -->|HTTP Polling Loop| CheckPort[Poll http://localhost:3000]
-    CheckPort -->|Once 200 OK| BrowserApp[Launch browser App Mode Window]
-    NextJS -->|JWT Authenticated APIs| Python
-    Python -->|Reads/Writes| SQLite[(Local SQLite Database: db.sqlite3)]
-    Python -->|Feature Extraction| ML[Random Forest Classifier]
-```
-
-*   **Presentation Layer (Frontend)**: Next.js 15 (React 19 & TypeScript) running in **Chrome/Edge App Mode** (a frameless standalone window wrapper). This strips away browser tabs and address bars, providing a native software layout while maintaining web compatibility.
-*   **Service Layer (Backend)**: Django REST Framework providing JWT authentication, role-based controls, API routing, and data validation.
-*   **Intelligence Layer (Machine Learning)**: Scikit-learn Random Forest model integrated directly into the Django transaction lifecycle.
-*   **Data Layer**: SQLite, allowing data storage in a single portable file (`backend/db.sqlite3`).
+### 1.5 Significance of the Study
+*   **Local Government Units (LGUs)**: Provides a zero-cost, offline administrative platform that removes manual errors.
+*   **National Commission of Senior Citizens (NCSC)**: Restores data integrity and provides verified audit logs compliant with the Data Privacy Act (R.A. 10173).
+*   **Filipino Senior Citizens**: Guarantees that milestone payouts are calculated accurately and released to legitimate beneficiaries without administrative delays.
 
 ---
-
-### 2.2 Conceptual Framework (Input-Process-Output)
-The conceptual model of the system is structured around the Input-Process-Output (IPO) framework:
-
-```mermaid
-graph LR
-    subgraph Inputs
-        I1[Senior Citizen Profiles]
-        I2[OSCA IDs & DOB]
-        I3[User Accounts & Roles]
-        I4[Disbursement Confirmations]
-    end
-    subgraph Process
-        P1[Auto Port Cleaning]
-        P2[HTTP Ready Polling]
-        P3[Milestone Payroll Check]
-        P4[Random Forest Inference]
-        P5[Audit Trail Logging]
-    end
-    subgraph Outputs
-        O1[Frameless App Window]
-        O2[Excel Registry Exports]
-        O3[Secured Disbursements]
-        O4[Session Audit Logs]
-    end
-    Inputs --> Process
-    Process --> Outputs
-```
-
 ---
 
 ## 📐 CHAPTER 3: SYSTEM METHODOLOGY & DESIGN
 
 ### 3.1 Software Development Life Cycle (SDLC)
-The development follows the **Agile Prototyping Model**. This approach allows for continuous refinement of visual and security elements (such as removing profile icons, adjusting modal layering, and replacing branding assets) based on user feedback.
+The system was engineered using the **Agile Prototyping Model**. This allowed for iterative refinement of UI elements, validation rules, and document security features based on evaluation feedback.
+
+```mermaid
+graph TD
+    A[Requirements Analysis] --> B[System Architecture Design]
+    B --> C[Core Prototype Implementation]
+    C --> D[System Integration & Testing]
+    D --> E[User Feedback Evaluation]
+    E -->|Refinement Iterations| C
+    E --> F[PyInstaller Packaging & Deployment]
+```
 
 ---
 
-### 3.2 Database Schema & Entity Relationship Diagram (ERD)
+### 3.2 System Architecture
+The application runs as a hybrid desktop portal. It launches local background services and presents the user interface inside a frameless standalone window.
+
+```
++-----------------------------------------------------------+
+|                    CENTENARYO Launcher                    |
+|  - Spawns background Django REST Server                   |
+|  - Renders frameless Next.js SPA UI                       |
++-----------------------------------------------------------+
+                             |
+         +-------------------+-------------------+
+         | (Local REST API Requests via JWT)         |
+         v                                           v
++-------------------------------+           +-------------------+
+|      Django API Gateway       |           |   SQLite Engine   |
+|  - Milestone Calculator       | <-------> |   - core_senior   |
+|  - Random Forest Classifier   |           |   - core_disburse |
+|  - Audit Log Signal Handlers  |           |   - core_auditlog |
++-------------------------------+           +-------------------+
+```
+
+---
+
+### 3.3 Database Schema & Data Dictionary
+
+The relational structure of the SQLite database is illustrated in the Entity-Relationship Diagram (ERD):
 
 ```mermaid
 erDiagram
@@ -123,109 +113,137 @@ erDiagram
     USER ||--o{ AUDIT_LOG : "triggers"
     SENIOR ||--o{ DISBURSEMENT : "receives"
     SENIOR ||--o{ ANOMALY_FLAG : "triggers"
-    USER ||--o{ ANOMALY_FLAG : "resolves"
+    SENIOR ||--o{ REVIEW_LOG : "logged by"
 ```
 
-#### Database Dictionary:
+#### 1. `core_senior` Table (Official Registry)
+Stores senior citizen identity information, demographics, verification state, and file links.
 
-##### 1. `core_senior` (Registry)
-| Field Name | Data Type | Constraints | Description |
+| Column | Type | Constraints | Description |
 | :--- | :--- | :--- | :--- |
-| `id` | Integer | Primary Key, Auto-Increment | Unique internal record identifier. |
+| `id` | Integer | Primary Key, Auto-Increment | Unique identifier. |
 | `first_name` | Varchar(100) | Not Null | Biological given name. |
 | `last_name` | Varchar(100) | Not Null | Biological surname. |
-| `date_of_birth` | Date | Not Null | Used to calculate age and milestones. |
-| `osca_id` | Varchar(50) | Unique, Not Null | Senior ID (Format: OSCA-YYYY-SERIAL). |
-| `barangay` | Varchar(100) | Not Null | Geographic location within the LGU. |
-| `sex` | Varchar(10) | Not Null (MALE/FEMALE) | Used for demographic statistics. |
-| `civil_status` | Varchar(20) | Not Null | SINGLE, MARRIED, WIDOWED, SEPARATED. |
-| `status` | Varchar(20) | Not Null | ACTIVE, DECEASED, SUSPENDED, TRANSFERRED. |
-| `annex_a_data` | JSON | Nullable | Contact information, representatives, etc. |
+| `middle_name` | Varchar(100) | Nullable | Middle name. |
+| `date_of_birth`| Date | Not Null | Used to calculate dynamic age. |
+| `osca_id` | Varchar(50) | Unique, Not Null | Format: OSCA-YYYY-SERIAL. Numbers only. |
+| `barangay` | Varchar(100) | Not Null | Sorted alphabetically in registry. |
+| `sex` | Varchar(10) | Not Null | Male, Female. |
+| `civil_status` | Varchar(20) | Not Null | Single, Married, Widowed, Separated, Divorced. |
+| `status` | Varchar(20) | Not Null | ACTIVE, DECEASED, TRANSFERRED, SUSPENDED. |
+| `risk_score` | Float | Default: 0.0 | ML-predicted anomaly rating. |
+| `annex_a_data` | JSON | Nullable | Stores address details and spouse names. |
+| `psa_cert_file`| Varchar(100) | Nullable | File path for uploaded PSA Birth Certificate. |
+| `primary_id_file`| Varchar(100)| Nullable | File path for uploaded OSCA ID Card. |
+| `picture_2x2_file`| Varchar(100)| Nullable | File path for uploaded 2x2 Photo. |
+| `registration_status`| Varchar(20)| Default: 'PENDING_REVIEW'| PENDING_REVIEW, APPROVED, REJECTED. |
 
-##### 2. `core_disbursement` (Payroll)
-| Field Name | Data Type | Constraints | Description |
+#### 2. `core_disbursement` Table (Payroll Management)
+Tracks milestone payout records issued to seniors.
+
+| Column | Type | Constraints | Description |
 | :--- | :--- | :--- | :--- |
-| `id` | Integer | Primary Key, Auto-Increment | Unique disbursement record identifier. |
-| `senior_id` | Integer | Foreign Key (core_senior.id) | Linked beneficiary. |
-| `amount` | Decimal(10,2) | Not Null | ₱10,000 or ₱100,000. |
+| `id` | Integer | Primary Key | Payout record ID. |
+| `senior_id` | Integer | Foreign Key | Linked beneficiary. |
+| `disbursement_type`| Varchar(20)| Not Null | SOCIAL_PENSION, MILESTONE_GIFT. |
+| `amount` | Decimal(10,2)| Not Null | Payout award (₱10,000 or ₱100,000). |
+| `quarter` | Varchar(2) | Not Null | Q1, Q2, Q3, Q4. |
+| `year` | Integer | Not Null | Target calendar year. |
 | `status` | Varchar(20) | Not Null | PENDING, RELEASED, CANCELLED. |
-| `reference_number` | Varchar(100)| Unique, Nullable | Transaction confirmation ID. |
-| `release_date` | DateTime | Nullable | Timestamp when payout was marked as released. |
+| `reference_number`| Varchar(100)| Unique | Transaction confirmation code. |
+| `release_date` | Date | Nullable | Payout execution date. |
 
-##### 3. `core_auditlog` (Security Trail)
-| Field Name | Data Type | Constraints | Description |
+#### 3. `core_auditlog` Table (Compliance Trail)
+Tracks administrative changes and user sessions.
+
+| Column | Type | Constraints | Description |
 | :--- | :--- | :--- | :--- |
-| `id` | Integer | Primary Key, Auto-Increment | Unique audit identifier. |
-| `user_id` | Integer | Foreign Key (auth_user.id) | Operator who performed the action. |
-| `action` | Varchar(20) | Not Null | CREATE, UPDATE, DELETE, LOGIN, LOGOUT. |
+| `id` | Integer | Primary Key | Record ID. |
+| `user_id` | Integer | Foreign Key | Operator who performed the action. |
+| `action` | Varchar(50) | Not Null | CREATE, UPDATE, DELETE, LOGIN, LOGOUT. |
 | `target_model` | Varchar(100) | Not Null | The affected database table. |
-| `changes_summary`| Text | Not Null | Detailed text description of changes. |
-| `ip_address` | Varchar(45) | Not Null | Client IP address. |
-| `created_at` | DateTime | Not Null, Auto-Now-Add | Audit timestamp. |
+| `changes_summary`| Text | Not Null | Description of modified fields. |
+| `ip_address` | Varchar(45) | Nullable | IP address of the workstation. |
+| `created_at` | DateTime | Not Null | Operation timestamp. |
 
 ---
 
-### 3.3 System Algorithms & Workflows
+### 3.4 Operational System Workflows & Logic
 
-#### 1. Zero-Configuration Startup & Port Hygiene Loop (C# Launcher)
+#### 1. Zero-Configuration Process Hygiene (Launcher Loop)
+To eliminate manual setup, the C# launcher (`CENTENARYO.exe`) handles the server ports and processes automatically:
+*   Clears conflicting web servers by running `taskkill.exe /F /IM python.exe` and `node.exe`.
+*   Starts the background Django server.
+*   Polls `http://localhost:8000` until it returns a `200 OK` status, then opens the app in Chrome/Edge standalone mode.
+
 ```mermaid
 sequenceDiagram
-    actor Operator as LGU Operator
-    participant EXE as CENTENARYO.exe
-    participant Windows as Windows System
-    participant Ports as Port 3000 / 8000
-    
-    Operator->>EXE: Double-click launcher
-    EXE->>Windows: taskkill.exe /F /IM node.exe & python.exe
-    Windows-->>EXE: Ports cleared
-    EXE->>Windows: Spawn Django Backend (silent cmd)
-    EXE->>Windows: Spawn Next.js Frontend (silent cmd)
-    loop HTTP Polling
-        EXE->>Ports: GET http://localhost:3000
-        Ports-->>EXE: 200 OK (Ready)
-    loop Launch Browser
-        EXE->>Windows: chrome.exe --app=http://localhost:3000
+    participant User
+    participant Launcher as CENTENARYO.exe
+    participant Backend as Django Server (8000)
+    participant Browser as Chrome/Edge App Mode
+
+    User->>Launcher: Run application
+    Launcher->>Launcher: Clear active ports (taskkill)
+    Launcher->>Backend: Start backend (manage.py runserver)
+    loop Port Check
+        Launcher->>Backend: HTTP GET localhost:8000
+        Backend-->>Launcher: 200 OK / Ready
     end
-    end
+    Launcher->>Browser: Open http://localhost:8000/login/ --app
+    Browser->>User: Display Login Screen
 ```
 
-#### 2. Milestone Eligibility and Duplicate Prevention Workflow
+#### 2. Mandatory Upload Gatekeeper & Size Validation
+The registration form enforces strict upload rules to ensure data completeness:
+*   Blocks submission if **PSA Birth Certificate**, **OSCA ID Card**, or **2x2 Photo** is missing.
+*   Enforces file size constraints: rejects files smaller than **2KB** (to block corrupted/empty uploads) or larger than **20MB**.
+
 ```mermaid
 graph TD
-    Start[New Senior Registration] --> AgeCalc[Calculate Age from DOB]
-    AgeCalc --> Check80{Age >= 80?}
-    Check80 -- No --> Normal[Save Active Record]
-    Check80 -- Yes --> Milestones{Match milestone ages 80, 85, 90, 95, 100?}
-    Milestones -- No --> Normal
-    Milestones -- Yes --> DupQuery{Disbursement already exists for this milestone?}
-    DupQuery -- Yes --> Normal
-    DupQuery -- No --> StatusCheck{Is Senior Status Active?}
-    StatusCheck -- No --> Block[Block Payroll Generation]
-    StatusCheck -- Yes --> Queue[Queue PENDING Disbursement]
+    A[User clicks 'Save Changes'] --> B{PSA, OSCA ID, 2x2 Uploaded?}
+    B -- No --> C[Display warning: Missing required documents]
+    B -- Yes --> D{File sizes between 2kb and 20mb?}
+    D -- No --> E[Display warning: Invalid file size]
+    D -- Yes --> F[Proceed to database save]
 ```
 
-#### 3. AI-Powered Anomaly Monitoring & Administrative Override
+#### 3. Custom Canvas-Based PDF Viewer (IDM Bypass)
+To prevent download managers from hijacking PDF files, the custom `PdfViewer` component fetches documents in memory as an `ArrayBuffer` and renders them directly onto a canvas element.
+
 ```mermaid
 graph TD
-    Register[Senior Registered / Updated] --> Feature[Extract Features: age, barangay ratio, osca duplication]
-    Feature --> Predict[Random Forest Model Predicts]
-    Predict --> Suspicious{Probability > 75%?}
-    Suspicious -- No --> Active[Set Status to Active]
-    Suspicious -- Yes --> Flag[Create AnomalyFlag & Freeze Payouts]
-    Flag --> Admin[Admin Portal Alerts]
-    Admin --> Resolve{Admin Override Action}
-    Resolve -- Dismiss --> Unfreeze[Clear Flag & Resume Payouts]
-    Resolve -- Confirm Fraud --> Suspend[Set Status to SUSPENDED & Cancel Payouts]
+    A[User requests PDF Preview] --> B[React component runs fetch request]
+    B --> C[Fetch PDF as ArrayBuffer in-memory]
+    C --> D[Pass ArrayBuffer to pdfjsLib]
+    D --> E[Render PDF content on HTML5 Canvas]
+    E --> F[Display zoom-in / zoom-out controls]
+    F --> G[No download triggered; files kept secure]
+```
+
+#### 4. Admin-Only Document Review & Rejection Popup Workflow
+*   **Role Separation**: Only users with the `ADMIN` profile can access the Review Queue.
+*   **Direct Review & Rejection Options**: Checks are simplified to Approve or Reject.
+*   **Rejection Reasons Modal**: Rejecting a registration triggers a modal displaying common reasons (e.g., blurry files, mismatched info) along with a custom text field for other issues.
+
+```mermaid
+graph TD
+    A[Admin opens Review Queue] --> B{Review Action}
+    B -- Approve --> C[Set Registration to APPROVED & Queue Milestone Payroll]
+    B -- Reject --> D[Open Rejection Modal]
+    D --> E{Select Rejection Reason}
+    E -- Common Reason --> F[Log Rejection Reason to database]
+    E -- Custom Reason --> G[Input custom reason details]
+    F --> H[Set status to REJECTED & Notify Encoder]
+    G --> H
 ```
 
 ---
 
-### 3.4 Verification & Validation Plan
-*   **Unit Testing**: The backend contains Django unit tests (`core/tests.py`) verifying age milestone boundary conditions (80, 85, 90, 95, 100) and duplicate claim blocks.
-*   **UAT (User Acceptance Testing) Parameters**:
-    1.  **Portability Test**: Verify the system sets up and runs on a clean Windows machine after running `setup_new_pc.bat` without manual command-line execution.
-    2.  **Branding Consistency**: Confirm that Chrome/Edge App Mode opens without address bars, displaying the custom golden sun logo on the window frame, login page, and sidebar header.
-    3.  **Session Security**: Ensure closing the standalone window instantly terminates the session, forcing a redirect to the login screen on the next startup.
+### 3.5 Verification & Validation Plan
+*   **Dynamic Boundary Testing**: Unit tests check eligibility milestones at exactly 80, 85, 90, 95, and 100 years.
+*   **Document Verification Scenarios**: Verification checks verify file inputs (blocking files < 2KB or > 20MB) and ensure the system prevents incomplete applications.
+*   **IDM Hijack Simulation**: Manual verification confirms that downloading of files is blocked and PDFs render securely on the inline canvas.
 
 ---
 © 2026 CENTENARYO · Prepared for LGU Capstone Thesis Framework
