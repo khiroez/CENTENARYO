@@ -28,7 +28,12 @@ export default function PdfViewer({ url, file }: PdfViewerProps) {
           const arrayBuffer = await file.arrayBuffer();
           loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(arrayBuffer) });
         } else if (url) {
-          loadingTask = pdfjsLib.getDocument(url);
+          const res = await fetch(url);
+          if (!res.ok) {
+            throw new Error(`Failed to fetch PDF: ${res.statusText} (${res.status})`);
+          }
+          const arrayBuffer = await res.arrayBuffer();
+          loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(arrayBuffer) });
         } else {
           throw new Error("No PDF source provided");
         }
