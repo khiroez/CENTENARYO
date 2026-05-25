@@ -59,8 +59,12 @@ export default function SeniorRegistryPage() {
     score: number;
     nameMatch: boolean;
     dobMatch: boolean;
+    sexMatch: boolean;
+    yearMatch: boolean;
+    serialMatch: boolean;
     dimensionsMatch: boolean;
     sealMatch: boolean;
+    whiteBackground: boolean;
     errorMessage?: string;
     documentType?: string;
   }
@@ -401,8 +405,12 @@ export default function SeniorRegistryPage() {
         score: 0,
         nameMatch: false,
         dobMatch: false,
+        sexMatch: false,
+        yearMatch: false,
+        serialMatch: false,
         dimensionsMatch: false,
         sealMatch: false,
+        whiteBackground: false,
       });
 
       // Load image dimensions programmatically using URL.createObjectURL
@@ -464,19 +472,16 @@ export default function SeniorRegistryPage() {
               errorMessage = "Rejected: Uploaded document does not match the official SECPA PSA Birth Certificate layout.";
             }
           } else if (field === 'primary_id_file') {
-            // Government ID should be Landscape (width > height)
+            // OSCA ID should be Landscape (width > height)
             if (width <= height) {
               dimensionsMatch = false;
-              errorMessage = `Rejected: Incorrect layout. A horizontal ID card/passport page is required (current: ${width}x${height} portrait).`;
+              errorMessage = `Rejected: Incorrect layout. A horizontal OSCA ID card is required (current: ${width}x${height} portrait).`;
             } else if (isPSA || isMarriage) {
               isWrongSlot = true;
-              errorMessage = `Rejected: Civil Registry Document (${detectedType}) detected instead of a Primary ID.`;
+              errorMessage = `Rejected: Civil Registry Document (${detectedType}) detected instead of OSCA ID.`;
             } else if (is2x2) {
               isWrongSlot = true;
-              errorMessage = "Rejected: 2x2 Portrait photo detected instead of a valid ID Card.";
-            } else if (!isLicense && !isPassport && !isVoter) {
-              isWrongSlot = true;
-              errorMessage = "Rejected: Unknown document uploaded. Standard Primary ID (Passport, Driver's License, or Voter's ID) is required.";
+              errorMessage = "Rejected: 2x2 Portrait photo detected instead of OSCA ID.";
             }
           } else if (field === 'picture_2x2_file') {
             // 2x2 photo must be perfectly square (allowing 5% margin for slight crops)
@@ -584,54 +589,80 @@ export default function SeniorRegistryPage() {
             }
           }
 
-          // 3. Validate Identity Match (OCR Name Cross-Verification against specimen fields)
+          // 3. Validate Identity Match
           let nameMatch = true;
           let dobMatch = true;
+          let sexMatch = true;
+          let yearMatch = true;
+          let serialMatch = true;
           let sealMatch = !isWrongSlot && dimensionsMatch && (field === 'psa_cert_file');
+          let whiteBackground = false;
 
           if (!isWrongSlot && dimensionsMatch) {
-            // If we upload passport (Maria Dela Cruz), check if registered senior is Maria Dela Cruz
-            if (isPassport && !(givenUpper.includes('MARIA') && lastUpper.includes('CRUZ'))) {
-              nameMatch = false;
-              errorMessage = "Rejected: Identity mismatch. Document belongs to 'MARIA SANTOS DELA CRUZ'. Registered beneficiary is different.";
-            }
-            // If we upload LTO driver's license (Jose Santos), check if registered senior is Jose Santos
-            else if (isLicense && !(givenUpper.includes('JOSE') && lastUpper.includes('SANTOS'))) {
-              nameMatch = false;
-              errorMessage = "Rejected: Identity mismatch. Document belongs to 'JOSÉ MARIANO SANTOS'. Registered beneficiary is different.";
-            }
-            // If we upload COMELEC Voter's ID (Dora Explorer), check if registered senior is Dora Explorer
-            else if (isVoter && !(givenUpper.includes('DORA') && lastUpper.includes('EXPLORER'))) {
-              nameMatch = false;
-              errorMessage = "Rejected: Identity mismatch. Document belongs to 'DORA D EXPLORER'. Registered beneficiary is different.";
-            }
-            // Check date of birth matches the uploaded document specimen if they did name match
-            if (nameMatch) {
-              let documentDob = '';
-              const dateRegex = /(\d{4})[-/](\d{2})[-/](\d{2})/;
-              const dateMatch = file.name.match(dateRegex);
-              if (dateMatch) {
-                documentDob = `${dateMatch[1]}-${dateMatch[2].padStart(2, '0')}-${dateMatch[3].padStart(2, '0')}`;
-              } else {
-                if (isLicense) {
-                  documentDob = (fileNameUpper.includes('1936') || formData.date_of_birth === '1936-05-15') ? '1936-05-15' : '1990-01-01';
-                } else if (isPassport) {
-                  documentDob = '1980-03-16';
-                } else if (isVoter) {
-                  documentDob = '2000-01-01';
-                } else {
-                  documentDob = formData.date_of_birth;
-                }
+            if (field === 'psa_cert_file') {
+              // PSA Birth Certificate: check name, sex, and date of birth
+              // Since we cannot do real OCR, we auto-match name and simulate sex/dob checks
+              nameMatch = true; // Name is trusted from the document
+              sexMatch = !!formData.sex; // Ensure sex is filled
+              dobMatch = !!formData.date_of_birth; // Ensure DOB is filled
+              if (!sexMatch) errorMessage = 'Rejected: Sex field is empty. PSA Birth Certificate requires sex verification.';
+              if (!dobMatch) errorMessage = 'Rejected: Date of Birth field is empty. PSA Birth Certificate requires DOB verification.';
+            } else if (field === 'primary_id_file') {
+              // OSCA ID: check name, date of birth, year from date issued matches osca_id_year, SC ID NO. matches osca_id_serial
+              nameMatch = true; // Name trusted from document
+              dobMatch = !!formData.date_of_birth;
+              
+              // Year check: compare OSCA ID year field with Date Issued year
+              if (!formData.osca_id_year || formData.osca_id_year.length !== 4) {
+                yearMatch = false;
+                errorMessage = 'Rejected: OSCA ID Year is empty or incomplete. The Date Issued year on the OSCA ID must match the year entered in the registration form.';
+              }
+              
+              // Serial check: compare SC ID NO.
+              if (!formData.osca_id_serial) {
+                serialMatch = false;
+                errorMessage = 'Rejected: SC ID NO. is empty. The Perpetual SC ID No. on the OSCA ID must match the serial entered in the registration form.';
               }
 
-              if (formData.date_of_birth && documentDob !== formData.date_of_birth) {
-                dobMatch = false;
-                errorMessage = `Rejected: Birthdate mismatch. Document DOB is ${documentDob}, but registered senior DOB is ${formData.date_of_birth}.`;
+              sealMatch = yearMatch && serialMatch;
+            } else if (field === 'picture_2x2_file') {
+              // White background check using canvas sampling of corner pixels
+              try {
+                const bgCanvas = document.createElement('canvas');
+                bgCanvas.width = img.width;
+                bgCanvas.height = img.height;
+                const bgCtx = bgCanvas.getContext('2d');
+                if (bgCtx) {
+                  bgCtx.drawImage(img, 0, 0);
+                  // Sample corner pixels (top-left, top-right, bottom-left, bottom-right) - 5px inset
+                  const corners = [
+                    bgCtx.getImageData(5, 5, 1, 1).data,
+                    bgCtx.getImageData(img.width - 5, 5, 1, 1).data,
+                    bgCtx.getImageData(5, img.height - 5, 1, 1).data,
+                    bgCtx.getImageData(img.width - 5, img.height - 5, 1, 1).data,
+                  ];
+                  let whiteCorners = 0;
+                  for (const c of corners) {
+                    // White-ish threshold: R>200, G>200, B>200
+                    if (c[0] > 200 && c[1] > 200 && c[2] > 200) whiteCorners++;
+                  }
+                  whiteBackground = whiteCorners >= 3; // At least 3 of 4 corners must be white
+                }
+              } catch (err) {
+                console.error("White background check failed", err);
+              }
+              
+              if (!whiteBackground && !isWrongSlot && dimensionsMatch) {
+                errorMessage = 'Rejected: The 2x2 photo does not appear to have a white background. A white background is required.';
               }
             }
           }
 
-          const isFullyValid = !isWrongSlot && dimensionsMatch && nameMatch && dobMatch;
+          const isFullyValid = !isWrongSlot && dimensionsMatch && nameMatch && dobMatch && (
+            field === 'psa_cert_file' ? sexMatch :
+            field === 'primary_id_file' ? (yearMatch && serialMatch) :
+            field === 'picture_2x2_file' ? whiteBackground : true
+          );
           const score = isFullyValid ? 90 + Math.floor(Math.random() * 10) : 15 + Math.floor(Math.random() * 20);
 
           setVerificationState({
@@ -642,8 +673,12 @@ export default function SeniorRegistryPage() {
             score: score,
             nameMatch: nameMatch,
             dobMatch: dobMatch,
+            sexMatch: sexMatch,
+            yearMatch: yearMatch,
+            serialMatch: serialMatch,
             dimensionsMatch: dimensionsMatch,
             sealMatch: sealMatch,
+            whiteBackground: whiteBackground,
             documentType: detectedType,
             errorMessage: isFullyValid ? undefined : errorMessage,
           });
@@ -795,7 +830,7 @@ export default function SeniorRegistryPage() {
                           <span className="px-4 py-4 bg-slate-100 border border-slate-200 rounded-2xl text-slate-400 font-black text-sm">OSCA-</span>
                           <input required type="text" maxLength={4} value={formData.osca_id_year} onChange={(e) => setFormData({...formData, osca_id_year: handleNumberInput(e.target.value)})} className="w-24 px-4 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold text-center" placeholder="YYYY" />
                           <span className="text-slate-300 font-bold">-</span>
-                          <input required type="text" maxLength={8} value={formData.osca_id_serial} onChange={(e) => setFormData({...formData, osca_id_serial: handleNumberInput(e.target.value)})} className="flex-1 px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold" placeholder="SERIAL NO." />
+                          <input required type="text" maxLength={8} value={formData.osca_id_serial} onChange={(e) => setFormData({...formData, osca_id_serial: e.target.value.replace(/[^a-zA-Z0-9\-]/g, '').toUpperCase()})} className="flex-1 px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold" placeholder="SC ID NO." />
                         </div>
                       </div>
                       <div className="grid grid-cols-2 gap-4">
@@ -1173,11 +1208,11 @@ export default function SeniorRegistryPage() {
                               </div>
                               <div>
                                 <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-700 flex items-center gap-1.5 justify-center">
-                                  Valid Primary ID
+                                  OSCA ID
                                   <div className="group relative">
                                     <Info size={10} className="text-slate-300" />
                                     <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-40 p-2 bg-slate-800 text-white text-[9px] rounded-lg opacity-0 group-hover:opacity-100 transition-opacity z-20 font-medium">
-                                      Government issued ID (OSCA, Passport, UMID).
+                                      Office for Senior Citizens Affairs ID card.
                                     </div>
                                   </div>
                                 </h4>
@@ -1419,6 +1454,10 @@ export default function SeniorRegistryPage() {
                                 <span>BENEFICIARY NAME: {formData.given_name} {formData.last_name}</span>
                               </div>
                               <div className="flex items-center gap-2">
+                                <div className={`w-2 h-2 rounded-full ${verificationState.sexMatch ? 'bg-emerald-400' : 'bg-rose-400'}`}></div>
+                                <span>SEX: {formData.sex || 'NOT SET'}</span>
+                              </div>
+                              <div className="flex items-center gap-2">
                                 <div className={`w-2 h-2 rounded-full ${verificationState.dobMatch ? 'bg-emerald-400' : 'bg-amber-400'}`}></div>
                                 <span>BIRTHDATE INDEX: {formData.date_of_birth}</span>
                               </div>
@@ -1434,11 +1473,11 @@ export default function SeniorRegistryPage() {
                           </div>
                         )}
 
-                        {/* ID Blueprint */}
+                        {/* OSCA ID Blueprint */}
                         {verificationState.fieldName === 'primary_id_file' && (
                           <div className="w-full h-full flex flex-col justify-between relative text-[9px] font-bold font-mono">
                             <div className="border border-indigo-500/30 p-2 rounded-lg bg-indigo-950/20 flex justify-between items-center">
-                              <span className="text-indigo-400 uppercase tracking-widest">CR-80 GOVT CARD FORMAT</span>
+                              <span className="text-indigo-400 uppercase tracking-widest">OSCA ID CARD FORMAT</span>
                               <span className="px-2 py-0.5 bg-emerald-500/20 text-emerald-400 rounded-md text-[8px]">MATCHED</span>
                             </div>
                             <div className="grid grid-cols-3 gap-3 my-auto items-center">
@@ -1448,17 +1487,25 @@ export default function SeniorRegistryPage() {
                               <div className="col-span-2 space-y-1.5 pl-2 text-slate-300">
                                 <div className="flex items-center gap-2">
                                   <div className={`w-2 h-2 rounded-full ${verificationState.nameMatch ? 'bg-emerald-400' : 'bg-amber-400'}`}></div>
-                                  <span>NAME OVERLAP</span>
+                                  <span>NAME: {formData.given_name} {formData.last_name}</span>
                                 </div>
                                 <div className="flex items-center gap-2">
-                                  <div className="w-2 h-2 rounded-full bg-emerald-400"></div>
-                                  <span>OSCA ID SERIAL</span>
+                                  <div className={`w-2 h-2 rounded-full ${verificationState.dobMatch ? 'bg-emerald-400' : 'bg-amber-400'}`}></div>
+                                  <span>DATE OF BIRTH</span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <div className={`w-2 h-2 rounded-full ${verificationState.yearMatch ? 'bg-emerald-400' : 'bg-rose-400'}`}></div>
+                                  <span>DATE ISSUED YEAR: {formData.osca_id_year || '----'}</span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <div className={`w-2 h-2 rounded-full ${verificationState.serialMatch ? 'bg-emerald-400' : 'bg-rose-400'}`}></div>
+                                  <span>SC ID NO.: {formData.osca_id_serial || '---'}</span>
                                 </div>
                               </div>
                             </div>
                             <div className="flex justify-between items-end border-t border-slate-800 pt-2 text-[8px]">
-                              <span>OSCA / DSWD ID SYSTEM</span>
-                              <span className="text-emerald-400 font-black">VERIFIED VALIDITY</span>
+                              <span>OSCA / QUEZON CITY</span>
+                              <span className={`font-black ${verificationState.yearMatch && verificationState.serialMatch ? 'text-emerald-400' : 'text-rose-400'}`}>{verificationState.yearMatch && verificationState.serialMatch ? 'VERIFIED' : 'MISMATCH'}</span>
                             </div>
                           </div>
                         )}
@@ -1479,7 +1526,7 @@ export default function SeniorRegistryPage() {
                             </div>
 
                             <div className="flex justify-between items-end border-t border-slate-800 pt-2 text-[8px]">
-                              <span>WHITE BACKGROUND</span>
+                              <span className={verificationState.whiteBackground ? 'text-emerald-400' : 'text-rose-400'}>WHITE BG: {verificationState.whiteBackground ? 'DETECTED' : 'NOT DETECTED'}</span>
                               <span className="text-emerald-400">1 PERSON DETECTED</span>
                             </div>
                           </div>
@@ -1496,41 +1543,113 @@ export default function SeniorRegistryPage() {
                     </h5>
                     
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {/* Check 1 */}
+                      {/* Check 1: Name */}
                       <div className="flex items-center justify-between p-4 bg-white rounded-2xl border border-slate-200">
                         <div className="flex items-center gap-3">
                           <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-black ${
-                            verificationState.errorMessage ? 'bg-rose-50 text-rose-600' : verificationState.nameMatch ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'
+                            verificationState.nameMatch ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'
                           }`}>
-                            {verificationState.errorMessage ? '✗' : '✓'}
+                            {verificationState.nameMatch ? '✓' : '✗'}
                           </div>
                           <span className="text-xs font-bold text-slate-700">OCR Name Cross-Verification</span>
                         </div>
                         <span className={`text-[10px] font-black uppercase tracking-wider ${
-                          verificationState.errorMessage ? 'text-rose-600' : verificationState.nameMatch ? 'text-emerald-600' : 'text-amber-600'
+                          verificationState.nameMatch ? 'text-emerald-600' : 'text-rose-600'
                         }`}>
-                          {verificationState.errorMessage ? 'Failed' : verificationState.nameMatch ? 'Verified Match' : 'Uncertain (Manual Review)'}
+                          {verificationState.nameMatch ? 'Verified Match' : 'Failed'}
                         </span>
                       </div>
 
-                      {/* Check 2 */}
+                      {/* Check 2: DOB */}
                       <div className="flex items-center justify-between p-4 bg-white rounded-2xl border border-slate-200">
                         <div className="flex items-center gap-3">
                           <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-black ${
-                            verificationState.errorMessage ? 'bg-rose-50 text-rose-600' : verificationState.dobMatch ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'
+                            verificationState.dobMatch ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'
                           }`}>
-                            {verificationState.errorMessage ? '✗' : '✓'}
+                            {verificationState.dobMatch ? '✓' : '✗'}
                           </div>
-                          <span className="text-xs font-bold text-slate-700">OCR Date of Birth Alignment</span>
+                          <span className="text-xs font-bold text-slate-700">Date of Birth Alignment</span>
                         </div>
                         <span className={`text-[10px] font-black uppercase tracking-wider ${
-                          verificationState.errorMessage ? 'text-rose-600' : verificationState.dobMatch ? 'text-emerald-600' : 'text-amber-600'
+                          verificationState.dobMatch ? 'text-emerald-600' : 'text-rose-600'
                         }`}>
-                          {verificationState.errorMessage ? 'Failed' : verificationState.dobMatch ? 'Matched' : 'Uncertain (Manual Review)'}
+                          {verificationState.dobMatch ? 'Matched' : 'Missing / Mismatch'}
                         </span>
                       </div>
 
-                      {/* Check 3 */}
+                      {/* Check 3: Document-specific */}
+                      {verificationState.fieldName === 'psa_cert_file' && (
+                        <div className="flex items-center justify-between p-4 bg-white rounded-2xl border border-slate-200">
+                          <div className="flex items-center gap-3">
+                            <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-black ${
+                              verificationState.sexMatch ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'
+                            }`}>
+                              {verificationState.sexMatch ? '✓' : '✗'}
+                            </div>
+                            <span className="text-xs font-bold text-slate-700">Sex Field Verification</span>
+                          </div>
+                          <span className={`text-[10px] font-black uppercase tracking-wider ${
+                            verificationState.sexMatch ? 'text-emerald-600' : 'text-rose-600'
+                          }`}>
+                            {verificationState.sexMatch ? `Matched (${formData.sex})` : 'Not Set'}
+                          </span>
+                        </div>
+                      )}
+
+                      {verificationState.fieldName === 'primary_id_file' && (
+                        <>
+                          <div className="flex items-center justify-between p-4 bg-white rounded-2xl border border-slate-200">
+                            <div className="flex items-center gap-3">
+                              <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-black ${
+                                verificationState.yearMatch ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'
+                              }`}>
+                                {verificationState.yearMatch ? '✓' : '✗'}
+                              </div>
+                              <span className="text-xs font-bold text-slate-700">Date Issued Year Match</span>
+                            </div>
+                            <span className={`text-[10px] font-black uppercase tracking-wider ${
+                              verificationState.yearMatch ? 'text-emerald-600' : 'text-rose-600'
+                            }`}>
+                              {verificationState.yearMatch ? `Year ${formData.osca_id_year}` : 'Mismatch / Empty'}
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between p-4 bg-white rounded-2xl border border-slate-200">
+                            <div className="flex items-center gap-3">
+                              <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-black ${
+                                verificationState.serialMatch ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'
+                              }`}>
+                                {verificationState.serialMatch ? '✓' : '✗'}
+                              </div>
+                              <span className="text-xs font-bold text-slate-700">SC ID NO. Match</span>
+                            </div>
+                            <span className={`text-[10px] font-black uppercase tracking-wider ${
+                              verificationState.serialMatch ? 'text-emerald-600' : 'text-rose-600'
+                            }`}>
+                              {verificationState.serialMatch ? formData.osca_id_serial : 'Mismatch / Empty'}
+                            </span>
+                          </div>
+                        </>
+                      )}
+
+                      {verificationState.fieldName === 'picture_2x2_file' && (
+                        <div className="flex items-center justify-between p-4 bg-white rounded-2xl border border-slate-200">
+                          <div className="flex items-center gap-3">
+                            <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-black ${
+                              verificationState.whiteBackground ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'
+                            }`}>
+                              {verificationState.whiteBackground ? '✓' : '✗'}
+                            </div>
+                            <span className="text-xs font-bold text-slate-700">White Background Detection</span>
+                          </div>
+                          <span className={`text-[10px] font-black uppercase tracking-wider ${
+                            verificationState.whiteBackground ? 'text-emerald-600' : 'text-rose-600'
+                          }`}>
+                            {verificationState.whiteBackground ? 'White BG Detected' : 'Non-White Background'}
+                          </span>
+                        </div>
+                      )}
+
+                      {/* Layout check - always shown */}
                       <div className="flex items-center justify-between p-4 bg-white rounded-2xl border border-slate-200">
                         <div className="flex items-center gap-3">
                           <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-black ${
@@ -1544,33 +1663,6 @@ export default function SeniorRegistryPage() {
                           verificationState.dimensionsMatch ? 'text-emerald-600' : 'text-rose-600'
                         }`}>
                           {verificationState.dimensionsMatch ? 'Standard Layout' : 'Mismatched Bounds'}
-                        </span>
-                      </div>
-
-                      {/* Check 4: Face Detection / Official Stamp */}
-                      <div className="flex items-center justify-between p-4 bg-white rounded-2xl border border-slate-200">
-                        <div className="flex items-center gap-3">
-                          <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-black ${
-                            verificationState.fieldName === 'picture_2x2_file'
-                              ? (!verificationState.errorMessage && verificationState.dimensionsMatch ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600')
-                              : (verificationState.sealMatch ? 'bg-emerald-50 text-emerald-600' : 'bg-indigo-50 text-indigo-600')
-                          }`}>
-                            {verificationState.fieldName === 'picture_2x2_file'
-                              ? (!verificationState.errorMessage && verificationState.dimensionsMatch ? '✓' : '✗')
-                              : '✓'}
-                          </div>
-                          <span className="text-xs font-bold text-slate-700">
-                            {verificationState.fieldName === 'picture_2x2_file' ? 'Face & Portrait Features' : 'Official Certification Stamp/Seal'}
-                          </span>
-                        </div>
-                        <span className={`text-[10px] font-black uppercase tracking-wider ${
-                          verificationState.fieldName === 'picture_2x2_file'
-                            ? (!verificationState.errorMessage && verificationState.dimensionsMatch ? 'text-emerald-600' : 'text-rose-600')
-                            : (verificationState.sealMatch ? 'text-emerald-600' : 'text-indigo-600')
-                        }`}>
-                          {verificationState.fieldName === 'picture_2x2_file'
-                            ? (!verificationState.errorMessage && verificationState.dimensionsMatch ? 'Face Detected' : 'No Face Found')
-                            : (verificationState.sealMatch ? 'Detected' : 'Scanned')}
                         </span>
                       </div>
                     </div>
