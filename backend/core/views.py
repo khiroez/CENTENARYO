@@ -638,9 +638,10 @@ def ai_report_data(request):
     from django.db.models import Count
     from collections import Counter
     
-    seniors = Senior.objects.all()
+    # 1. Fetch all senior data in a single highly-optimized values query
+    seniors_data = list(Senior.objects.values('id', 'status', 'barangay', 'annex_a_data', 'date_of_birth'))
 
-    # 1. Budget Deficit Early Warning (Next 24 Months)
+    # 2. Budget Deficit Early Warning (Next 24 Months)
     today = date.today()
     try:
         date_80_years_ago = today.replace(year=today.year - 80)
@@ -649,21 +650,21 @@ def ai_report_data(request):
         date_80_years_ago = today.replace(year=today.year - 80, month=2, day=28)
         date_78_years_ago = today.replace(year=today.year - 78, month=2, day=28)
 
-    upcoming_count = Senior.objects.filter(
-        date_of_birth__gt=date_80_years_ago, 
-        date_of_birth__lte=date_78_years_ago,
-        status='ACTIVE' # Only count active seniors for budgeting
-    ).count()
+    upcoming_count = sum(
+        1 for s in seniors_data
+        if s['status'] == 'ACTIVE' and s['date_of_birth']
+        and date_80_years_ago < s['date_of_birth'] <= date_78_years_ago
+    )
     
     # 3. Door-to-Door Logistics (Based on Section C: Benefit Utilization)
     med_utilization = 0
     total_active_with_data = 0
-    for s in seniors:
-        if s.status != 'ACTIVE': continue
+    for s in seniors_data:
+        if s['status'] != 'ACTIVE':
+            continue
         
-        data = s.annex_a_data or {}
+        data = s['annex_a_data'] or {}
         util = data.get('utilization', [])
-        # Normalizing utilization check
         if util:
             total_active_with_data += 1
             is_medical = any(item.upper() in ['MEDICINE', 'HEALTH SERVICES', 'HEALTH'] for item in util)
@@ -677,42 +678,55 @@ def ai_report_data(request):
     AnomalyFlag.objects.filter(flag_reason__icontains="Survival Rate").delete()
     
     date_90_years_ago = today.replace(year=today.year - 90)
-    # Filter only very old seniors who are still marked as ACTIVE
-    oldest_seniors = Senior.objects.filter(date_of_birth__lte=date_90_years_ago, status='ACTIVE')
-    brgy_stats = oldest_seniors.values('barangay').annotate(count=Count('id')).filter(count__gte=2)
+    oldest_seniors = [
+        s for s in seniors_data
+        if s['status'] == 'ACTIVE' and s['date_of_birth'] and s['date_of_birth'] <= date_90_years_ago
+    ]
+    brgy_counts = Counter(s['barangay'] for s in oldest_seniors)
+    deceased_barangays = {s['barangay'] for s in seniors_data if s['status'] == 'DECEASED'}
     
     ghost_warnings = []
-    for item in brgy_stats:
-        # If a barangay has multiple 90+ seniors but ZERO deaths reported in the system
-        has_deceased = Senior.objects.filter(barangay=item['barangay'], status='DECEASED').exists()
-        if not has_deceased:
-            reason = f"Unnatural Survival Rate: {item['count']} seniors aged 90+ in this barangay with 0 reported deaths."
-            
-            # AUTO-FLAG these individual seniors
-            for s_obj in oldest_seniors.filter(barangay=item['barangay']):
-                AnomalyFlag.objects.get_or_create(
-                    senior=s_obj,
-                    flag_reason=reason,
-                    defaults={'confidence_score': 0.85}
-                )
+    new_flags = []
+    
+    # Keep track of existing/created flags to avoid duplicates
+    created_pairs = set(AnomalyFlag.objects.exclude(
+        flag_reason__icontains="Survival Rate"
+    ).exclude(
+        flag_reason__icontains="Syndicate Risk"
+    ).values_list('senior_id', 'flag_reason'))
+    
+    for barangay, count in brgy_counts.items():
+        if count >= 2:
+            if barangay not in deceased_barangays:
+                reason = f"Unnatural Survival Rate: {count} seniors aged 90+ in this barangay with 0 reported deaths."
+                
+                brgy_old_seniors = [s for s in oldest_seniors if s['barangay'] == barangay]
+                for s in brgy_old_seniors:
+                    if (s['id'], reason) not in created_pairs:
+                        new_flags.append(
+                            AnomalyFlag(
+                                senior_id=s['id'],
+                                flag_reason=reason,
+                                confidence_score=0.85
+                            )
+                        )
+                        created_pairs.add((s['id'], reason))
 
-            ghost_warnings.append({
-                'barangay': item['barangay'],
-                'count_95plus': item['count'],
-                'message': reason
-            })
+                ghost_warnings.append({
+                    'barangay': barangay,
+                    'count_95plus': count,
+                    'message': reason
+                })
 
     # 5. Syndicate / Shared Representative Detection (REPRESENTATIVES ONLY)
-    # Clear old syndicate flags first to avoid stale data (based on keywords)
+    # Clear old syndicate flags first
     AnomalyFlag.objects.filter(flag_reason__icontains="Syndicate Risk").delete()
     
     person_counts = Counter()
     person_to_details = {} # name -> {'barangays': [], 'senior_data': {senior_id: set(roles)}}
     
-    for s in seniors:
-        s_data = s.annex_a_data or {}
-        
-        # ONLY Check Representatives
+    for s in seniors_data:
+        s_data = s['annex_a_data'] or {}
         reps = s_data.get('reps', [])
         for r in reps:
             r_name = r.get('name', '').strip().upper()
@@ -721,40 +735,40 @@ def ai_report_data(request):
                 if r_name not in person_to_details:
                     person_to_details[r_name] = {'barangays': [], 'senior_data': {}}
                 
-                if s.id not in person_to_details[r_name]['senior_data']:
-                    person_to_details[r_name]['senior_data'][s.id] = set()
+                if s['id'] not in person_to_details[r_name]['senior_data']:
+                    person_to_details[r_name]['senior_data'][s['id']] = set()
                 
-                person_to_details[r_name]['senior_data'][s.id].add('Authorized Rep')
-                person_to_details[r_name]['barangays'].append(s.barangay)
+                person_to_details[r_name]['senior_data'][s['id']].add('Authorized Rep')
+                person_to_details[r_name]['barangays'].append(s['barangay'])
     
     syndicate_warnings = []
     for name, count in person_counts.items():
         if count >= 3:
             details = person_to_details[name]
-            brgy_counts = Counter(details['barangays'])
-            top_brgy = brgy_counts.most_common(1)[0][0]
+            brgy_counter = Counter(details['barangays'])
+            top_brgy = brgy_counter.most_common(1)[0][0]
             
-            # AUTO-FLAGGING: Per-senior specific messages
-            for s_id, roles in details['senior_data'].items():
-                try:
-                    s_obj = Senior.objects.get(id=s_id)
-                    # More accurate reason
-                    reason = f"Syndicate Risk: {name} is listed as Authorized Rep for {count} seniors."
-                    
-                    AnomalyFlag.objects.get_or_create(
-                        senior=s_obj,
-                        flag_reason=reason,
-                        defaults={'confidence_score': 0.95}
+            for s_id in details['senior_data'].keys():
+                reason = f"Syndicate Risk: {name} is listed as Authorized Rep for {count} seniors."
+                if (s_id, reason) not in created_pairs:
+                    new_flags.append(
+                        AnomalyFlag(
+                            senior_id=s_id,
+                            flag_reason=reason,
+                            confidence_score=0.95
+                        )
                     )
-                except Senior.DoesNotExist:
-                    continue
-
+                    created_pairs.add((s_id, reason))
+            
             syndicate_warnings.append({
                 'rep_name': name,
                 'count': count,
                 'barangay': top_brgy,
                 'message': f"Listed as Authorized Rep for {count} seniors."
             })
+            
+    if new_flags:
+        AnomalyFlag.objects.bulk_create(new_flags)
 
     return Response({
         'budget_forecast': {

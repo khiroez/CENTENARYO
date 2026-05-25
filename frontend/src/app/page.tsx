@@ -853,12 +853,17 @@ export default function Dashboard() {
                                     </h4>
                                     {aiReport.ghost_warnings.length > 0 ? (
                                         <div className="space-y-3">
-                                            {aiReport.ghost_warnings.map((w: any) => (
+                                            {aiReport.ghost_warnings.slice(0, 10).map((w: any) => (
                                                 <div key={w.barangay} className="bg-white p-4 rounded-2xl border border-slate-300 shadow-sm">
                                                     <p className="text-xs font-black text-slate-900 uppercase">Brgy. {w.barangay}</p>
                                                     <p className="text-[10px] font-bold text-rose-600 uppercase tracking-widest mt-1">Warning: {w.message}</p>
                                                 </div>
                                             ))}
+                                            {aiReport.ghost_warnings.length > 10 && (
+                                                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest text-center animate-pulse pt-2">
+                                                    + {aiReport.ghost_warnings.length - 10} more anomalies (Click to Investigate)
+                                                </p>
+                                            )}
                                             <div className="mt-4 p-4 bg-slate-900 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest text-center">CLICK TO INVESTIGATE</div>
                                         </div>
                                     ) : (
@@ -879,7 +884,7 @@ export default function Dashboard() {
                                     
                                     {aiReport.syndicate_warnings && aiReport.syndicate_warnings.length > 0 ? (
                                         <div className="space-y-4">
-                                            {aiReport.syndicate_warnings.map((w: any, idx: number) => (
+                                            {aiReport.syndicate_warnings.slice(0, 10).map((w: any, idx: number) => (
                                                 <div key={idx} className="bg-white p-6 rounded-[32px] border border-rose-200 shadow-sm space-y-4">
                                                     <div className="flex items-start gap-3">
                                                         <div className="p-2 bg-rose-100 text-rose-600 rounded-xl"><AlertCircle size={18} /></div>
@@ -892,6 +897,11 @@ export default function Dashboard() {
                                                     </div>
                                                 </div>
                                             ))}
+                                            {aiReport.syndicate_warnings.length > 10 && (
+                                                <p className="text-[10px] font-black text-rose-400 uppercase tracking-widest text-center animate-pulse pt-2">
+                                                    + {aiReport.syndicate_warnings.length - 10} more patterns (Click to Investigate)
+                                                </p>
+                                            )}
                                             <div className="pt-2">
                                                 <p className="text-[9px] font-black text-rose-600 uppercase tracking-widest mb-2 text-center">System Recommendation:</p>
                                                 <div className="p-4 bg-rose-600 text-white rounded-2xl text-[10px] font-black text-center leading-tight shadow-lg shadow-rose-200">
