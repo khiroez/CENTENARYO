@@ -263,6 +263,33 @@ export default function SeniorRegistryPage() {
       openWarning("Barangay Required", "Please provide the Barangay residence.");
       return;
     }
+
+    // Validate Mobile Number (Must be exactly 11 digits)
+    if (!formData.contact_number) {
+      openWarning("Mobile Number Required", "Please provide a mobile number.");
+      return;
+    }
+    if (formData.contact_number.length !== 11) {
+      openWarning("Invalid Mobile Number", "The mobile number must be exactly 11 digits (e.g., 09171234567).");
+      return;
+    }
+
+    // Validate Email Address (Restrict special characters, only allow '.', '+', and alphanumeric characters)
+    if (formData.email) {
+      const emailRegex = /^[a-zA-Z0-9.+]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+      if (!emailRegex.test(formData.email)) {
+        openWarning("Invalid Email Address", "The email format is invalid or contains forbidden special characters. Only alphanumeric characters, period (.), and plus (+) are allowed in the local part.");
+        return;
+      }
+    }
+
+    // Validate Representative Mobile Number (If provided, must be exactly 11 digits)
+    if (formData.reps && formData.reps[0] && formData.reps[0].contact) {
+      if (formData.reps[0].contact.length !== 11) {
+        openWarning("Invalid Representative Mobile Number", "The representative's mobile number must be exactly 11 digits (e.g., 09171234567).");
+        return;
+      }
+    }
  
     if (!formData.consent_privacy || !formData.consent_truth) {
       openWarning("Consent Required", "You must check the Data Privacy and Truthfulness statements.");
@@ -753,7 +780,7 @@ export default function SeniorRegistryPage() {
                               </div>
                             </div>
                           </label>
-                          <input type="text" value={formData.contact_number} onChange={(e) => setFormData({...formData, contact_number: handleNumberInput(e.target.value)})} className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold" />
+                          <input type="text" maxLength={11} value={formData.contact_number} onChange={(e) => setFormData({...formData, contact_number: handleNumberInput(e.target.value)})} className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold" placeholder="09171234567" />
                         </div>
                         <div className="space-y-2">
                           <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-1.5">
@@ -989,6 +1016,7 @@ export default function SeniorRegistryPage() {
                           <div className="md:col-span-1">
                             <input 
                               type="text" 
+                              maxLength={11}
                               placeholder="Contact Number" 
                               value={formData.reps[0]?.contact || ''} 
                               onChange={(e) => {
@@ -1236,15 +1264,6 @@ export default function SeniorRegistryPage() {
                   </p>
                 </div>
               </div>
-              <button 
-                type="button" 
-                onClick={() => {
-                  setVerificationState(null);
-                }} 
-                className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-400 flex items-center justify-center transition-colors"
-              >
-                <X size={16} />
-              </button>
             </div>
 
             {/* Modal Content */}
