@@ -156,6 +156,9 @@ class SeniorViewSet(viewsets.ModelViewSet):
             except json.JSONDecodeError:
                 pass
         
+        # When an edited profile is saved, reset status to PENDING_REVIEW for admin checking
+        data['registration_status'] = 'PENDING_REVIEW'
+
         partial = kwargs.pop('partial', False)
         instance = self.get_object()
         serializer = self.get_serializer(instance, data=data, partial=partial)
@@ -205,6 +208,13 @@ class SeniorViewSet(viewsets.ModelViewSet):
         return queryset
 
     # === REVIEW WORKFLOW ACTIONS ===
+
+    def get_permissions(self):
+        if self.action in ['review_queue', 'submit_review']:
+            permission_classes = [IsAuthenticated, IsAdmin]
+        else:
+            permission_classes = [IsAuthenticated]
+        return [permission() for permission in permission_classes]
 
     @action(detail=False, methods=['get'], url_path='review-queue')
     def review_queue(self, request):

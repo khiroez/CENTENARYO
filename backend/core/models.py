@@ -24,6 +24,7 @@ class Senior(models.Model):
         ('MARRIED', 'Married'),
         ('WIDOWED', 'Widowed'),
         ('SEPARATED', 'Separated'),
+        ('DIVORCED', 'Divorced'),
     ]
 
     first_name = models.CharField(max_length=100)

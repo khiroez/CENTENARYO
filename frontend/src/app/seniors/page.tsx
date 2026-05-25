@@ -200,7 +200,7 @@ export default function SeniorRegistryPage() {
   };
 
   const handleCivilStatusChange = (status: string) => {
-    if (status !== 'MARRIED') {
+    if (status !== 'MARRIED' && status !== 'SEPARATED') {
       setFormData({ ...formData, civil_status: status, spouse_name: '', spouse_citizenship: '' });
     } else {
       setFormData({ ...formData, civil_status: status });
@@ -424,11 +424,11 @@ export default function SeniorRegistryPage() {
         const buffer = event.target?.result as ArrayBuffer;
         const fileSize = file.size;
 
-        // Size check: 10KB to 20MB
-        if (fileSize < 10000 || fileSize > 20000000) {
+        // Size check: 2KB to 20MB
+        if (fileSize < 2000 || fileSize > 20000000) {
           setVerificationState(prev => prev ? { 
             ...prev, stage: 'results', status: 'FAIL', 
-            errorMessage: 'Rejected: File size must be between 10KB and 20MB.' 
+            errorMessage: 'Rejected: File size must be between 2KB and 20MB.' 
           } : null);
           return;
         }
@@ -684,7 +684,7 @@ export default function SeniorRegistryPage() {
                           <span className="px-4 py-4 bg-slate-100 border border-slate-200 rounded-2xl text-slate-400 font-black text-sm">OSCA-</span>
                           <input required type="text" maxLength={4} value={formData.osca_id_year} onChange={(e) => setFormData({...formData, osca_id_year: handleNumberInput(e.target.value)})} className="w-24 px-4 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold text-center" placeholder="YYYY" />
                           <span className="text-slate-300 font-bold">-</span>
-                          <input required type="text" maxLength={8} value={formData.osca_id_serial} onChange={(e) => setFormData({...formData, osca_id_serial: e.target.value.replace(/[^a-zA-Z0-9\-]/g, '').toUpperCase()})} className="flex-1 px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold" placeholder="SC ID NO." />
+                          <input required type="text" maxLength={15} value={formData.osca_id_serial} onChange={(e) => setFormData({...formData, osca_id_serial: handleNumberInput(e.target.value)})} className="flex-1 px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold" placeholder="SC ID NO." />
                         </div>
                       </div>
                       <div className="grid grid-cols-2 gap-4">
@@ -816,7 +816,7 @@ export default function SeniorRegistryPage() {
                             </div>
                           </div>
                         </label>
-                        <select required value={formData.civil_status} onChange={(e) => handleCivilStatusChange(e.target.value)} className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold"><option value="">Select...</option><option value="SINGLE">Single</option><option value="MARRIED">Married</option><option value="WIDOWED">Widowed</option><option value="SEPARATED">Separated</option></select>
+                        <select required value={formData.civil_status} onChange={(e) => handleCivilStatusChange(e.target.value)} className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold"><option value="">Select...</option><option value="SINGLE">Single</option><option value="MARRIED">Married</option><option value="WIDOWED">Widowed</option><option value="SEPARATED">Separated</option><option value="DIVORCED">Divorced</option></select>
                       </div>
                     </div>
 
@@ -843,7 +843,7 @@ export default function SeniorRegistryPage() {
                           <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Barangay *</label>
                           <select required value={formData.res_brgy} onChange={(e) => setFormData({...formData, res_brgy: e.target.value})} disabled={!formData.res_district} className="w-full px-4 py-3.5 bg-white border border-slate-200 rounded-xl text-sm font-bold appearance-none cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed">
                             <option value="">{formData.res_district ? 'Select Barangay...' : 'Select a district first'}</option>
-                            {formData.res_district && QUEZON_CITY_BARANGAYS[formData.res_district]?.map(b => <option key={b} value={b}>{b}</option>)}
+                            {formData.res_district && [...QUEZON_CITY_BARANGAYS[formData.res_district]].sort((a, b) => a.localeCompare(b)).map(b => <option key={b} value={b}>{b}</option>)}
                           </select>
                         </div>
                         <div className="space-y-1.5">
@@ -877,19 +877,19 @@ export default function SeniorRegistryPage() {
                           </h4>
                           <input 
                             type="text" 
-                            disabled={formData.civil_status !== 'MARRIED'} 
+                            disabled={formData.civil_status !== 'MARRIED' && formData.civil_status !== 'SEPARATED'} 
                             value={formData.spouse_name} 
                             onChange={(e) => setFormData({...formData, spouse_name: handleNameInput(e.target.value)})} 
-                            className={`w-full px-5 py-4 border rounded-2xl font-bold uppercase transition-all ${formData.civil_status !== 'MARRIED' ? 'bg-slate-100 border-slate-200 text-slate-400 cursor-not-allowed shadow-none' : 'bg-slate-50 border-slate-200 text-slate-800'}`} 
-                            placeholder={formData.civil_status !== 'MARRIED' ? "Spouse Details Disabled (Not Married)" : "Spouse Full Name"} 
+                            className={`w-full px-5 py-4 border rounded-2xl font-bold uppercase transition-all ${(formData.civil_status !== 'MARRIED' && formData.civil_status !== 'SEPARATED') ? 'bg-slate-100 border-slate-200 text-slate-400 cursor-not-allowed shadow-none' : 'bg-slate-50 border-slate-200 text-slate-800'}`} 
+                            placeholder={(formData.civil_status !== 'MARRIED' && formData.civil_status !== 'SEPARATED') ? "Spouse Details Disabled" : "Spouse Full Name"} 
                           />
                           <input 
                             type="text" 
-                            disabled={formData.civil_status !== 'MARRIED'} 
+                            disabled={formData.civil_status !== 'MARRIED' && formData.civil_status !== 'SEPARATED'} 
                             value={formData.spouse_citizenship} 
                             onChange={(e) => setFormData({...formData, spouse_citizenship: e.target.value.toUpperCase()})} 
-                            className={`w-full px-5 py-4 border rounded-2xl font-bold uppercase transition-all ${formData.civil_status !== 'MARRIED' ? 'bg-slate-100 border-slate-200 text-slate-400 cursor-not-allowed shadow-none' : 'bg-slate-50 border-slate-200 text-slate-800'}`} 
-                            placeholder={formData.civil_status !== 'MARRIED' ? "Spouse Details Disabled (Not Married)" : "Spouse Citizenship"} 
+                            className={`w-full px-5 py-4 border rounded-2xl font-bold uppercase transition-all ${(formData.civil_status !== 'MARRIED' && formData.civil_status !== 'SEPARATED') ? 'bg-slate-100 border-slate-200 text-slate-400 cursor-not-allowed shadow-none' : 'bg-slate-50 border-slate-200 text-slate-800'}`} 
+                            placeholder={(formData.civil_status !== 'MARRIED' && formData.civil_status !== 'SEPARATED') ? "Spouse Details Disabled" : "Spouse Citizenship"} 
                           />
                         </div>
                         <div className="space-y-4">

@@ -8,7 +8,7 @@ import { authFetch } from "@/lib/api";
 import { useUI } from "@/context/UIContext";
 
 export default function ReviewQueuePage() {
-  const { user } = useAuth();
+  const { user, isAdmin } = useAuth();
   const { showModal } = useUI();
   const { addNotification } = useNotifications();
 
@@ -21,14 +21,41 @@ export default function ReviewQueuePage() {
   const [activeTab, setActiveTab] = useState<'psa' | 'osca' | 'photo'>('psa');
   const [remarks, setRemarks] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
-  
-  // Checklist state
+
+  // Rejection Modal State
+  const [isRejectModalOpen, setIsRejectModalOpen] = useState(false);
+  const [selectedReason, setSelectedReason] = useState('');
+  const [customReason, setCustomReason] = useState('');
+
+  const COMMON_REJECTION_REASONS = [
+    "PSA Birth Certificate is blurry or unreadable",
+    "OSCA ID Card is blurry or unreadable",
+    "2x2 Photo does not follow standard crop / ratio",
+    "Document uploaded is incorrect or invalid",
+    "Missing required application signatures",
+    "Information on document does not match the form",
+  ];
+
+  // Checklist state (legacy stub, keeps compiles clean)
   const [checklist, setChecklist] = useState({
-    name_match: false,
-    dob_match: false,
-    sex_match: false,
-    document_authentic: false,
+    name_match: true,
+    dob_match: true,
+    sex_match: true,
+    document_authentic: true,
   });
+
+  const getCleanFileUrl = (url: string | null) => {
+    if (!url) return '';
+    if (url.startsWith('/')) {
+      const apiBase = process.env.NEXT_PUBLIC_API_URL?.replace('/api', '') || 'http://localhost:8000';
+      return `${apiBase}${url}`;
+    }
+    if (url.includes('centenary0.onrender.com')) {
+      const apiBase = process.env.NEXT_PUBLIC_API_URL?.replace('/api', '') || 'http://localhost:8000';
+      return url.replace(/https?:\/\/centenary0\.onrender\.com/, apiBase);
+    }
+    return url;
+  };
 
   const fetchQueue = async () => {
     setIsLoading(true);
@@ -71,14 +98,10 @@ export default function ReviewQueuePage() {
 
   const isChecklistComplete = Object.values(checklist).every(v => v === true);
 
-  const submitReview = async (action: 'APPROVE' | 'REJECT' | 'RETURN') => {
-    if ((action === 'REJECT' || action === 'RETURN') && !remarks.trim()) {
-      showModal("error", "Remarks Required", `Please provide remarks when deciding to ${action.toLowerCase()} a registration.`);
-      return;
-    }
-
-    if (action === 'APPROVE' && !isChecklistComplete) {
-      showModal("error", "Incomplete Checklist", "Please complete all verification checklist items before approving.");
+  const submitReview = async (action: 'APPROVE' | 'REJECT', customRemarks?: string) => {
+    const finalRemarks = customRemarks || remarks;
+    if (action === 'REJECT' && !finalRemarks.trim()) {
+      showModal("error", "Reason Required", "Please provide a reason for rejecting the registration.");
       return;
     }
 
@@ -89,8 +112,8 @@ export default function ReviewQueuePage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           action,
-          remarks,
-          checklist_results: checklist
+          remarks: finalRemarks,
+          checklist_results: {}
         })
       });
 
@@ -125,6 +148,16 @@ export default function ReviewQueuePage() {
   const filteredQueue = queue.filter(s => 
     `${s.first_name} ${s.last_name} ${s.osca_id}`.toLowerCase().includes(searchQuery.toLowerCase())
   );
+
+  if (user && !isAdmin) {
+    return (
+      <div className="p-8 pb-20 max-w-7xl mx-auto min-h-screen pt-24 flex flex-col items-center justify-center">
+        <AlertTriangle className="text-rose-500 mb-4 animate-bounce" size={64} />
+        <h1 className="text-3xl font-black text-slate-800">Access Denied</h1>
+        <p className="text-slate-500 mt-2 font-medium text-center max-w-md mt-2">Only administrators are allowed to access the Review Queue. If you believe this is an error, please contact system administration.</p>
+      </div>
+    );
+  }
 
   return (
     <div className="p-8 pb-20 max-w-7xl mx-auto min-h-screen pt-24">
@@ -184,21 +217,14 @@ export default function ReviewQueuePage() {
                 <FileText size={14} /> {senior.osca_id}
               </p>
               
-              <div className="mt-6 flex-grow">
-                <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-3">Auto-Check Results</h4>
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between text-xs font-bold bg-slate-50 p-2 rounded-xl">
-                    <span className="text-slate-600 flex items-center gap-2"><FileText size={14} className="text-slate-400"/> PSA Cert</span>
-                    {senior.auto_check_results?.psa_cert_file?.status === 'PASS' ? <span className="text-emerald-500 flex items-center gap-1"><CheckCircle size={14}/> Pass</span> : <span className="text-amber-500 flex items-center gap-1"><AlertTriangle size={14}/> Flagged</span>}
-                  </div>
-                  <div className="flex items-center justify-between text-xs font-bold bg-slate-50 p-2 rounded-xl">
-                    <span className="text-slate-600 flex items-center gap-2"><User size={14} className="text-slate-400"/> OSCA ID</span>
-                    {senior.auto_check_results?.primary_id_file?.status === 'PASS' ? <span className="text-emerald-500 flex items-center gap-1"><CheckCircle size={14}/> Pass</span> : <span className="text-amber-500 flex items-center gap-1"><AlertTriangle size={14}/> Flagged</span>}
-                  </div>
-                  <div className="flex items-center justify-between text-xs font-bold bg-slate-50 p-2 rounded-xl">
-                    <span className="text-slate-600 flex items-center gap-2"><ImageIcon size={14} className="text-slate-400"/> 2x2 Photo</span>
-                    {senior.auto_check_results?.picture_2x2_file?.status === 'PASS' ? <span className="text-emerald-500 flex items-center gap-1"><CheckCircle size={14}/> Pass</span> : <span className="text-rose-500 flex items-center gap-1"><XCircle size={14}/> Fail</span>}
-                  </div>
+              <div className="mt-4 flex-grow space-y-2">
+                <div className="flex items-center justify-between text-xs font-bold bg-slate-50 p-2.5 rounded-xl">
+                  <span className="text-slate-400">Barangay</span>
+                  <span className="text-slate-700 uppercase">{senior.barangay}</span>
+                </div>
+                <div className="flex items-center justify-between text-xs font-bold bg-slate-50 p-2.5 rounded-xl">
+                  <span className="text-slate-400">Date Applied</span>
+                  <span className="text-slate-700">{senior.created_at ? new Date(senior.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'N/A'}</span>
                 </div>
               </div>
 
@@ -214,6 +240,96 @@ export default function ReviewQueuePage() {
       )}
 
       {/* Review Modal */}
+      {/* Rejection Reasons Sub-Modal */}
+      {isRejectModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
+          <div className="bg-white rounded-[32px] w-full max-w-lg p-8 shadow-2xl flex flex-col gap-6 animate-in zoom-in-95 duration-200">
+            <div>
+              <h3 className="text-2xl font-black text-slate-800 tracking-tight flex items-center gap-2">
+                <XCircle className="text-rose-500" size={28} />
+                Reject Registration
+              </h3>
+              <p className="text-slate-500 text-sm font-medium mt-1">Please select the reason for rejecting this registry request.</p>
+            </div>
+
+            <div className="space-y-3 max-h-[300px] overflow-y-auto pr-1">
+              {COMMON_REJECTION_REASONS.map((reason) => (
+                <label 
+                  key={reason} 
+                  className={`flex items-start gap-3 p-3.5 rounded-2xl border-2 cursor-pointer transition-all ${selectedReason === reason ? 'border-rose-500 bg-rose-50' : 'border-slate-100 bg-white hover:border-slate-200'}`}
+                >
+                  <input
+                    type="radio"
+                    name="rejectionReason"
+                    value={reason}
+                    checked={selectedReason === reason}
+                    onChange={() => {
+                      setSelectedReason(reason);
+                      setCustomReason('');
+                    }}
+                    className="mt-1 accent-rose-500"
+                  />
+                  <span className={`text-sm font-bold ${selectedReason === reason ? 'text-rose-900' : 'text-slate-600'}`}>{reason}</span>
+                </label>
+              ))}
+
+              <label 
+                className={`flex flex-col gap-3 p-3.5 rounded-2xl border-2 cursor-pointer transition-all ${selectedReason === 'Others' ? 'border-rose-500 bg-rose-50' : 'border-slate-100 bg-white hover:border-slate-200'}`}
+              >
+                <div className="flex items-start gap-3">
+                  <input
+                    type="radio"
+                    name="rejectionReason"
+                    value="Others"
+                    checked={selectedReason === 'Others'}
+                    onChange={() => setSelectedReason('Others')}
+                    className="mt-1 accent-rose-500"
+                  />
+                  <span className={`text-sm font-bold ${selectedReason === 'Others' ? 'text-rose-900' : 'text-slate-600'}`}>Others (Specify reason)</span>
+                </div>
+                {selectedReason === 'Others' && (
+                  <textarea
+                    value={customReason}
+                    onChange={(e) => setCustomReason(e.target.value)}
+                    placeholder="Enter custom rejection reason here..."
+                    className="w-full h-24 p-3 bg-white border border-slate-200 rounded-xl text-sm font-medium text-slate-700 outline-none focus:ring-2 focus:ring-rose-500/20 transition-all resize-none"
+                  />
+                )}
+              </label>
+            </div>
+
+            <div className="flex gap-3 justify-end mt-4">
+              <button
+                onClick={() => {
+                  setIsRejectModalOpen(false);
+                  setSelectedReason('');
+                  setCustomReason('');
+                }}
+                className="px-6 py-3 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-black text-sm transition-all"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={async () => {
+                  const reason = selectedReason === 'Others' ? customReason : selectedReason;
+                  if (!reason.trim()) {
+                    showModal("error", "Reason Required", "Please choose a reason or type in a custom one.");
+                    return;
+                  }
+                  await submitReview('REJECT', reason);
+                  setIsRejectModalOpen(false);
+                  setSelectedReason('');
+                  setCustomReason('');
+                }}
+                disabled={isSubmitting}
+                className="px-8 py-3 bg-rose-500 hover:bg-rose-600 text-white rounded-xl font-black text-sm transition-all shadow-lg shadow-rose-500/20"
+              >
+                Confirm Rejection
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {selectedSenior && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-[32px] w-full max-w-7xl max-h-[90vh] flex flex-col overflow-hidden shadow-2xl animate-in zoom-in-95 duration-200">
@@ -261,23 +377,7 @@ export default function ReviewQueuePage() {
                   </div>
                 </div>
 
-                <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-4 flex items-center gap-2"><CheckSquare size={14}/> Reviewer Checklist</h3>
-                
-                <div className="space-y-3 mb-8">
-                  {[
-                    { key: 'name_match', label: 'Name exactly matches uploaded documents' },
-                    { key: 'dob_match', label: 'Date of Birth matches documents' },
-                    { key: 'sex_match', label: 'Sex matches PSA Birth Certificate' },
-                    { key: 'document_authentic', label: 'Documents appear authentic and valid' },
-                  ].map(item => (
-                    <label key={item.key} className={`flex items-start gap-3 p-4 rounded-2xl border-2 cursor-pointer transition-all ${checklist[item.key as keyof typeof checklist] ? 'border-emerald-500 bg-emerald-50' : 'border-slate-100 bg-white hover:border-slate-200'}`}>
-                      <div className={`w-5 h-5 rounded flex items-center justify-center mt-0.5 ${checklist[item.key as keyof typeof checklist] ? 'bg-emerald-500 text-white' : 'bg-slate-200 text-transparent'}`}>
-                        <CheckCircle size={14} />
-                      </div>
-                      <span className={`text-sm font-bold ${checklist[item.key as keyof typeof checklist] ? 'text-emerald-900' : 'text-slate-600'}`}>{item.label}</span>
-                    </label>
-                  ))}
-                </div>
+
 
                 <div className="mb-8 flex-grow">
                   <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-4">Remarks</h3>
@@ -316,68 +416,63 @@ export default function ReviewQueuePage() {
                   </button>
                 </div>
 
-                {/* Auto Check Result Banner */}
-                <div className="mb-4">
-                   {(() => {
-                     const results = selectedSenior.auto_check_results;
-                     const currentField = activeTab === 'psa' ? 'psa_cert_file' : activeTab === 'osca' ? 'primary_id_file' : 'picture_2x2_file';
-                     const status = results?.[currentField]?.status;
-                     
-                     if (status === 'PASS') return <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 p-3 rounded-xl text-sm font-bold flex items-center gap-2"><CheckCircle size={16}/> Auto-Check Passed</div>;
-                     if (status === 'FAIL') return <div className="bg-rose-50 border border-rose-200 text-rose-800 p-3 rounded-xl text-sm font-bold flex items-center gap-2"><XCircle size={16}/> Auto-Check Failed</div>;
-                     if (status === 'NEEDS_REVIEW') return <div className="bg-amber-50 border border-amber-200 text-amber-800 p-3 rounded-xl text-sm font-bold flex items-center gap-2"><AlertTriangle size={16}/> Auto-Check Flagged: Manual verification required.</div>;
-                     return null;
-                   })()}
-                </div>
+
 
                 {/* Viewer */}
                 <div className="flex-grow bg-white rounded-[24px] border border-slate-200 shadow-sm overflow-hidden flex items-center justify-center">
-                   {(() => {
-                     const url = activeTab === 'psa' ? selectedSenior.psa_cert_file : activeTab === 'osca' ? selectedSenior.primary_id_file : selectedSenior.picture_2x2_file;
-                     
-                     if (!url) {
-                       return <div className="text-slate-400 font-bold flex flex-col items-center gap-3"><Eye size={48} className="opacity-20"/> No Document Uploaded</div>;
-                     }
+                    {(() => {
+                      const rawUrl = activeTab === 'psa' ? selectedSenior.psa_cert_file : activeTab === 'osca' ? selectedSenior.primary_id_file : selectedSenior.picture_2x2_file;
+                      const url = getCleanFileUrl(rawUrl);
+                      
+                      if (!url) {
+                        return <div className="text-slate-400 font-bold flex flex-col items-center gap-3"><Eye size={48} className="opacity-20"/> No Document Uploaded</div>;
+                      }
 
-                     const isImage = url.toLowerCase().match(/.(jpeg|jpg|gif|png)$/) != null;
+                      const isImage = url.toLowerCase().match(/.(jpeg|jpg|gif|png)$/) != null;
 
-                     if (isImage || activeTab === 'photo') {
-                       return <img src={url} alt="Document" className="max-w-full max-h-full object-contain p-4" />;
-                     } else {
-                       return <embed src={url} type="application/pdf" className="w-full h-full" />;
-                     }
-                   })()}
+                      if (isImage || activeTab === 'photo') {
+                        return (
+                          <div className="flex flex-col items-center justify-center w-full h-full p-4 gap-2">
+                            <img src={url} alt="Document" className="max-w-full max-h-[85%] object-contain" />
+                            <a href={url} target="_blank" rel="noreferrer" className="text-indigo-600 hover:text-indigo-800 underline text-xs font-black mt-2">
+                              🔗 Open Image in New Tab
+                            </a>
+                          </div>
+                        );
+                      } else {
+                        return (
+                          <div className="flex flex-col w-full h-full">
+                            <embed src={url} type="application/pdf" className="w-full h-full flex-grow" />
+                            <div className="p-3 bg-slate-50 border-t border-slate-200 text-center">
+                              <a href={url} target="_blank" rel="noreferrer" className="text-indigo-600 hover:text-indigo-800 underline text-xs font-black">
+                                🔗 Can't see the PDF? Click here to open it in a new tab
+                              </a>
+                            </div>
+                          </div>
+                        );
+                      }
+                    })()}
                 </div>
               </div>
             </div>
 
-            {/* Footer Actions */}
-            <div className="p-6 border-t border-slate-100 bg-white flex justify-between items-center">
-              <button 
-                onClick={() => submitReview('RETURN')}
-                disabled={isSubmitting}
-                className="px-6 py-3 bg-white border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-xl font-black text-sm transition-all disabled:opacity-50"
-              >
-                Return for Correction
-              </button>
-              
-              <div className="flex gap-3">
-                <button 
-                  onClick={() => submitReview('REJECT')}
-                  disabled={isSubmitting}
-                  className="px-6 py-3 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-xl font-black text-sm transition-all flex items-center gap-2 disabled:opacity-50"
-                >
-                  <XCircle size={18} /> Reject Registration
-                </button>
-                <button 
-                  onClick={() => submitReview('APPROVE')}
-                  disabled={!isChecklistComplete || isSubmitting}
-                  className={`px-8 py-3 rounded-xl font-black text-sm transition-all flex items-center gap-2 ${isChecklistComplete ? 'bg-emerald-500 hover:bg-emerald-600 text-white shadow-lg shadow-emerald-500/30' : 'bg-slate-100 text-slate-400 cursor-not-allowed'}`}
-                >
-                  <CheckCircle size={18} /> {isSubmitting ? 'Approving...' : 'Approve & Register'}
-                </button>
-              </div>
-            </div>
+             {/* Footer Actions */}
+             <div className="p-6 border-t border-slate-100 bg-white flex justify-end items-center gap-3">
+               <button 
+                 onClick={() => setIsRejectModalOpen(true)}
+                 disabled={isSubmitting}
+                 className="px-6 py-3 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-xl font-black text-sm transition-all flex items-center gap-2 disabled:opacity-50"
+               >
+                 <XCircle size={18} /> Reject Registration
+               </button>
+               <button 
+                 onClick={() => submitReview('APPROVE')}
+                 disabled={isSubmitting}
+                 className="px-8 py-3 bg-emerald-500 hover:bg-emerald-600 text-white shadow-lg shadow-emerald-500/30 rounded-xl font-black text-sm transition-all flex items-center gap-2 disabled:opacity-50"
+               >
+                 <CheckCircle size={18} /> {isSubmitting ? 'Approving...' : 'Approve & Register'}
+               </button>
+             </div>
 
           </div>
         </div>

@@ -91,8 +91,8 @@ class SeniorSerializer(serializers.ModelSerializer):
         civil_status = data.get('civil_status', '')
         annex_a_data = data.get('annex_a_data', {})
         
-        # If civil status is not MARRIED (e.g. SINGLE, WIDOWED, SEPARATED), ensure spouse details are cleared in annex_a_data
-        if civil_status != 'MARRIED':
+        # If civil status is not MARRIED or SEPARATED (e.g. SINGLE, WIDOWED, DIVORCED), ensure spouse details are cleared in annex_a_data
+        if civil_status not in ['MARRIED', 'SEPARATED']:
             if isinstance(annex_a_data, dict):
                 annex_a_data['spouse_name'] = ''
                 annex_a_data['spouse_citizenship'] = ''
