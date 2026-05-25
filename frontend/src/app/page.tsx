@@ -34,7 +34,8 @@ import {
   MapPin,
   Venus,
   Mars,
-  User
+  User,
+  CheckSquare
 } from 'lucide-react';
 import { authFetch } from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
@@ -47,6 +48,7 @@ export default function Dashboard() {
     total_seniors: 0,
     total_payouts: 0,
     pending_payouts: 0,
+    pending_reviews: 0,
     active_anomalies: 0,
     upcoming_seniors: 0,
     estimated_budget: 0,
@@ -381,20 +383,20 @@ export default function Dashboard() {
             </div>
           </div>
         ) : (
-          <div className="group bg-white p-8 rounded-[40px] border border-slate-100 shadow-sm hover:shadow-xl hover:shadow-indigo-500/5 transition-all duration-500 relative overflow-hidden">
-            <div className="absolute top-0 right-0 p-8 text-indigo-50 group-hover:text-indigo-100 transition-colors">
-              <CreditCard size={80} strokeWidth={1} />
+          <div className="group bg-white p-8 rounded-[40px] border border-slate-100 shadow-sm hover:shadow-xl hover:shadow-amber-500/5 transition-all duration-500 relative overflow-hidden">
+            <div className="absolute top-0 right-0 p-8 text-amber-50 group-hover:text-amber-100 transition-colors">
+              <CheckSquare size={80} strokeWidth={1} />
             </div>
             <div className="relative z-10 space-y-6">
-              <div className="bg-indigo-50 text-indigo-600 w-14 h-14 rounded-2xl flex items-center justify-center shadow-inner">
-                <CreditCard size={24} strokeWidth={2.5} />
+              <div className="bg-amber-50 text-amber-600 w-14 h-14 rounded-2xl flex items-center justify-center shadow-inner">
+                <CheckSquare size={24} strokeWidth={2.5} />
               </div>
               <div>
-                <h3 className="text-slate-400 font-black uppercase tracking-widest text-[10px]">Pending Payouts</h3>
-                <p className="text-5xl font-black text-slate-900 mt-1 tabular-nums">{isLoading ? '...' : stats.pending_payouts}</p>
+                <h3 className="text-slate-400 font-black uppercase tracking-widest text-[10px]">Pending Reviews</h3>
+                <p className="text-5xl font-black text-slate-900 mt-1 tabular-nums">{isLoading ? '...' : stats.pending_reviews}</p>
               </div>
-              <Link href="/disbursements" className="flex items-center gap-2 text-indigo-600 font-black uppercase tracking-widest text-[10px] group-hover:gap-3 transition-all">
-                Action Required <ArrowUpRight size={14} />
+              <Link href="/review" className="flex items-center gap-2 text-amber-600 font-black uppercase tracking-widest text-[10px] group-hover:gap-3 transition-all">
+                Verify Documents <ArrowUpRight size={14} />
               </Link>
             </div>
           </div>

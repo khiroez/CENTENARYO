@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Senior, Disbursement, AuditLog, AnomalyFlag
+from .models import Senior, Disbursement, AuditLog, AnomalyFlag, ReviewLog
 
 class AnomalyFlagSerializer(serializers.ModelSerializer):
     senior_name = serializers.SerializerMethodField()
@@ -51,14 +51,33 @@ class DisbursementSerializer(serializers.ModelSerializer):
     def get_senior_barangay(self, obj):
         return obj.senior.barangay
 
+class ReviewLogSerializer(serializers.ModelSerializer):
+    reviewer_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ReviewLog
+        fields = '__all__'
+
+    def get_reviewer_name(self, obj):
+        if obj.reviewer:
+            return f"{obj.reviewer.first_name} {obj.reviewer.last_name}".strip() or obj.reviewer.username
+        return 'System'
+
 class SeniorSerializer(serializers.ModelSerializer):
     # Kasama ang related disbursements at anomalies kapag finetch ang Senior!
     disbursements = DisbursementSerializer(many=True, read_only=True)
     anomalies = AnomalyFlagSerializer(many=True, read_only=True)
+    review_logs = ReviewLogSerializer(many=True, read_only=True)
+    reviewer_name = serializers.SerializerMethodField()
 
     class Meta:
         model = Senior
         fields = '__all__'
+
+    def get_reviewer_name(self, obj):
+        if obj.reviewed_by:
+            return f"{obj.reviewed_by.first_name} {obj.reviewed_by.last_name}".strip() or obj.reviewed_by.username
+        return None
 
     def validate_date_of_birth(self, value):
         from datetime import date

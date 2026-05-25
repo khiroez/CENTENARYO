@@ -3,9 +3,9 @@ from rest_framework.decorators import api_view, permission_classes, action
 from rest_framework.permissions import IsAuthenticated, BasePermission, AllowAny
 from rest_framework.response import Response
 from rest_framework.pagination import PageNumberPagination
-from .models import Senior, Disbursement, AuditLog, AnomalyFlag, UserProfile
+from .models import Senior, Disbursement, AuditLog, AnomalyFlag, UserProfile, ReviewLog
 from rest_framework_simplejwt.views import TokenObtainPairView
-from .serializers import SeniorSerializer, DisbursementSerializer, AuditLogSerializer, AnomalyFlagSerializer
+from .serializers import SeniorSerializer, DisbursementSerializer, AuditLogSerializer, AnomalyFlagSerializer, ReviewLogSerializer
 
 class CustomTokenObtainPairView(TokenObtainPairView):
     """
@@ -128,6 +128,18 @@ class SeniorViewSet(viewsets.ModelViewSet):
                 data['annex_a_data'] = json.loads(data['annex_a_data'])
             except json.JSONDecodeError:
                 pass
+        
+        # Parse auto_check_results if sent as JSON string
+        if 'auto_check_results' in data and isinstance(data['auto_check_results'], str):
+            import json
+            try:
+                data['auto_check_results'] = json.loads(data['auto_check_results'])
+            except json.JSONDecodeError:
+                data['auto_check_results'] = {}
+        
+        # New registrations always start as PENDING_REVIEW
+        data['registration_status'] = 'PENDING_REVIEW'
+        
         serializer = self.get_serializer(data=data)
         serializer.is_valid(raise_exception=True)
         self.perform_create(serializer)
@@ -184,8 +196,83 @@ class SeniorViewSet(viewsets.ModelViewSet):
         brgy_param = self.request.query_params.get('barangay', '')
         if brgy_param:
             queryset = queryset.filter(barangay__icontains=brgy_param)
+        
+        # Registration Status Filter
+        reg_status = self.request.query_params.get('registration_status', '')
+        if reg_status:
+            queryset = queryset.filter(registration_status=reg_status.upper())
                 
         return queryset
+
+    # === REVIEW WORKFLOW ACTIONS ===
+
+    @action(detail=False, methods=['get'], url_path='review-queue')
+    def review_queue(self, request):
+        """GET /api/seniors/review-queue/ — Returns all records pending review."""
+        pending = Senior.objects.filter(
+            registration_status__in=['PENDING_REVIEW', 'UNDER_REVIEW']
+        ).order_by('-created_at')
+        serializer = self.get_serializer(pending, many=True)
+        return Response(serializer.data)
+
+    @action(detail=True, methods=['post'], url_path='review')
+    def submit_review(self, request, pk=None):
+        """POST /api/seniors/{id}/review/ — Submit a review decision."""
+        from django.utils import timezone
+        senior = self.get_object()
+        review_action = request.data.get('action', '').upper()
+        remarks = request.data.get('remarks', '')
+        checklist = request.data.get('checklist_results', {})
+
+        if review_action not in ['APPROVE', 'REJECT', 'RETURN', 'ESCALATE']:
+            return Response(
+                {'error': 'Invalid action. Must be APPROVE, REJECT, RETURN, or ESCALATE.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Create review log entry
+        ReviewLog.objects.create(
+            senior=senior,
+            reviewer=request.user,
+            action=review_action,
+            remarks=remarks,
+            checklist_results=checklist if isinstance(checklist, dict) else {}
+        )
+
+        # Update senior registration status
+        status_map = {
+            'APPROVE': 'APPROVED',
+            'REJECT': 'REJECTED',
+            'RETURN': 'RETURNED',
+            'ESCALATE': 'UNDER_REVIEW',
+        }
+        senior.registration_status = status_map[review_action]
+        senior.reviewed_by = request.user
+        senior.reviewed_at = timezone.now()
+        senior.save()
+
+        # Audit log
+        AuditLog.objects.create(
+            user=request.user,
+            action='REVIEW',
+            target_model='Senior',
+            target_object_id=str(senior.id),
+            changes_summary=f"{review_action} registration for {senior.first_name} {senior.last_name} (OSCA: {senior.osca_id}). Remarks: {remarks}"
+        )
+
+        return Response({
+            'status': 'success',
+            'registration_status': senior.registration_status,
+            'message': f'Registration {review_action.lower()}d successfully.'
+        })
+
+    @action(detail=True, methods=['get'], url_path='review-logs')
+    def review_logs(self, request, pk=None):
+        """GET /api/seniors/{id}/review-logs/ — Get review history for a senior."""
+        senior = self.get_object()
+        logs = senior.review_logs.all()
+        serializer = ReviewLogSerializer(logs, many=True)
+        return Response(serializer.data)
 
 class DisbursementViewSet(viewsets.ModelViewSet):
     """
@@ -413,6 +500,7 @@ def dashboard_stats(request):
     total_payouts = Disbursement.objects.filter(status='RELEASED').count()
     pending_payouts = Disbursement.objects.filter(status='PENDING').count()
     active_anomalies = AnomalyFlag.objects.filter(is_resolved=False).count()
+    pending_reviews = Senior.objects.filter(registration_status__in=['PENDING_REVIEW', 'UNDER_REVIEW']).count()
     
     # 1. Document Verification Percentage
     # A senior is "Verified" if they have PSA, ID, and Photo
@@ -514,6 +602,7 @@ def dashboard_stats(request):
         'total_seniors': total_seniors,
         'total_payouts': total_payouts,
         'pending_payouts': pending_payouts,
+        'pending_reviews': pending_reviews,
         'active_anomalies': active_anomalies,
         'upcoming_seniors': upcoming_seniors,
         'estimated_budget': estimated_budget,

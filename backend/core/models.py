@@ -8,6 +8,13 @@ class Senior(models.Model):
         ('TRANSFERRED', 'Transferred'),
         ('SUSPENDED', 'Suspended/Fraud'),
     ]
+    REGISTRATION_STATUS_CHOICES = [
+        ('PENDING_REVIEW', 'Pending Review'),
+        ('UNDER_REVIEW', 'Under Review'),
+        ('APPROVED', 'Approved'),
+        ('REJECTED', 'Rejected'),
+        ('RETURNED', 'Returned for Correction'),
+    ]
     SEX_CHOICES = [
         ('Male', 'Male'),
         ('Female', 'Female'),
@@ -41,12 +48,55 @@ class Senior(models.Model):
     psa_cert_file = models.FileField(upload_to='requirements/psa/', null=True, blank=True)
     primary_id_file = models.FileField(upload_to='requirements/id/', null=True, blank=True)
     picture_2x2_file = models.ImageField(upload_to='requirements/pictures/', null=True, blank=True)
+
+    # Registration Review Workflow
+    registration_status = models.CharField(
+        max_length=20,
+        choices=REGISTRATION_STATUS_CHOICES,
+        default='PENDING_REVIEW',
+        help_text="Document verification status in the review pipeline"
+    )
+    auto_check_results = models.JSONField(
+        default=dict, blank=True,
+        help_text="Automated pre-check results from client-side validation"
+    )
+    reviewed_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='reviewed_seniors',
+        help_text="Staff/Admin who approved or rejected this registration"
+    )
+    reviewed_at = models.DateTimeField(null=True, blank=True)
     
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
-        return f"{self.first_name} {self.last_name} ({self.osca_id}) - {self.status}"
+        return f"{self.first_name} {self.last_name} ({self.osca_id}) - {self.registration_status}"
+
+class ReviewLog(models.Model):
+    """Tracks every review action taken on a senior registration."""
+    ACTION_CHOICES = [
+        ('APPROVE', 'Approved'),
+        ('REJECT', 'Rejected'),
+        ('RETURN', 'Returned for Correction'),
+        ('ESCALATE', 'Escalated to Admin'),
+        ('RESUBMIT', 'Resubmitted by Staff'),
+    ]
+    senior = models.ForeignKey(Senior, on_delete=models.CASCADE, related_name='review_logs')
+    reviewer = models.ForeignKey(User, on_delete=models.SET_NULL, null=True)
+    action = models.CharField(max_length=20, choices=ACTION_CHOICES)
+    remarks = models.TextField(blank=True)
+    checklist_results = models.JSONField(
+        default=dict, blank=True,
+        help_text="Reviewer's manual checklist: {name_match: true, dob_match: true, ...}"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"Review {self.action} on {self.senior} by {self.reviewer} at {self.created_at}"
+
+    class Meta:
+        ordering = ['-created_at']
 
 class Disbursement(models.Model):
     QUARTER_CHOICES = [

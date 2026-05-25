@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
-import { Home, Users, FileText, AlertTriangle, Settings, Activity, ClipboardList, LogOut, Shield, UserCircle } from 'lucide-react';
+import { Home, Users, FileText, AlertTriangle, Settings, Activity, ClipboardList, LogOut, Shield, UserCircle, CheckSquare } from 'lucide-react';
 
 export default function Sidebar() {
   const pathname = usePathname();
@@ -13,6 +13,7 @@ export default function Sidebar() {
   const navLinks = [
     { name: 'Dashboard', href: '/', icon: Home, roles: ['STAFF', 'ADMIN'] },
     { name: 'Senior Registry', href: '/seniors', icon: Users, roles: ['STAFF', 'ADMIN'] },
+    { name: 'Review Queue', href: '/review', icon: CheckSquare, roles: ['STAFF', 'ADMIN'] },
     { name: 'Disbursements', href: '/disbursements', icon: FileText, roles: ['STAFF', 'ADMIN'] },
     { name: 'Anomaly Review', href: '/anomalies', icon: AlertTriangle, roles: ['ADMIN'] },
     { name: 'Audit Logs', href: '/auditlogs', icon: ClipboardList, roles: ['ADMIN'] },
