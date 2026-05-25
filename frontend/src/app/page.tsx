@@ -288,7 +288,8 @@ export default function Dashboard() {
   const financialStats = stats.financial_stats || { released_amount: 0, pending_amount: 0, cancelled_amount: 0 };
 
   return (
-    <div className="space-y-10 pb-16 animate-in fade-in duration-700">
+    <>
+      <div className="space-y-10 pb-16 animate-in fade-in duration-700">
       
       {/* Page Header */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 bg-white p-10 rounded-[40px] border border-slate-100 shadow-sm relative overflow-hidden">
@@ -790,6 +791,7 @@ export default function Dashboard() {
             </div>
         </div>
       )}
+      </div>
 
       {/* --- AI INTELLIGENCE BRIEFING MODAL --- */}
       {isModalOpen && (
@@ -1105,6 +1107,6 @@ export default function Dashboard() {
         )}
       </div>
 
-    </div>
+    </>
   );
 }

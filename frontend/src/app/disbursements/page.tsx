@@ -326,13 +326,13 @@ export default function DisbursementsPage() {
           <table className="w-full text-left border-collapse whitespace-nowrap">
             <thead className="bg-slate-50/80 border-b border-slate-200/80 text-[11px] uppercase tracking-wider text-slate-500 font-bold">
               <tr>
-                <th className="px-8 py-5">Ref ID</th>
-                <th className="px-8 py-5">Beneficiary</th>
-                <th className="px-8 py-5">Barangay</th>
-                <th className="px-8 py-5">Amount</th>
-                <th className="px-8 py-5">Quarter / Year</th>
-                <th className="px-8 py-5">Status</th>
-                <th className="px-8 py-5 text-right">Actions</th>
+                <th className="px-4 py-4">Ref ID</th>
+                <th className="px-4 py-4">Beneficiary</th>
+                <th className="px-4 py-4">Barangay</th>
+                <th className="px-4 py-4">Amount</th>
+                <th className="px-4 py-4">Quarter / Year</th>
+                <th className="px-4 py-4">Status</th>
+                <th className="px-4 py-4 text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -354,19 +354,19 @@ export default function DisbursementsPage() {
               ) : (
                 disbursements.map((item) => (
                   <tr key={item.id} className="hover:bg-slate-50/80 transition-colors group">
-                    <td className="px-8 py-6 text-xs font-mono font-bold text-slate-400 bg-slate-50/40 group-hover:bg-transparent transition-colors">
+                    <td className="px-4 py-4 text-xs font-mono font-bold text-slate-400 bg-slate-50/40 group-hover:bg-transparent transition-colors">
                       {item.reference_number || `#${String(item.id).padStart(8, '0')}`}
                     </td>
-                    <td className="px-8 py-6">
+                    <td className="px-4 py-4">
                       <div className="flex flex-col">
                         <span className="font-bold text-slate-800 text-[15px]">{item.senior_name || "Unknown Senior"}</span>
                         <span className="text-slate-400 font-mono text-xs font-semibold mt-0.5">{item.senior_osca_id}</span>
                       </div>
                     </td>
-                    <td className="px-8 py-6 text-sm font-medium text-slate-600">
+                    <td className="px-4 py-4 text-sm font-medium text-slate-600">
                       {item.senior_barangay || "—"}
                     </td>
-                    <td className="px-8 py-6">
+                    <td className="px-4 py-4">
                       <div className="flex flex-col gap-1.5 items-start">
                         <span className="font-black text-slate-800 text-lg">
                           ₱{parseFloat(item.amount).toLocaleString('en-PH', { minimumFractionDigits: 2 })}
@@ -393,24 +393,24 @@ export default function DisbursementsPage() {
                         )}
                       </div>
                     </td>
-                    <td className="px-8 py-6 text-sm font-semibold text-slate-700">
+                    <td className="px-4 py-4 text-sm font-semibold text-slate-700">
                       {item.quarter} · {item.year}
                     </td>
-                    <td className="px-8 py-6">
+                    <td className="px-4 py-4">
                       {renderStatusBadge(item.status)}
                     </td>
-                    <td className="px-8 py-6 text-right">
+                    <td className="px-4 py-4 text-right">
                       <div className="flex gap-2 justify-end">
                         <button
                           onClick={() => { setSelectedDisbursement(item); setIsDetailModalOpen(true); }}
-                          className="px-4 py-2 bg-slate-50 text-slate-500 text-xs font-bold rounded-xl border border-slate-200 hover:bg-slate-100 transition-all"
+                          className="px-3 py-1.5 bg-slate-50 text-slate-500 text-xs font-bold rounded-xl border border-slate-200 hover:bg-slate-100 transition-all"
                         >
                           View Details
                         </button>
                         {item.status === 'PENDING' && (
                           <button
                             onClick={() => handleMarkReleased(item.id)}
-                            className="px-4 py-2 bg-white border-2 border-emerald-500 text-emerald-600 text-xs font-bold rounded-xl hover:bg-emerald-500 hover:text-white transition-all shadow-sm flex items-center gap-1.5"
+                            className="px-3 py-1.5 bg-white border-2 border-emerald-500 text-emerald-600 text-xs font-bold rounded-xl hover:bg-emerald-500 hover:text-white transition-all shadow-sm flex items-center gap-1.5"
                           >
                             <CheckCircle size={14} />
                             Mark Released

@@ -242,7 +242,7 @@ export default function ReviewQueuePage() {
       {/* Review Modal */}
       {/* Rejection Reasons Sub-Modal */}
       {isRejectModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-sm z-[160] flex items-center justify-center p-4">
           <div className="bg-white rounded-[32px] w-full max-w-lg p-8 shadow-2xl flex flex-col gap-6 animate-in zoom-in-95 duration-200">
             <div>
               <h3 className="text-2xl font-black text-slate-800 tracking-tight flex items-center gap-2">
@@ -331,7 +331,7 @@ export default function ReviewQueuePage() {
         </div>
       )}
       {selectedSenior && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[150] flex items-center justify-center p-4">
           <div className="bg-white rounded-[32px] w-full max-w-7xl max-h-[90vh] flex flex-col overflow-hidden shadow-2xl animate-in zoom-in-95 duration-200">
             {/* Header */}
             <div className="px-8 py-6 border-b border-slate-100 flex justify-between items-center bg-slate-50">
