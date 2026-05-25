@@ -424,11 +424,11 @@ export default function SeniorRegistryPage() {
         const buffer = event.target?.result as ArrayBuffer;
         const fileSize = file.size;
 
-        // Size check: 50KB to 20MB
-        if (fileSize < 50000 || fileSize > 20000000) {
+        // Size check: 10KB to 20MB
+        if (fileSize < 10000 || fileSize > 20000000) {
           setVerificationState(prev => prev ? { 
             ...prev, stage: 'results', status: 'FAIL', 
-            errorMessage: 'Rejected: File size must be between 50KB and 20MB.' 
+            errorMessage: 'Rejected: File size must be between 10KB and 20MB.' 
           } : null);
           return;
         }
