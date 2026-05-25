@@ -4,9 +4,11 @@ from django.contrib.auth.models import User
 from django.db import transaction
 from datetime import date, timedelta
 import random
+import os
+import re
 
 class Command(BaseCommand):
-    help = 'Seeds the database with RA 11982 compliant mock data for Quezon City'
+    help = 'Seeds the database with RA 11982 compliant mock data for Quezon City using unique extracted names'
 
     def handle(self, *args, **kwargs):
         self.stdout.write('Cleaning old data...')
@@ -37,10 +39,79 @@ class Command(BaseCommand):
             'District 6': ['Apolonio Samson','Baesa','Balon Bato','Culiat','New Era','Pasong Tamo','Sangandaan','Tandang Sora','Unang Sigaw','Sauyo','Talipapa'],
         }
 
-        male_first_names = ['Juan', 'Jose', 'Antonio', 'Manuel', 'Ramon', 'Francisco', 'Eduardo', 'Rolando', 'Ricardo', 'Roberto', 'Reynaldo', 'Alfredo', 'Danilo', 'Ernesto', 'Dominador', 'Salvador']
-        female_first_names = ['Maria', 'Corazon', 'Luz', 'Carmen', 'Rosa', 'Teresa', 'Josefina', 'Imelda', 'Lourdes', 'Virginia', 'Esperanza', 'Adoracion', 'Leonora', 'Flordeliza', 'Estrella', 'Fe']
-        last_names = ['Dela Cruz', 'Santos', 'Reyes', 'Diaz', 'Cruz', 'Bautista', 'Ocampo', 'Aquino', 'Garcia', 'Lopez', 'Ramos', 'Mendoza', 'Solis', 'Marquez', 'Castillo', 'Villanueva', 'Fernandez', 'Santiago']
-        
+        # Parse the extracted names from the markdown file
+        names_file_path = r'd:\codes\cen4\extracted_names_839.md'
+        parsed_names = []
+        if os.path.exists(names_file_path):
+            self.stdout.write(f'Reading names from {names_file_path}...')
+            with open(names_file_path, 'r', encoding='utf-8') as f:
+                for line in f:
+                    line = line.strip()
+                    # Match lines like | 1 | DIAZ | NENITA | COSTIN |
+                    match = re.match(r'^\|\s*\d+\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|\s*([^|]*?)\s*\|$', line)
+                    if match:
+                        last = match.group(1).strip()
+                        first = match.group(2).strip()
+                        middle = match.group(3).strip()
+                        parsed_names.append((first, middle, last))
+        else:
+            self.stdout.write(self.style.WARNING(f'Warning: {names_file_path} not found. Using default names.'))
+            parsed_names = [
+                ('Nenita', 'Costin', 'Diaz'),
+                ('Ramon', 'Perez', 'Abalos'),
+                ('Valentina', 'Panfilo', 'Dabi'),
+                ('Rosa', 'Ngo', 'Lao'),
+                ('Maria', 'Sebastian', 'Abuyuan')
+            ]
+
+        # De-duplicate names from the file
+        seen_names = set()
+        unique_names = []
+        for first, middle, last in parsed_names:
+            key = (first.upper(), middle.upper(), last.upper())
+            if key not in seen_names:
+                seen_names.add(key)
+                unique_names.append((first, middle, last))
+
+        self.stdout.write(f'Found {len(unique_names)} unique names in the extracted file.')
+
+        # Collect name pools for generating remaining names up to 1300
+        all_firsts = list(set([n[0] for n in unique_names]))
+        all_middles = list(set([n[1] for n in unique_names]))
+        all_lasts = list(set([n[2] for n in unique_names]))
+
+        # Generate unique name combinations to fill up to 1300 records
+        while len(unique_names) < 1300:
+            first = random.choice(all_firsts)
+            middle = random.choice(all_middles)
+            last = random.choice(all_lasts)
+            key = (first.upper(), middle.upper(), last.upper())
+            if key not in seen_names:
+                seen_names.add(key)
+                unique_names.append((first, middle, last))
+
+        self.stdout.write(f'Total target unique names generated: {len(unique_names)}')
+
+        # Helper to guess sex from first name
+        def guess_sex(first_name):
+            first_upper = first_name.upper()
+            female_endings = ('ITA', 'INA', 'ILA', 'ELA', 'CIA', 'OSA', 'RIA', 'ISA', 'IDA', 'DRA', 'ORA', 'NZA', 'LZA', 'NDA', 'RTA', 'ICA')
+            female_names = {'MARIA', 'LUZ', 'CORAZON', 'ESTRELLA', 'FE', 'CARMEN', 'TERESA', 'JOSEFINA', 'LOURDES', 'VIRGINIA', 'ESPERANZA', 'IMELDA', 'ROSARIO', 'MERCEDES', 'CONCEPCION', 'BEATRIZ', 'DOLORES', 'GLORIA', 'PAZ', 'SOCORRO', 'PILAR', 'NIEVES', 'REMEDIOS', 'CONSUELO', 'ANTONINA', 'ISABELITA', 'LETECIA', 'JULITA', 'LUISA', 'EMILIA'}
+            male_names = {'RAMON', 'PERFECTO', 'EDUARDO', 'MARCELINO', 'FORTUNATO', 'ALBERTO', 'PACIFICO', 'CARLITO', 'DOMINGO', 'FLORENCIO', 'JOSE', 'ANTONIO', 'MANUEL', 'FRANCISCO', 'ROLANDO', 'RICARDO', 'ROBERTO', 'REYNALDO', 'ALFREDO', 'DANILO', 'ERNESTO', 'DOMINADOR', 'SALVADOR', 'JUAN', 'PEDRO', 'SANTIAGO', 'FELIPE', 'TOMAS', 'MATEO', 'LUCAS', 'ANDRES', 'BARTOLOME'}
+            
+            # Check exact match first
+            for name in female_names:
+                if name in first_upper:
+                    return 'Female'
+            for name in male_names:
+                if name in first_upper:
+                    return 'Male'
+            
+            # Suffix check
+            if first_upper.endswith(female_endings) or first_upper.endswith('A'):
+                return 'Female'
+            return 'Male'
+
         today = date.today()
         
         self.stdout.write('Generating Seniors with exact age distributions...')
@@ -64,12 +135,16 @@ class Command(BaseCommand):
         
         with transaction.atomic():
             for i, target_age in enumerate(age_ranges):
-                # Pick names and gender
-                is_male = random.choice([True, False])
-                fn = random.choice(male_first_names) if is_male else random.choice(female_first_names)
-                ln = random.choice(last_names)
-                mn = random.choice(last_names)
-                sex = 'Male' if is_male else 'Female'
+                # Pick unique name
+                first, middle, last = unique_names[i]
+                
+                # Format to Title Case for UI presentation
+                fn = first.title()
+                mn = middle.title() if middle else ""
+                ln = last.title()
+                
+                # Guess sex
+                sex = guess_sex(fn)
                 
                 # QC District and Barangay selection
                 district = random.choice(list(qc_districts.keys()))
@@ -91,12 +166,13 @@ class Command(BaseCommand):
                 spouse_name = ""
                 spouse_citizenship = ""
                 if civil_status in ['MARRIED', 'SEPARATED']:
-                    spouse_first = random.choice(female_first_names) if is_male else random.choice(male_first_names)
+                    # Generate a unique spouse first name from lists
+                    spouse_first = random.choice(all_firsts).title()
                     spouse_name = f"{spouse_first} {ln}"
                     spouse_citizenship = "Filipino"
                 
-                primary_ben = f"{random.choice(male_first_names if random.choice([True, False]) else female_first_names)} {ln}"
-                reps = [{'name': f"{random.choice(male_first_names if random.choice([True, False]) else female_first_names)} {random.choice(last_names)}", 'relation': 'Child'}]
+                primary_ben = f"{random.choice(all_firsts).title()} {ln}"
+                reps = [{'name': f"{random.choice(all_firsts).title()} {random.choice(all_lasts).title()}", 'relation': 'Child'}]
 
                 annex_data = {
                     'given_name': fn,
