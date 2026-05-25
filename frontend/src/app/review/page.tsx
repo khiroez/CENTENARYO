@@ -6,6 +6,7 @@ import { useAuth } from "@/context/AuthContext";
 import { useNotifications } from "@/context/NotificationContext";
 import { authFetch } from "@/lib/api";
 import { useUI } from "@/context/UIContext";
+import PdfViewer from "@/components/PdfViewer";
 
 export default function ReviewQueuePage() {
   const { user, isAdmin } = useAuth();
@@ -441,13 +442,8 @@ export default function ReviewQueuePage() {
                         );
                       } else {
                         return (
-                          <div className="flex flex-col w-full h-full">
-                            <embed src={url} type="application/pdf" className="w-full h-full flex-grow" />
-                            <div className="p-3 bg-slate-50 border-t border-slate-200 text-center">
-                              <a href={url} target="_blank" rel="noreferrer" className="text-indigo-600 hover:text-indigo-800 underline text-xs font-black">
-                                🔗 Can't see the PDF? Click here to open it in a new tab
-                              </a>
-                            </div>
+                          <div className="w-full h-full p-4 overflow-hidden flex flex-col">
+                            <PdfViewer url={url} />
                           </div>
                         );
                       }

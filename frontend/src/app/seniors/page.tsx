@@ -7,6 +7,7 @@ import { useNotifications } from "@/context/NotificationContext";
 import { useSearchParams } from "next/navigation";
 import { authFetch } from "@/lib/api";
 import { useUI } from "@/context/UIContext";
+import PdfViewer from "@/components/PdfViewer";
 
 const QUEZON_CITY_BARANGAYS: Record<string, string[]> = {
   'District 1': ['Vasra','Bagong Pag-asa','Sto. Cristo','Project 6','Ramon Magsaysay','Alicia','Bahay Toro','Katipunan','San Antonio','Veterans Village','Bungad','Phil-Am','West Triangle','Sta. Cruz','Nayong Kanluran','Paltok','Paraiso','Mariblo','Damayan','Del Monte','Masambong','Talayan','Sto. Domingo','Siena','St. Peter','San Jose','Manresa','Damar','Pag-ibig sa Nayon','Balingasa','Sta. Teresita','San Isidro Labrador','Paang Bundok','Salvacion','N.S Amoranto','Maharlika','Lourdes'],
@@ -62,6 +63,7 @@ export default function SeniorRegistryPage() {
     documentType?: string;
   }
   const [verificationState, setVerificationState] = useState<VerificationState | null>(null);
+  const [pdfPreviewSrc, setPdfPreviewSrc] = useState<{ url?: string; file?: File | null; title: string } | null>(null);
 
   const openSuccess = (title: string, message: string) => showModal('success', title, message);
   const openError = (title: string, message: string) => showModal('error', title, message);
@@ -272,6 +274,16 @@ export default function SeniorRegistryPage() {
     
     if (!formData.osca_id_year || !formData.osca_id_serial) {
       openWarning("OSCA ID Required", "Please complete the OSCA ID details.");
+      return;
+    }
+
+    // Enforce documentary requirements are uploaded
+    const hasPsa = !!(formData.psa_cert_file || formData.psa_cert_url);
+    const hasPrimaryId = !!(formData.primary_id_file || formData.primary_id_url);
+    const hasPhoto = !!(formData.picture_2x2_file || formData.picture_2x2_url);
+
+    if (!hasPsa || !hasPrimaryId || !hasPhoto) {
+      openWarning("Missing Documents", "Please upload all three required documents (PSA Birth Certificate, OSCA ID, and 2x2 Photo) before saving changes.");
       return;
     }
     
@@ -1040,20 +1052,24 @@ export default function SeniorRegistryPage() {
                                   <p className="text-[9px] font-bold text-slate-400 mt-1 truncate max-w-[150px]">
                                     {formData.psa_cert_file ? formData.psa_cert_file.name : (formData.psa_cert_url ? getFileNameFromUrl(formData.psa_cert_url) : 'Upload PDF Only')}
                                   </p>
-                                  {formData.psa_cert_url && !formData.psa_cert_file && (
-                                    <a 
-                                      href={formData.psa_cert_url} 
-                                      target="_blank" 
-                                      rel="noopener noreferrer"
+                                  {(formData.psa_cert_file || formData.psa_cert_url) && (
+                                    <button 
+                                      type="button"
+                                      onClick={() => setPdfPreviewSrc({ 
+                                        url: formData.psa_cert_file ? undefined : formData.psa_cert_url, 
+                                        file: formData.psa_cert_file || null,
+                                        title: 'PSA Birth Certificate' 
+                                      })}
                                       className="mt-2 px-3 py-1 bg-indigo-50 text-indigo-600 rounded-lg text-[9px] font-black uppercase tracking-widest hover:bg-indigo-100 transition-all relative z-20"
                                     >
                                       View File
-                                    </a>
+                                    </button>
                                   )}
                                 </div>
                               </div>
                             </div>
                           </div>
+                          
                           <div className="p-6 bg-slate-50 rounded-[32px] border-2 border-dashed border-slate-200 hover:border-indigo-400 group relative transition-all border-spacing-2">
                             <input type="file" accept=".pdf" onChange={(e) => handleFileChange(e, 'primary_id_file')} className="absolute inset-0 opacity-0 cursor-pointer z-10" />
                             <div className="flex flex-col items-center text-center gap-3">
@@ -1074,20 +1090,24 @@ export default function SeniorRegistryPage() {
                                   <p className="text-[9px] font-bold text-slate-400 mt-1 truncate max-w-[150px]">
                                     {formData.primary_id_file ? formData.primary_id_file.name : (formData.primary_id_url ? getFileNameFromUrl(formData.primary_id_url) : 'Upload PDF Only')}
                                   </p>
-                                  {formData.primary_id_url && !formData.primary_id_file && (
-                                    <a 
-                                      href={formData.primary_id_url} 
-                                      target="_blank" 
-                                      rel="noopener noreferrer"
+                                  {(formData.primary_id_file || formData.primary_id_url) && (
+                                    <button 
+                                      type="button"
+                                      onClick={() => setPdfPreviewSrc({ 
+                                        url: formData.primary_id_file ? undefined : formData.primary_id_url, 
+                                        file: formData.primary_id_file || null,
+                                        title: 'OSCA ID' 
+                                      })}
                                       className="mt-2 px-3 py-1 bg-indigo-50 text-indigo-600 rounded-lg text-[9px] font-black uppercase tracking-widest hover:bg-indigo-100 transition-all relative z-20"
                                     >
                                       View File
-                                    </a>
+                                    </button>
                                   )}
                                 </div>
                               </div>
                             </div>
                           </div>
+
                           <div className="p-6 bg-slate-50 rounded-[32px] border-2 border-dashed border-slate-200 hover:border-indigo-400 group relative transition-all border-spacing-2">
                             <input type="file" accept="image/*" onChange={(e) => handleFileChange(e, 'picture_2x2_file')} className="absolute inset-0 opacity-0 cursor-pointer z-10" />
                             <div className="flex flex-col items-center text-center gap-3">
@@ -1108,9 +1128,9 @@ export default function SeniorRegistryPage() {
                                   <p className="text-[9px] font-bold text-slate-400 mt-1 truncate max-w-[150px]">
                                     {formData.picture_2x2_file ? formData.picture_2x2_file.name : (formData.picture_2x2_url ? getFileNameFromUrl(formData.picture_2x2_url) : 'Upload Image')}
                                   </p>
-                                  {formData.picture_2x2_url && !formData.picture_2x2_file && (
+                                  {(formData.picture_2x2_file || formData.picture_2x2_url) && (
                                     <a 
-                                      href={formData.picture_2x2_url} 
+                                      href={formData.picture_2x2_file ? URL.createObjectURL(formData.picture_2x2_file) : formData.picture_2x2_url} 
                                       target="_blank" 
                                       rel="noopener noreferrer"
                                       className="mt-2 px-3 py-1 bg-indigo-50 text-indigo-600 rounded-lg text-[9px] font-black uppercase tracking-widest hover:bg-indigo-100 transition-all relative z-20"
@@ -1310,6 +1330,32 @@ export default function SeniorRegistryPage() {
               >
                 Accept for Review
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Shared PDF Preview Modal */}
+      {pdfPreviewSrc && (
+        <div className="fixed inset-0 z-[300] flex items-center justify-center bg-slate-900/70 backdrop-blur-md p-4 md:p-10 animate-in fade-in duration-200">
+          <div className="bg-white rounded-[40px] shadow-2xl w-full max-w-5xl h-[85vh] overflow-hidden border border-slate-200 flex flex-col">
+            <div className="px-10 py-6 border-b border-slate-100 bg-slate-50 flex justify-between items-center shrink-0">
+              <div className="flex items-center gap-3">
+                <FileText className="text-indigo-600" size={24} />
+                <h3 className="text-sm font-black text-slate-800 uppercase tracking-wider">
+                  Document Preview: {pdfPreviewSrc.title}
+                </h3>
+              </div>
+              <button 
+                type="button"
+                onClick={() => setPdfPreviewSrc(null)}
+                className="w-10 h-10 bg-white border border-slate-200 rounded-xl flex items-center justify-center text-slate-400 hover:text-rose-500 hover:border-rose-200 transition-all"
+              >
+                <X size={20} />
+              </button>
+            </div>
+            <div className="p-8 flex-grow overflow-hidden flex items-center justify-center bg-slate-50">
+              <PdfViewer url={pdfPreviewSrc.url} file={pdfPreviewSrc.file} />
             </div>
           </div>
         </div>
