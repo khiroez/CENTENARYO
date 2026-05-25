@@ -5,32 +5,49 @@
 
 ## 📌 Executive Summary
 
-**CENTENARYO** is an enterprise-grade, high-fidelity administrative platform built to automate and secure the implementation of **Republic Act No. 11982** (The Expanded Centenarian Act of the Philippines). 
+**CENTENARYO** is a specialized administrative platform built to automate and secure the local implementation of **Republic Act No. 11982** (The Expanded Centenarian Act of the Philippines). 
 
 The platform serves as the central operational hub for the **National Commission of Senior Citizens (NCSC)** and local government units (LGUs). It manages the entire lifecycle of milestone financial awards:
-*   **₱10,000** milestone payouts for senior citizens reaching the ages of **80, 85, 90, and 95**.
-*   **₱100,000** milestone payout for senior citizens reaching the age of **100**.
+*   **₱10,000 milestone payouts** for senior citizens reaching the ages of **80, 85, 90, and 95**.
+*   **₱100,000 milestone payout** for senior citizens reaching the age of **100**.
 
-By combining modern cloud engineering, dynamic visual analytics, real-time auditing, and an **AI-powered Machine Learning anomaly detection classifier**, CENTENARYO ensures absolute transparency, halts ghost-voter syndicates, and guarantees fast, direct disbursement to eligible Filipino seniors.
+By combining standalone local application services, dynamic visual analytics, real-time auditing, and an **AI-powered Random Forest anomaly detection classifier**, CENTENARYO ensures absolute transparency, prevents duplicate claims, and guarantees fast, direct disbursement to eligible Filipino seniors.
 
 ---
 
 ## 🛠️ Complete Technology Stack
 
-```mermaid
-graph TD
-    A[Next.js App Router UI] -->|JWT Auth Requests| B[Django REST API Gateway]
-    B -->|Model Audits & CRUD| C[(SQLite / PostgreSQL)]
-    B -->|Inference Predict| D[Scikit-Learn Random Forest Classifier]
+```
++-------------------------------------------------------------+
+|                     Next.js Frontend (UI)                   |
+|  - Custom CSS & Tailwind UI Controls                        |
+|  - In-Memory Canvas-Based PDF Viewer (Bypasses IDM)         |
++-------------------------------------------------------------+
+                              |
+                     (JWT Auth API Requests)
+                              v
++-------------------------------------------------------------+
+|                      Django REST Backend                    |
+|  - Role-Based Access Control (Admin / Staff)                |
+|  - Random Forest Machine Learning Classifier                |
+|  - Signal-Driven Audit Logging Engine                       |
++-------------------------------------------------------------+
+                              |
+                    (Local Read/Write Queries)
+                              v
++-------------------------------------------------------------+
+|                    SQLite Database Engine                   |
+|  - db.sqlite3 (Full offline portability)                     |
++-------------------------------------------------------------+
 ```
 
 ### 1. Frontend Architecture
 *   **Framework**: [Next.js 15](https://nextjs.org/) using React 19, the App Router pattern, and Turbopack for optimal hot-reloading speed.
-*   **Styling & Themes**: Custom Vanilla CSS coupled with Tailwind CSS for glassmorphism panels, harmonious soft colors, and fully responsive layouts.
+*   **Styling & Themes**: Custom Vanilla CSS coupled with Tailwind CSS for glassmorphism panels, soft colors, and fully responsive layouts.
 *   **State Management**: React Context API providing global asynchronous states:
     *   `AuthContext`: Handles JWT token lifecycle, refresh rotations, and Role-Based Access Control (RBAC).
-    *   `UI & Notification Context`: Houses the custom global toast/modal animation alerts.
-*   **Icons & Visuals**: Lucide React.
+    *   `UI & Notification Context`: Houses custom global toast/modal animation alerts.
+*   **Custom PDF Renderer**: Canvas-based interactive PDF viewer (`PdfViewer.tsx`) powered by `pdfjs-dist`. It fetches PDF files in-memory as an `ArrayBuffer` to bypass browser download managers like IDM, rendering page canvases with zoom-in/out and reset controls.
 
 ### 2. Backend & Intelligence Engine
 *   **Application Server**: [Django 6.0](https://www.djangoproject.com/) — secure, scalable, and highly structured python web framework.
@@ -42,17 +59,14 @@ graph TD
     *   High-frequency registration velocity.
     *   Abnormal milestones.
 
-### 3. Data Storage & Deployment
-*   **Database**: PostgreSQL (Production) / SQLite (Local development for zero-config setups).
-*   **Hosting Pipelines**:
-    *   Frontend: Vercel (Edge-optimized serverless rendering).
-    *   Backend: Render (WSGI Application Container).
+### 3. Data Storage & Desktop Integration
+*   **Database**: SQLite, storing data in a single portable file (`backend/db.sqlite3`).
+*   **Native Process Orchestration**: C# WinForms App (`CENTENARYO.exe`) acting as a native process launcher. It cleans ports (8000), starts Django, checks server readiness, and loads Chrome/Edge in `--app` standalone mode.
+*   **Portable Packaging**: Packaged via PyInstaller (`build_portable.bat`) into a standalone distribution directory.
 
 ---
 
 ## 🗃️ Database Schema & Data Models
-
-The system is structured around 5 highly optimized models:
 
 ```mermaid
 erDiagram
@@ -60,107 +74,52 @@ erDiagram
     User ||--o{ AuditLog : "creates logs"
     Senior ||--o{ Disbursement : "receives payouts"
     Senior ||--o{ AnomalyFlag : "is flagged by"
+    Senior ||--o{ ReviewLog : "tracks verification"
 ```
 
 ### 1. `Senior` (Beneficiary Registry)
 Represents the official government profiles of registered senior citizens under Annex A:
 *   `first_name` & `last_name` (`CharField`): Biological names.
 *   `date_of_birth` (`DateField`): Birth date (drives dynamic milestone calculations).
-*   `osca_id` (`CharField`): Unique Senior Citizen Identification number.
-*   `barangay` (`CharField`): Geographic locality within the LGU.
+*   `osca_id` (`CharField`): Unique Senior Citizen Identification number (validated as numbers-only, max 15 digits).
+*   `barangay` (`CharField`): Geographic locality (sorted alphabetically).
 *   `sex` (`CharField`): Male or Female biological sex.
-*   `civil_status` (`CharField`): Single, Married, Widowed, or Separated.
-*   `status` (`CharField`): Registry status (ACTIVE, DECEASED, SUSPENDED, TRANSFERRED).
-*   `annex_a_data` (`JSONField`): Supplementary fields (Representative names, contact details, ID verification checklists).
-
-### 2. `Disbursement` (Financial Payroll Records)
-Tracks all financial payouts issued under the centenarian milestones:
-*   `senior` (`ForeignKey`): Beneficiary senior.
-*   `disbursement_type` (`CharField`): `SOCIAL_PENSION` or `MILESTONE_GIFT`.
-*   `amount` (`DecimalField`): Award amount (₱3,000, ₱10,000, or ₱100,000).
-*   `quarter` & `year` (`CharField`/`IntegerField`): Distribution period.
-*   `status` (`CharField`): Payout states (`PENDING`, `RELEASED`, `CANCELLED`).
-*   `reference_number` (`CharField`): Unique transaction ID.
-*   `release_date` (`DateTimeField`): Payout execution timestamp.
-
-### 3. `AuditLog` (Session and Transaction Trail)
-Maintains a read-only historical record of all data modifications and user authentication sessions:
-*   `user` (`ForeignKey`): User executing the operation.
-*   `action` (`CharField`): Transaction categories (`CREATE`, `UPDATE`, `DELETE`, `LOGIN`, `LOGOUT`).
-*   `target_model` & `target_object_id` (`CharField`): Tracks which model was modified.
-*   `changes_summary` (`TextField`): Clear descriptive logs of the action.
-*   `ip_address` (`GenericIPAddressField`): Client's network identifier.
-*   `created_at` (`DateTimeField`): Audit timestamp.
-
-### 4. `AnomalyFlag` (Intelligent Fraud Monitoring)
-Stores ML-inferred anomaly detections and their resolution states:
-*   `senior` (`ForeignKey`): Senior record flagged as anomalous.
-*   `reason` (`TextField`): Explanation of the flag (e.g., duplicate IDs, high velocity).
-*   `is_resolved` (`BooleanField`): Resolution status.
-*   `resolved_by` (`ForeignKey`): Admin user who resolved the anomaly.
-*   `resolved_at` (`DateTimeField`): Timestamp of resolution.
-
-### 5. `UserProfile` (Role-Based Access Profiles)
-Assigned to system users to drive access permissions:
-*   `user` (`OneToOneField`): Linked Django user.
-*   `role` (`CharField`): RBAC role (`ADMIN` or `STAFF`).
+*   `civil_status` (`CharField`): Single, Married, Widowed, Separated, or Divorced.
+*   `status` (`CharField`): Registry status (`ACTIVE`, `DECEASED`, `SUSPENDED`, `TRANSFERRED`).
+*   `annex_a_data` (`JSONField`): Supplementary fields (Representative names, contact details, spouse name input for Married and Separated seniors).
+*   `psa_cert_file` (`FileField`): File path to the uploaded PSA Birth Certificate.
+*   `primary_id_file` (`FileField`): File path to the uploaded OSCA ID Card.
+*   `picture_2x2_file` (`ImageField`): File path to the uploaded 2x2 Photo.
+*   `registration_status` (`CharField`): Registration workflow state (`PENDING_REVIEW`, `APPROVED`, `REJECTED`).
 
 ---
 
 ## 🎮 Functional Modules Breakdown
 
 ### 🏛️ 1. Unified Senior Registry
-Operational database for managing senior profiles:
 *   **Annex A Profile Form**: Advanced data entry including full biometrics, biological **Sex**, and **Civil Status** dropdown panels.
-*   **Dynamic Milestones**: Calculates age relative to the current date and determines eligibility for the RA 11982 milestones.
-*   **Verification Gate**: High-stakes validation steps where staff can review birth certificates and upload identity attachments.
-*   **Registry Ratios**: Data is deterministically seeded to maintain target ratios:
-    *   **88% Active** (Soft Green)
-    *   **4% Deceased** (Soft Rose - used to clean ghost registries)
-    *   **4% Suspended** (Soft Amber - flagged for security)
-    *   **4% Transferred** (Soft Slate-Gray - transferred to other LGUs)
+*   **Alphabetized Barangays**: All local barangay names are presented in alphabetical order to streamline data entry.
+*   **Expanded Civil Status**: Added support for `Divorced` and `Separated` states. If `Separated` is selected, the spouse/partner name field is kept active since the individual is still legally married.
+*   **Mandatory Document Gatekeeper**: Enforces strict verification. Users cannot save changes or complete registration unless all three required files (PSA, OSCA ID, and 2x2 Photo) are uploaded.
+*   **Strict Size Limits**: Rejects files under **2KB** (to prevent corrupted/empty files) or over **20MB** to save local disk space.
 
----
+### 💰 2. Smart Payout Engine
+*   **Automatic Payout Allocation**: Generates a `Disbursement` entry whenever a senior hits 80, 85, 90, 95, or 100.
+*   **Payout Freeze Locking**: If a senior's registry profile is flagged by the ML engine as anomalous, all pending disbursements are automatically frozen to prevent state budget leaks.
 
-### 📊 2. Premium Admin Analytics Dashboard
-A real-time visual cockpit displaying NCSC statistics:
-*   **Demographics Breakdown**: Real-time **Sex Ratio** bar charts pulling data from `Senior.objects.filter(sex=...)` dynamically.
-*   **Civil Status Tracker**: Four visual cards showing active counts of Married, Widowed, Single, and Separated beneficiaries.
-*   **Registry Clean-up & Mortality Donut Chart**: A visually stunning donut chart reflecting the 88:4:4:4 database split. Overlapping label color indicators are resolved using color-matched indicator tags:
-    *   🟢 **Active Citizens**
-    *   🔴 **Deceased (Cleaned)**
-    *   🟡 **Suspended/Fraud**
-    *   ⚫ **Transferred Out**
-*   **KPI Cards**: Aggregated counters displaying Total Registered Seniors, Total Payouts Disbursed, flagged active ML Anomalies, and remaining pipeline funds.
-
----
-
-### 💰 3. Smart Payout Engine
-Handles the financial payroll generation for the LGU:
-*   **Automatic Payout Allocation**: Scans the database and generates a `Disbursement` entry whenever a senior hits 80, 85, 90, 95, or 100.
-*   **Payout Freeze Locking**: If a senior's registry profile is flagged by the ML engine as anomalous, all of their pending disbursements are automatically frozen to prevent state budget leaks.
-*   **Real-time Release Checklist**: Gated interfaces where staff can input reference numbers and mark payments as `RELEASED`.
-
----
+### 🛡️ 3. Admin-Only Review Queue & Rejection Workflow
+*   **Gated Access**: Accessible exclusively by **ADMIN** profiles. Users logged in as `STAFF` cannot access or view the Review Queue.
+*   **Canvas-Based Document Preview**: Evaluates document uploads inline. Instead of initiating browser downloads or embeds (which triggers IDM hijack popups), PDFs are loaded as an `ArrayBuffer` and rendered onto an HTML5 canvas with interactive Zoom (In, Out, Reset) controls.
+*   **Simplified Review Decision**: Registrations can only be Approved or Rejected.
+*   **Rejection Reason Popup**: Rejecting a registration triggers a modal displaying common reasons (e.g. blurry uploads, mismatched names) along with a custom text field for custom reasons.
 
 ### 🧠 4. AI-Powered Anomaly Detection Portal
-Protects the award program from syndicate rings and deceased identity hijacks:
-*   **ML RandomForest Classifier**: Evaluates senior records during registration or import. If the feature weights exceed suspicious thresholds, it creates an `AnomalyFlag`.
-*   **Global Admin Security Locks**: Gated interface accessible exclusively by **ADMIN** profiles. 
-*   **Two-Way Resolution Choices**:
-    *   *Dismiss Flag*: The Admin clears the flag as a false alarm; the senior's registry returns to Normal and payouts are unfrozen.
-    *   *Suspend Record*: The Admin confirms the fraud; the senior's profile status changes permanently to `SUSPENDED` and all pending disbursements are marked as `CANCELLED`.
-
----
+*   **ML RandomForest Classifier**: Evaluates records during registration. If anomaly weights exceed threshold scores, it creates an `AnomalyFlag`.
+*   **Oversight Override Interface**: Admin-only interface to either dismiss the anomaly (unfreezing payouts) or confirm fraud (suspending the record and cancelling pending disbursements).
 
 ### 🛡️ 5. Secure Session & Transaction Auditing
-Provides a complete digital trail to meet **Data Privacy Act (RA 10173)** guidelines:
-*   **Dual-Session Auditing**:
-    *   **Logins**: Captures successful sign-in tokens using a custom JWT override view.
-    *   **Logouts**: Captures explicit user sign-out signals asynchronously, notifying the backend view `/api/logout/` before purging tokens.
-*   **All-in-One LOGINS Filter**: Grouped filter displaying an elegant, chronological session timeline containing both indigo `LOGIN` badges and slate-gray `LOGOUT` badges.
-*   **Multi-Tier Filtering**: Filter audits instantly by action (CREATE, UPDATE, DELETE, LOGINS) or search terms (queries usernames, affected models, or changes).
-*   **Standard Pagination**: Loads logs in swift paginated lists of 50 per page to save network bandwidth.
+*   **Dual-Session Auditing**: Captures chronological timelines for both user Logins and Logouts, including IP addresses, to comply with the **Data Privacy Act (R.A. 10173)**.
+*   **Audit Filtering**: Admin-only tool to search and filter logs by action (CREATE, UPDATE, DELETE, LOGIN/LOGOUT) or text.
 
 ---
 
@@ -172,11 +131,11 @@ The system implements a strict Role-Based Access Control matrix to partition ope
 | :--- | :---: | :---: | :--- |
 | **Register Seniors** | ✅ Yes | ✅ Yes | DRF Model Permissions |
 | **Verify Payouts** | ✅ Yes | ✅ Yes | DRF Model Permissions |
-| **Trigger Disbursements** | ✅ Yes | ✅ Yes | DRF Model Permissions |
+| **Trigger Disbursements**| ✅ Yes | ✅ Yes | DRF Model Permissions |
 | **View Dashboard** | ✅ Yes | ✅ Yes | Auth Token Validation |
 | **Resolve ML Anomalies** | ❌ No | ✅ Yes | Custom `IsAdmin` Backend Permission |
 | **View Audit Logs** | ❌ No | ✅ Yes | Custom `IsAdmin` Backend Permission |
-| **Track Sessions (IP Address)**| ❌ No | ✅ Yes | Network Socket Metadata |
+| **View Review Queue** | ❌ No | ✅ Yes | Custom `IsAdmin` Backend Permission |
 
 ---
 
@@ -186,43 +145,38 @@ The system implements a strict Role-Based Access Control matrix to partition ope
 *   **Node.js**: Version 18.0.0 or higher.
 *   **Python**: Version 3.10 or higher.
 
-### 2. Backend Installation (Django API)
-```powershell
-cd backend
-python -m venv venv
-.\venv\Scripts\activate  # Source venv/bin/activate on macOS/Linux
+### 2. Setting Up a New Workstation
+When cloning or downloading the system as a ZIP file on a new computer, run the setup script to configure dependencies and build the static frontend files:
 
-# Install backend dependencies
-pip install -r requirements.txt
-
-# Run migrations and setup local database
-python manage.py migrate
-
-# Seed 100 seniors, milestones, and audit session logs
-python manage.py seed_data
-
-# Start local server on port 8000
-python manage.py runserver
-```
-
-### 3. Frontend Installation (Next.js App)
-```powershell
-cd ../frontend
-npm install
-```
-*   **Running Next.js on Windows (Bypassing Execution Policies)**:
-    If your Windows PowerShell blocks executing script wrappers, start the dev server using command-prompt scripts:
-    ```powershell
-    npm.cmd run dev
+1.  Open your command prompt or terminal in the project directory (`cen4`).
+2.  Run the setup script:
+    ```cmd
+    setup_new_pc.bat
     ```
-    *Otherwise, on macOS/Linux:*
-    ```bash
-    npm run dev
-    ```
+    *This script automatically configures the Python virtual environment, installs backend dependencies (including PyInstaller), installs Node packages, runs migrations, seeds mock data, compiles the Next.js static files, and creates the native launcher.*
 
-### 4. Default Login Access
-*   **Admin Dashboard View**: Username: `admin` | Password: `admin123`
-*   **Staff Registry View**: Username: `staff` | Password: `staff123`
+### 3. Compiling the Portable Executable
+Once the system is set up, compile the portable application folder for sharing via USB:
+
+1.  Run the portable build script:
+    ```cmd
+    build_portable.bat
+    ```
+2.  Once completed, copy the compiled folder located at:
+    `cen4\dist\CENTENARYO`
+3.  Double-click **`CENTENARYO.exe`** inside that folder to run the application on any Windows computer without any additional setups.
+
+### 4. Running the System Live for Development
+If you want to run the system live in development mode (with auto-reload enabled):
+
+1.  Start the backend Django server:
+    *   Run `run_servers.bat` in the root folder (runs the API on `http://127.0.0.1:8000`).
+2.  Start the Next.js development server:
+    *   Open a new terminal in the `frontend` folder and run:
+        ```powershell
+        npm.cmd run dev
+        ```
+    *   Access the live dev app at: `http://localhost:3000`
 
 ---
 © 2026 CENTENARYO · National Commission of Senior Citizens (NCSC)
