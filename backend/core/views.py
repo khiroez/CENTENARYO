@@ -606,6 +606,7 @@ def dashboard_stats(request):
         'married': Senior.objects.filter(civil_status='MARRIED').count(),
         'widowed': Senior.objects.filter(civil_status='WIDOWED').count(),
         'separated': Senior.objects.filter(civil_status='SEPARATED').count(),
+        'divorced': Senior.objects.filter(civil_status='DIVORCED').count(),
     }
 
     return Response({

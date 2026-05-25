@@ -82,7 +82,8 @@ export default function Dashboard() {
       single: 0,
       married: 0,
       widowed: 0,
-      separated: 0
+      separated: 0,
+      divorced: 0
     }
   });
   
@@ -690,23 +691,25 @@ export default function Dashboard() {
                       const widowedCount = stats.civil_status_breakdown?.widowed ?? 0;
                       const singleCount = stats.civil_status_breakdown?.single ?? 0;
                       const separatedCount = stats.civil_status_breakdown?.separated ?? 0;
+                      const divorcedCount = stats.civil_status_breakdown?.divorced ?? 0;
 
                       const totalSeniors = totalSeniorsCount > 0 ? totalSeniorsCount : 1;
                       const marriedPct = Math.round((marriedCount / totalSeniors) * 100);
                       const widowedPct = Math.round((widowedCount / totalSeniors) * 100);
                       const singlePct = Math.round((singleCount / totalSeniors) * 100);
                       const separatedPct = Math.round((separatedCount / totalSeniors) * 100);
+                      const divorcedPct = Math.round((divorcedCount / totalSeniors) * 100);
 
                       return (
                         <div className="pt-4 border-t border-slate-50">
                           <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Civil Status Representation</h4>
-                          <div className="grid grid-cols-2 gap-4">
+                          <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                             <div className="p-4 bg-emerald-50 rounded-2xl border border-emerald-100 flex justify-between items-center">
                               <div>
                                 <span className="text-[9px] font-black text-emerald-600 uppercase tracking-wider block">Married</span>
                                 <span className="text-xs font-bold text-slate-400 mt-1">{marriedPct}% Share</span>
                               </div>
-                              <span className="text-lg font-black text-emerald-700">{marriedCount}</span>
+                                <span className="text-lg font-black text-emerald-700">{marriedCount}</span>
                             </div>
                             <div className="p-4 bg-rose-50 rounded-2xl border border-rose-100 flex justify-between items-center">
                               <div>
@@ -728,6 +731,13 @@ export default function Dashboard() {
                                 <span className="text-xs font-bold text-slate-400 mt-1">{separatedPct}% Share</span>
                               </div>
                               <span className="text-lg font-black text-amber-700">{separatedCount}</span>
+                            </div>
+                            <div className="p-4 bg-violet-50 rounded-2xl border border-violet-100 flex justify-between items-center">
+                              <div>
+                                <span className="text-[9px] font-black text-violet-600 uppercase tracking-wider block">Divorced</span>
+                                <span className="text-xs font-bold text-slate-400 mt-1">{divorcedPct}% Share</span>
+                              </div>
+                              <span className="text-lg font-black text-violet-700">{divorcedCount}</span>
                             </div>
                           </div>
                         </div>
