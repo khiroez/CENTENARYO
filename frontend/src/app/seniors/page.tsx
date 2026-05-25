@@ -8,6 +8,22 @@ import { useSearchParams } from "next/navigation";
 import { authFetch } from "@/lib/api";
 import { useUI } from "@/context/UIContext";
 
+const QUEZON_CITY_BARANGAYS: Record<string, string[]> = {
+  'District 1': ['Vasra','Bagong Pag-asa','Sto. Cristo','Project 6','Ramon Magsaysay','Alicia','Bahay Toro','Katipunan','San Antonio','Veterans Village','Bungad','Phil-Am','West Triangle','Sta. Cruz','Nayong Kanluran','Paltok','Paraiso','Mariblo','Damayan','Del Monte','Masambong','Talayan','Sto. Domingo','Siena','St. Peter','San Jose','Manresa','Damar','Pag-ibig sa Nayon','Balingasa','Sta. Teresita','San Isidro Labrador','Paang Bundok','Salvacion','N.S Amoranto','Maharlika','Lourdes'],
+  'District 2': ['Bagong Silangan','Batasan Hills','Commonwealth','Holy Spirit','Payatas'],
+  'District 3': ['Silangan','Socorro','E. Rodriguez','West Kamias','East Kamias','Quirino 2-A','Quirino 2-B','Quirino 2-C','Quirino 3-A','Claro (Quirino 3-B)','Duyan-Duyan','Amihan','Matandang Balara','Pansol','Loyola Heights','San Roque','Mangga','Masagana','Villa Maria Clara','Bayanihan','Camp Aguinaldo','White Plains','Libis','Ugong Norte','Bagumbayan','Blue Ridge A','Blue Ridge B','St. Ignatius','Milagrosa','Escopa I','Escopa II','Escopa III','Escopa IV','Marilag','Bagumbuhay','Tagumpay','Dioquino Zobel'],
+  'District 4': ['Sacred Heart','Laging Handa','Obrero','Paligsahan','Roxas','Kamuning','South Triangle','Pinagkaisahan','Immaculate Concepcion','San Martin De Porres','Kaunlaran','Bagong Lipunan ng Crame','Horseshoe','Valencia','Tatalon','Kalusugan','Kristong Hari','Damayang Lagi','Mariana','Doña Imelda','Santol','Sto. Niño','San Isidro Galas','Doña Aurora','Don Manuel','Doña Josefa','UP Village','Old Capitol Site','UP Campus','San Vicente','Teachers Village East','Teachers Village West','Central','Pinyahan','Malaya','Sikatuna Village','Botocan','Krus Na Ligas'],
+  'District 5': ['Bagbag','Capri','Greater Lagro','Gulod','Kaligayahan','Nagkaisang Nayon','North Fairview','Novaliches Proper','Pasong Putik Proper','San Agustin','San Bartolome','Sta. Lucia','Sta. Monica','Fairview'],
+  'District 6': ['Apolonio Samson','Baesa','Balon Bato','Culiat','New Era','Pasong Tamo','Sangandaan','Tandang Sora','Unang Sigaw','Sauyo','Talipapa'],
+};
+
+const getDistrictForBarangay = (barangay: string): string => {
+  for (const [district, barangays] of Object.entries(QUEZON_CITY_BARANGAYS)) {
+    if (barangays.some(b => b.toLowerCase() === barangay.toLowerCase())) return district;
+  }
+  return '';
+};
+
 export default function SeniorRegistryPage() {
   const { isAdmin } = useAuth();
   const { addNotification } = useNotifications();
@@ -80,7 +96,7 @@ export default function SeniorRegistryPage() {
     last_name: '', given_name: '', middle_name: '',
     date_of_birth: '', age: '',
     perm_house: '', perm_street: '', perm_brgy: '', perm_city: '', perm_prov: '', perm_zip: '',
-    res_house: '', res_street: '', res_brgy: '', res_city: '', res_prov: '', res_zip: '',
+    res_house: '', res_street: '', res_brgy: '', res_district: '', res_city: 'Quezon City', res_prov: 'Metro Manila', res_zip: '',
     same_as_res: false,
     sex: '', civil_status: '',
     citizenship: 'Filipino', dual_citizenship_details: '',
@@ -221,6 +237,7 @@ export default function SeniorRegistryPage() {
       osca_id_year: oscaParts[1] || '',
       osca_id_serial: oscaParts[2] || '',
       res_brgy: senior.barangay,
+      res_district: getDistrictForBarangay(senior.barangay || ''),
       status: senior.status || 'ACTIVE',
       sex: senior.sex || '',
       civil_status: senior.civil_status || '',
@@ -259,8 +276,13 @@ export default function SeniorRegistryPage() {
       return;
     }
     
+    if (!formData.res_district) {
+      openWarning("District Required", "Please select a district from the dropdown.");
+      return;
+    }
+
     if (!formData.res_brgy) {
-      openWarning("Barangay Required", "Please provide the Barangay residence.");
+      openWarning("Barangay Required", "Please select a barangay from the dropdown.");
       return;
     }
 
@@ -271,6 +293,10 @@ export default function SeniorRegistryPage() {
     }
     if (formData.contact_number.length !== 11) {
       openWarning("Invalid Mobile Number", "The mobile number must be exactly 11 digits (e.g., 09171234567).");
+      return;
+    }
+    if (!formData.contact_number.startsWith('09')) {
+      openWarning("Invalid Mobile Number", "The mobile number must start with 09 (e.g., 09171234567).");
       return;
     }
 
@@ -287,6 +313,10 @@ export default function SeniorRegistryPage() {
     if (formData.reps && formData.reps[0] && formData.reps[0].contact) {
       if (formData.reps[0].contact.length !== 11) {
         openWarning("Invalid Representative Mobile Number", "The representative's mobile number must be exactly 11 digits (e.g., 09171234567).");
+        return;
+      }
+      if (!formData.reps[0].contact.startsWith('09')) {
+        openWarning("Invalid Representative Mobile Number", "The representative's mobile number must start with 09 (e.g., 09171234567).");
         return;
       }
     }
@@ -912,13 +942,32 @@ export default function SeniorRegistryPage() {
                               </div>
                             </div>
                         </h4>
-                      <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
-                        <input type="text" placeholder="House #" value={formData.res_house} onChange={(e) => setFormData({...formData, res_house: e.target.value})} className="col-span-1 px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm font-medium" />
-                        <input type="text" placeholder="Street" value={formData.res_street} onChange={(e) => setFormData({...formData, res_street: e.target.value})} className="col-span-2 px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm font-medium" />
-                        <input required type="text" placeholder="Barangay *" value={formData.res_brgy} onChange={(e) => setFormData({...formData, res_brgy: e.target.value})} className="col-span-3 px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm font-bold" />
-                        <input type="text" placeholder="City" value={formData.res_city} onChange={(e) => setFormData({...formData, res_city: e.target.value})} className="col-span-2 px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm font-medium" />
-                        <input type="text" placeholder="Province" value={formData.res_prov} onChange={(e) => setFormData({...formData, res_prov: e.target.value})} className="col-span-2 px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm font-medium" />
-                        <input type="text" placeholder="Zip" value={formData.res_zip} onChange={(e) => setFormData({...formData, res_zip: handleNumberInput(e.target.value)})} className="col-span-2 px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm font-medium" />
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="space-y-1.5">
+                          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">District *</label>
+                          <select required value={formData.res_district} onChange={(e) => setFormData({...formData, res_district: e.target.value, res_brgy: ''})} className="w-full px-4 py-3.5 bg-white border border-slate-200 rounded-xl text-sm font-bold appearance-none cursor-pointer">
+                            <option value="">Select District...</option>
+                            {Object.keys(QUEZON_CITY_BARANGAYS).map(d => <option key={d} value={d}>{d}</option>)}
+                          </select>
+                        </div>
+                        <div className="space-y-1.5">
+                          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Barangay *</label>
+                          <select required value={formData.res_brgy} onChange={(e) => setFormData({...formData, res_brgy: e.target.value})} disabled={!formData.res_district} className="w-full px-4 py-3.5 bg-white border border-slate-200 rounded-xl text-sm font-bold appearance-none cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed">
+                            <option value="">{formData.res_district ? 'Select Barangay...' : 'Select a district first'}</option>
+                            {formData.res_district && QUEZON_CITY_BARANGAYS[formData.res_district]?.map(b => <option key={b} value={b}>{b}</option>)}
+                          </select>
+                        </div>
+                        <div className="space-y-1.5">
+                          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">House / Unit #</label>
+                          <input type="text" placeholder="e.g. 123 / Blk 5 Lot 10" value={formData.res_house} onChange={(e) => setFormData({...formData, res_house: e.target.value})} className="w-full px-4 py-3.5 bg-white border border-slate-200 rounded-xl text-sm font-medium" />
+                        </div>
+                        <div className="space-y-1.5">
+                          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Street</label>
+                          <input type="text" placeholder="e.g. Sampaguita St." value={formData.res_street} onChange={(e) => setFormData({...formData, res_street: e.target.value})} className="w-full px-4 py-3.5 bg-white border border-slate-200 rounded-xl text-sm font-medium" />
+                        </div>
+                      </div>
+                      <div className="mt-3 px-4 py-2.5 bg-indigo-50 border border-indigo-100 rounded-xl">
+                        <p className="text-[10px] font-bold text-indigo-500 uppercase tracking-widest">Quezon City, Metro Manila</p>
                       </div>
                     </div>
                   </section>
