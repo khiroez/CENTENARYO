@@ -856,19 +856,26 @@ def budget_forecast(request):
     Query Params:
       - horizon: '1q' (3 months), '2q' (6 months), '4q' (12 months / 4 quarters, default), or 'year'
     """
+    import calendar
     from datetime import date
-    from dateutil.relativedelta import relativedelta
     today = date.today()
     horizon = request.query_params.get('horizon', '4q').lower()
     
+    def add_months_to_date(source_date, months):
+        month_index = source_date.month - 1 + months
+        year = source_date.year + month_index // 12
+        month = month_index % 12 + 1
+        day = min(source_date.day, calendar.monthrange(year, month)[1])
+        return date(year, month, day)
+
     if horizon == '1q':
-        end_date = today + relativedelta(months=3)
+        end_date = add_months_to_date(today, 3)
     elif horizon == '2q':
-        end_date = today + relativedelta(months=6)
+        end_date = add_months_to_date(today, 6)
     elif horizon in ['year', '4q']:
-        end_date = today + relativedelta(months=12)
+        end_date = add_months_to_date(today, 12)
     else:
-        end_date = today + relativedelta(months=12)
+        end_date = add_months_to_date(today, 12)
 
     milestones = [80, 85, 90, 95, 100]
     active_seniors = Senior.objects.filter(status='ACTIVE')
@@ -900,7 +907,7 @@ def budget_forecast(request):
                 'amount': 0,
                 'milestones': {80: 0, 85: 0, 90: 0, 95: 0, 100: 0}
             }
-        temp_q += relativedelta(months=3)
+        temp_q = add_months_to_date(temp_q, 3)
 
     for senior in active_seniors:
         dob = senior.date_of_birth

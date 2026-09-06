@@ -137,10 +137,13 @@ export default function Dashboard() {
   const fetchBudgetForecast = async (horizon: string) => {
     setIsBudgetLoading(true);
     try {
-      const res = await authFetch(`${process.env.NEXT_PUBLIC_API_URL}/budget-forecast/?horizon=${horizon}`);
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api';
+      const res = await authFetch(`${apiUrl}/budget-forecast/?horizon=${horizon}`);
       if (res.ok) {
         const data = await res.json();
         setBudgetForecast(data);
+      } else {
+        console.error('Failed to fetch budget forecast. HTTP status:', res.status);
       }
     } catch (error) {
       console.error('Error fetching budget forecast:', error);
@@ -826,7 +829,7 @@ export default function Dashboard() {
                 <div className="w-12 h-12 border-4 border-indigo-100 border-t-indigo-600 rounded-full animate-spin"></div>
                 <p className="text-xs font-black uppercase tracking-widest text-slate-400">Computing milestone projections...</p>
               </div>
-            ) : budgetForecast && (
+            ) : budgetForecast ? (
               <>
                 {/* KPI Summary Row */}
                 <div className="grid grid-cols-2 lg:grid-cols-4 gap-6">
@@ -1003,6 +1006,22 @@ export default function Dashboard() {
                   </div>
                 )}
               </>
+            ) : (
+              <div className="bg-white rounded-[48px] border border-slate-100 p-12 flex flex-col items-center justify-center gap-4 text-center">
+                <div className="w-12 h-12 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center">
+                  <Calculator size={24} />
+                </div>
+                <div>
+                  <p className="text-sm font-black text-slate-800 uppercase tracking-wider">Hindi ma-load ang forecast data</p>
+                  <p className="text-xs font-semibold text-slate-400 mt-1">Pakisuri ang koneksyon sa server o i-click ang button sa ibaba upang i-reload.</p>
+                </div>
+                <button
+                  onClick={() => fetchBudgetForecast(budgetHorizon)}
+                  className="mt-2 px-6 py-2.5 bg-indigo-600 text-white rounded-xl text-xs font-black uppercase tracking-wider hover:bg-indigo-700 transition-all shadow-md shadow-indigo-600/20"
+                >
+                  Subukang Muli
+                </button>
+              </div>
             )}
           </div>
         )}
