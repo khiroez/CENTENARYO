@@ -2,12 +2,12 @@
 
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { 
-  Users, 
-  CreditCard, 
-  AlertTriangle, 
-  TrendingUp, 
-  ArrowUpRight, 
+import {
+  Users,
+  CreditCard,
+  AlertTriangle,
+  TrendingUp,
+  ArrowUpRight,
   Activity,
   ChevronRight,
   ShieldAlert,
@@ -35,14 +35,20 @@ import {
   Venus,
   Mars,
   User,
-  CheckSquare
+  CheckSquare,
+  CalendarDays,
+  Calculator,
+  BarChart3,
+  BadgeDollarSign,
+  Building2,
+  ChevronDown
 } from 'lucide-react';
 import { authFetch } from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
 
 export default function Dashboard() {
   const { isAdmin } = useAuth();
-  
+
   // Re-designed stats state capturing the advanced datasets
   const [stats, setStats] = useState({
     total_seniors: 0,
@@ -86,11 +92,17 @@ export default function Dashboard() {
       divorced: 0
     }
   });
-  
+
   const [aiReport, setAiReport] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isReportLoading, setIsReportLoading] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
+
+  // Budget Forecast State
+  const [budgetForecast, setBudgetForecast] = useState<any>(null);
+  const [isBudgetLoading, setIsBudgetLoading] = useState(false);
+  const [budgetHorizon, setBudgetHorizon] = useState<'1q' | '2q' | '4q'>('4q');
+  const [hoveredQuarter, setHoveredQuarter] = useState<string | null>(null);
 
   // States for interactive Custom SVG Charts
   const [hoveredSegment, setHoveredSegment] = useState<string | null>(null);
@@ -104,7 +116,8 @@ export default function Dashboard() {
 
   useEffect(() => {
     fetchStats();
-  }, []);
+    if (isAdmin) fetchBudgetForecast('4q');
+  }, [isAdmin]);
 
   const fetchStats = async () => {
     try {
@@ -118,6 +131,26 @@ export default function Dashboard() {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const fetchBudgetForecast = async (horizon: string) => {
+    setIsBudgetLoading(true);
+    try {
+      const res = await authFetch(`${process.env.NEXT_PUBLIC_API_URL}/budget-forecast/?horizon=${horizon}`);
+      if (res.ok) {
+        const data = await res.json();
+        setBudgetForecast(data);
+      }
+    } catch (error) {
+      console.error('Error fetching budget forecast:', error);
+    } finally {
+      setIsBudgetLoading(false);
+    }
+  };
+
+  const handleHorizonChange = (h: '1q' | '2q' | '4q') => {
+    setBudgetHorizon(h);
+    fetchBudgetForecast(h);
   };
 
   const fetchAiReport = async () => {
@@ -158,7 +191,7 @@ export default function Dashboard() {
     setActiveActionModal(actionName);
     setModalProgress(0);
     setIsActionComplete(false);
-    
+
     let statuses: string[] = [];
     if (actionName === "PSA Mortality Audit") {
       statuses = [
@@ -290,648 +323,862 @@ export default function Dashboard() {
   return (
     <>
       <div className="space-y-10 pb-16 animate-in fade-in duration-700">
-      
-      {/* Page Header */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 bg-white p-10 rounded-[40px] border border-slate-100 shadow-sm relative overflow-hidden">
-        <div className="absolute top-0 right-0 w-80 h-80 bg-indigo-50 rounded-full blur-3xl opacity-40 -translate-y-1/2 translate-x-1/4"></div>
-        <div className="relative z-10">
-          <h1 className="text-4xl font-black text-slate-900 tracking-tight">
-            {isAdmin ? 'System Oversight' : 'Operational Command'}
-          </h1>
-          <p className="text-slate-500 mt-2 font-bold uppercase tracking-widest text-xs flex items-center gap-2">
-            <Activity size={16} className="text-emerald-500" />
-            {isAdmin ? 'Decision Maker Analytics Dashboard' : 'Staff Operational Workspace'}
-          </p>
-        </div>
-        <div className="relative z-10 flex gap-3">
-          {isAdmin && (
-            <button 
-              onClick={fetchAiReport}
-              className="px-8 py-4 bg-slate-900 hover:bg-black text-white rounded-2xl shadow-xl shadow-slate-200 transition-all hover:-translate-y-1 flex items-center gap-3 font-black uppercase tracking-widest text-[10px]"
-            >
-              <FileBarChart size={18} />
-              Generate Intelligence Briefing
-            </button>
-          )}
-          {!isAdmin && (
-            <Link 
-              href="/seniors"
-              className="px-8 py-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl shadow-xl shadow-indigo-200 transition-all hover:-translate-y-1 flex items-center gap-3 font-black uppercase tracking-widest text-[10px]"
-            >
-              <Users size={18} />
-              Open Registry
-            </Link>
-          )}
-        </div>
-      </div>
 
-      {/* Main Stats Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-        {/* Seniors Card */}
-        <div className="group bg-white p-8 rounded-[40px] border border-slate-100 shadow-sm hover:shadow-xl hover:shadow-indigo-500/5 transition-all duration-500 relative overflow-hidden">
-          <div className="absolute top-0 right-0 p-8 text-indigo-50 group-hover:text-indigo-100 transition-colors">
-            <Users size={80} strokeWidth={1} />
+        {/* Page Header */}
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 bg-white p-10 rounded-[40px] border border-slate-100 shadow-sm relative overflow-hidden">
+          <div className="absolute top-0 right-0 w-80 h-80 bg-indigo-50 rounded-full blur-3xl opacity-40 -translate-y-1/2 translate-x-1/4"></div>
+          <div className="relative z-10">
+            <h1 className="text-4xl font-black text-slate-900 tracking-tight">
+              {isAdmin ? 'System Oversight' : 'Operational Command'}
+            </h1>
+            <p className="text-slate-500 mt-2 font-bold uppercase tracking-widest text-xs flex items-center gap-2">
+              <Activity size={16} className="text-emerald-500" />
+              {isAdmin ? 'Decision Maker Analytics Dashboard' : 'Staff Operational Workspace'}
+            </p>
           </div>
-          <div className="relative z-10 space-y-6">
-            <div className="bg-indigo-50 text-indigo-600 w-14 h-14 rounded-2xl flex items-center justify-center shadow-inner">
-              <Users size={24} strokeWidth={2.5} />
-            </div>
-            <div>
-              <h3 className="text-slate-400 font-black uppercase tracking-widest text-[10px]">Registry Volume</h3>
-              <p className="text-5xl font-black text-slate-900 mt-1 tabular-nums">{isLoading ? '...' : stats.total_seniors}</p>
-            </div>
-            <Link href="/seniors" className="flex items-center gap-2 text-indigo-600 font-black uppercase tracking-widest text-[10px] group-hover:gap-3 transition-all">
-              Manage Records <ArrowUpRight size={14} />
-            </Link>
+          <div className="relative z-10 flex gap-3">
+            {isAdmin && (
+              <button
+                onClick={fetchAiReport}
+                className="px-8 py-4 bg-slate-900 hover:bg-black text-white rounded-2xl shadow-xl shadow-slate-200 transition-all hover:-translate-y-1 flex items-center gap-3 font-black uppercase tracking-widest text-[10px]"
+              >
+                <FileBarChart size={18} />
+                Generate Intelligence Briefing
+              </button>
+            )}
+            {!isAdmin && (
+              <Link
+                href="/seniors"
+                className="px-8 py-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl shadow-xl shadow-indigo-200 transition-all hover:-translate-y-1 flex items-center gap-3 font-black uppercase tracking-widest text-[10px]"
+              >
+                <Users size={18} />
+                Open Registry
+              </Link>
+            )}
           </div>
         </div>
 
-        {/* Payouts Card */}
-        <div className="group bg-white p-8 rounded-[40px] border border-slate-100 shadow-sm hover:shadow-xl hover:shadow-emerald-500/5 transition-all duration-500 relative overflow-hidden">
-          <div className="absolute top-0 right-0 p-8 text-emerald-50 group-hover:text-emerald-100 transition-colors">
-            <CreditCard size={80} strokeWidth={1} />
-          </div>
-          <div className="relative z-10 space-y-6">
-            <div className="bg-emerald-50 text-emerald-600 w-14 h-14 rounded-2xl flex items-center justify-center shadow-inner">
-              <CreditCard size={24} strokeWidth={2.5} />
-            </div>
-            <div>
-              <h3 className="text-slate-400 font-black uppercase tracking-widest text-[10px]">Released Payouts</h3>
-              <p className="text-5xl font-black text-slate-900 mt-1 tabular-nums">{isLoading ? '...' : stats.total_payouts}</p>
-            </div>
-            <Link href="/disbursements" className="flex items-center gap-2 text-emerald-600 font-black uppercase tracking-widest text-[10px] group-hover:gap-3 transition-all">
-              Financial Logs <ArrowUpRight size={14} />
-            </Link>
-          </div>
-        </div>
-
-        {/* Anomalies Card (Admin) or Milestones (Staff) */}
-        {isAdmin ? (
-          <div className="group bg-white p-8 rounded-[40px] border border-slate-100 shadow-sm hover:shadow-xl hover:shadow-rose-500/5 transition-all duration-500 relative overflow-hidden">
-            <div className="absolute top-0 right-0 p-8 text-rose-50 group-hover:text-rose-100 transition-colors">
-              <AlertTriangle size={80} strokeWidth={1} />
+        {/* Main Stats Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+          {/* Seniors Card */}
+          <div className="group bg-white p-8 rounded-[40px] border border-slate-100 shadow-sm hover:shadow-xl hover:shadow-indigo-500/5 transition-all duration-500 relative overflow-hidden">
+            <div className="absolute top-0 right-0 p-8 text-indigo-50 group-hover:text-indigo-100 transition-colors">
+              <Users size={80} strokeWidth={1} />
             </div>
             <div className="relative z-10 space-y-6">
-              <div className="bg-rose-50 text-rose-600 w-14 h-14 rounded-2xl flex items-center justify-center shadow-inner">
-                <AlertTriangle size={24} strokeWidth={2.5} />
+              <div className="bg-indigo-50 text-indigo-600 w-14 h-14 rounded-2xl flex items-center justify-center shadow-inner">
+                <Users size={24} strokeWidth={2.5} />
               </div>
               <div>
-                <h3 className="text-slate-400 font-black uppercase tracking-widest text-[10px]">Anomaly Detections</h3>
-                <p className="text-5xl font-black text-slate-900 mt-1 tabular-nums">{isLoading ? '...' : stats.active_anomalies}</p>
+                <h3 className="text-slate-400 font-black uppercase tracking-widest text-[10px]">Registry Volume</h3>
+                <p className="text-5xl font-black text-slate-900 mt-1 tabular-nums">{isLoading ? '...' : stats.total_seniors}</p>
               </div>
-              <Link href="/anomalies" className="flex items-center gap-2 text-rose-600 font-black uppercase tracking-widest text-[10px] group-hover:gap-3 transition-all">
-                Fraud Review <ArrowUpRight size={14} />
+              <Link href="/seniors" className="flex items-center gap-2 text-indigo-600 font-black uppercase tracking-widest text-[10px] group-hover:gap-3 transition-all">
+                Manage Records <ArrowUpRight size={14} />
               </Link>
             </div>
           </div>
-        ) : (
-          <div className="group bg-white p-8 rounded-[40px] border border-slate-100 shadow-sm hover:shadow-xl hover:shadow-amber-500/5 transition-all duration-500 relative overflow-hidden">
-            <div className="absolute top-0 right-0 p-8 text-amber-50 group-hover:text-amber-100 transition-colors">
-              <CheckSquare size={80} strokeWidth={1} />
+
+          {/* Payouts Card */}
+          <div className="group bg-white p-8 rounded-[40px] border border-slate-100 shadow-sm hover:shadow-xl hover:shadow-emerald-500/5 transition-all duration-500 relative overflow-hidden">
+            <div className="absolute top-0 right-0 p-8 text-emerald-50 group-hover:text-emerald-100 transition-colors">
+              <CreditCard size={80} strokeWidth={1} />
             </div>
             <div className="relative z-10 space-y-6">
-              <div className="bg-amber-50 text-amber-600 w-14 h-14 rounded-2xl flex items-center justify-center shadow-inner">
-                <CheckSquare size={24} strokeWidth={2.5} />
+              <div className="bg-emerald-50 text-emerald-600 w-14 h-14 rounded-2xl flex items-center justify-center shadow-inner">
+                <CreditCard size={24} strokeWidth={2.5} />
               </div>
               <div>
-                <h3 className="text-slate-400 font-black uppercase tracking-widest text-[10px]">Pending Reviews</h3>
-                <p className="text-5xl font-black text-slate-900 mt-1 tabular-nums">{isLoading ? '...' : stats.pending_reviews}</p>
+                <h3 className="text-slate-400 font-black uppercase tracking-widest text-[10px]">Released Payouts</h3>
+                <p className="text-5xl font-black text-slate-900 mt-1 tabular-nums">{isLoading ? '...' : stats.total_payouts}</p>
               </div>
-              <Link href="/review" className="flex items-center gap-2 text-amber-600 font-black uppercase tracking-widest text-[10px] group-hover:gap-3 transition-all">
-                Verify Documents <ArrowUpRight size={14} />
+              <Link href="/disbursements" className="flex items-center gap-2 text-emerald-600 font-black uppercase tracking-widest text-[10px] group-hover:gap-3 transition-all">
+                Financial Logs <ArrowUpRight size={14} />
               </Link>
             </div>
+          </div>
+
+          {/* Anomalies Card (Admin) or Milestones (Staff) */}
+          {isAdmin ? (
+            <div className="group bg-white p-8 rounded-[40px] border border-slate-100 shadow-sm hover:shadow-xl hover:shadow-rose-500/5 transition-all duration-500 relative overflow-hidden">
+              <div className="absolute top-0 right-0 p-8 text-rose-50 group-hover:text-rose-100 transition-colors">
+                <AlertTriangle size={80} strokeWidth={1} />
+              </div>
+              <div className="relative z-10 space-y-6">
+                <div className="bg-rose-50 text-rose-600 w-14 h-14 rounded-2xl flex items-center justify-center shadow-inner">
+                  <AlertTriangle size={24} strokeWidth={2.5} />
+                </div>
+                <div>
+                  <h3 className="text-slate-400 font-black uppercase tracking-widest text-[10px]">Anomaly Detections</h3>
+                  <p className="text-5xl font-black text-slate-900 mt-1 tabular-nums">{isLoading ? '...' : stats.active_anomalies}</p>
+                </div>
+                <Link href="/anomalies" className="flex items-center gap-2 text-rose-600 font-black uppercase tracking-widest text-[10px] group-hover:gap-3 transition-all">
+                  Fraud Review <ArrowUpRight size={14} />
+                </Link>
+              </div>
+            </div>
+          ) : (
+            <div className="group bg-white p-8 rounded-[40px] border border-slate-100 shadow-sm hover:shadow-xl hover:shadow-amber-500/5 transition-all duration-500 relative overflow-hidden">
+              <div className="absolute top-0 right-0 p-8 text-amber-50 group-hover:text-amber-100 transition-colors">
+                <CheckSquare size={80} strokeWidth={1} />
+              </div>
+              <div className="relative z-10 space-y-6">
+                <div className="bg-amber-50 text-amber-600 w-14 h-14 rounded-2xl flex items-center justify-center shadow-inner">
+                  <CheckSquare size={24} strokeWidth={2.5} />
+                </div>
+                <div>
+                  <h3 className="text-slate-400 font-black uppercase tracking-widest text-[10px]">Pending Reviews</h3>
+                  <p className="text-5xl font-black text-slate-900 mt-1 tabular-nums">{isLoading ? '...' : stats.pending_reviews}</p>
+                </div>
+                <Link href="/review" className="flex items-center gap-2 text-amber-600 font-black uppercase tracking-widest text-[10px] group-hover:gap-3 transition-all">
+                  Verify Documents <ArrowUpRight size={14} />
+                </Link>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* --- PREMIUM VISUAL CHARTS SECTION (ADMIN ONLY) --- */}
+        {isAdmin && (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+
+            {/* Chart 1: Donut Chart for Senior Statuses / Death Statistics (The "Death Chart") */}
+            <div className="bg-white p-10 rounded-[48px] border border-slate-100 shadow-sm flex flex-col justify-between relative overflow-hidden group">
+              <div className="absolute top-0 right-0 p-8 text-slate-50 group-hover:text-slate-100/50 transition-colors pointer-events-none">
+                <Heart size={140} strokeWidth={0.5} />
+              </div>
+              <div className="relative z-10">
+                <div className="flex items-center justify-between mb-8">
+                  <div>
+                    <h3 className="text-xs font-black uppercase tracking-[0.2em] text-slate-400">Registry & Mortality Profile</h3>
+                    <h2 className="text-2xl font-black text-slate-900 mt-1">Registry Cleanup & Death Stats</h2>
+                  </div>
+                  <span className="px-4 py-2 bg-rose-50 text-rose-600 border border-rose-100 rounded-2xl text-[9px] font-black uppercase tracking-wider flex items-center gap-1.5">
+                    <Ghost size={12} />
+                    Death Audit Active
+                  </span>
+                </div>
+
+                <div className="flex flex-col sm:flex-row items-center justify-around gap-8 my-4">
+                  {/* SVG Donut Ring */}
+                  <div className="relative w-56 h-56 flex items-center justify-center">
+                    <svg width="220" height="220" viewBox="0 0 100 100" className="transform -rotate-90">
+                      <circle cx="50" cy="50" r={radius} fill="transparent" stroke="#f8fafc" strokeWidth="9" />
+                      {donutSegments.map((segment) => {
+                        if (segment.val === 0) return null;
+                        return (
+                          <circle
+                            key={segment.key}
+                            cx="50"
+                            cy="50"
+                            r={radius}
+                            fill="transparent"
+                            stroke={segment.color}
+                            strokeWidth={hoveredSegment === segment.key ? "11" : "9"}
+                            strokeDasharray={`${segment.strokeLength} ${circumference}`}
+                            strokeDashoffset={segment.strokeOffset}
+                            strokeLinecap="round"
+                            className="transition-all duration-300 ease-out cursor-pointer"
+                            onMouseEnter={() => {
+                              setHoveredSegment(segment.key);
+                              setHoveredValue(segment.val);
+                            }}
+                            onMouseLeave={() => {
+                              setHoveredSegment(null);
+                              setHoveredValue(null);
+                            }}
+                          />
+                        );
+                      })}
+                    </svg>
+
+                    {/* Absolute Center Labels */}
+                    <div className="absolute flex flex-col items-center justify-center text-center p-6 bg-white rounded-full w-[130px] h-[130px] shadow-lg shadow-slate-100 border border-slate-50">
+                      <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest truncate max-w-[110px]">
+                        {middleLabel}
+                      </span>
+                      <span className="text-3xl font-black text-slate-900 mt-1.5 tabular-nums">
+                        {isLoading ? '...' : middleValue}
+                      </span>
+                      <span className="text-[8px] font-bold text-slate-400 uppercase tracking-wider mt-1">
+                        {totalSeniorsCount > 0 ? `${((middleValue / totalSeniorsCount) * 100).toFixed(1)}%` : "0%"}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Slices Indicators Legend */}
+                  <div className="flex flex-col gap-4 w-full sm:w-auto">
+                    {donutSegments.map((segment) => (
+                      <div
+                        key={segment.key}
+                        className={`flex items-center justify-between gap-6 p-3 rounded-2xl transition-all duration-300 ${hoveredSegment === segment.key ? 'bg-slate-50 border border-slate-100 shadow-sm' : 'border border-transparent'}`}
+                        onMouseEnter={() => {
+                          setHoveredSegment(segment.key);
+                          setHoveredValue(segment.val);
+                        }}
+                        onMouseLeave={() => {
+                          setHoveredSegment(null);
+                          setHoveredValue(null);
+                        }}
+                      >
+                        <div className="flex items-center gap-3">
+                          <span className={`w-3.5 h-3.5 rounded-full ${statusBgColors[segment.key]} shadow-sm`}></span>
+                          <span className="text-[10px] font-black text-slate-500 uppercase tracking-wider">{segment.label}</span>
+                        </div>
+                        <div className="text-right">
+                          <span className="text-xs font-black text-slate-900 tabular-nums">{segment.val}</span>
+                          <span className="text-[9px] font-bold text-slate-400 block tabular-nums">{segment.pct.toFixed(1)}%</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+              <div className="text-[10px] font-bold text-slate-400 mt-6 pt-4 border-t border-slate-50 italic">
+                * Active Deceased counts display system database pruning indicators (RA 10173 data sanitation auditing).
+              </div>
+            </div>
+
+            {/* Chart 2: Milestone Age Distribution (Glowing Gradients) */}
+            <div className="bg-white p-10 rounded-[48px] border border-slate-100 shadow-sm flex flex-col justify-between relative overflow-hidden group">
+              <div className="absolute top-0 right-0 p-8 text-slate-50 group-hover:text-slate-100/50 transition-colors pointer-events-none">
+                <Coins size={140} strokeWidth={0.5} />
+              </div>
+              <div className="relative z-10 flex-1 flex flex-col justify-between">
+                <div>
+                  <h3 className="text-xs font-black uppercase tracking-[0.2em] text-slate-400">Milestone Distribution</h3>
+                  <h2 className="text-2xl font-black text-slate-900 mt-1">Seniors by Age Milestones</h2>
+                  <p className="text-slate-400 text-xs font-medium mt-1">Counts of active senior citizens qualifying under Expanded Centenarian Act milestones.</p>
+                </div>
+
+                {/* Bar Layout */}
+                <div className="flex h-56 items-end justify-between gap-4 pt-10 relative border-b border-slate-100 pb-1">
+                  {milestoneData.map((data, idx) => {
+                    const heightPercent = maxMilestoneVal > 0 ? (data.val / maxMilestoneVal) * 100 : 0;
+                    return (
+                      <div key={idx} className="flex-1 flex flex-col items-center group relative cursor-pointer h-full justify-end">
+                        {/* Floating Indicator */}
+                        <div className="absolute bottom-full mb-2 bg-slate-900 text-white text-[9px] font-black uppercase px-2.5 py-1.5 rounded-lg shadow-lg opacity-0 group-hover:opacity-100 transition-all pointer-events-none -translate-y-2 group-hover:translate-y-0 z-20 whitespace-nowrap">
+                          {data.val} Seniors
+                        </div>
+
+                        {/* Interactive Bar */}
+                        <div
+                          style={{ height: `${heightPercent}%` }}
+                          className={`w-full bg-gradient-to-t ${data.color} rounded-t-xl group-hover:brightness-95 transition-all duration-700 ease-out shadow-lg shadow-indigo-500/5 relative overflow-hidden min-h-[4px]`}
+                        >
+                          {/* Shimmer Overlay */}
+                          <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/15 to-transparent -translate-x-full group-hover:animate-shimmer"></div>
+                        </div>
+
+                        {/* Bar Value Static Label */}
+                        <span className="text-[10px] font-black text-slate-900 mt-2 tabular-nums">
+                          {data.val}
+                        </span>
+
+                        {/* Base Label */}
+                        <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest mt-1 text-center truncate w-full">
+                          {data.label}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mt-6 pt-4 border-t border-slate-50">
+                  <div>
+                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider block">Financial Obligation</span>
+                    <div className="flex items-baseline gap-2">
+                      <span className="text-2xl font-black text-indigo-600">₱{(financialStats.released_amount).toLocaleString()}</span>
+                      <span className="text-[10px] font-bold text-slate-400 uppercase">Released</span>
+                    </div>
+                  </div>
+                  <div>
+                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider block">Pipeline Scheduled</span>
+                    <div className="flex items-baseline gap-2">
+                      <span className="text-2xl font-black text-amber-500">₱{(financialStats.pending_amount).toLocaleString()}</span>
+                      <span className="text-[10px] font-bold text-slate-400 uppercase">Pending</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
           </div>
         )}
-      </div>
 
-      {/* --- PREMIUM VISUAL CHARTS SECTION (ADMIN ONLY) --- */}
-      {isAdmin && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-          
-          {/* Chart 1: Donut Chart for Senior Statuses / Death Statistics (The "Death Chart") */}
-          <div className="bg-white p-10 rounded-[48px] border border-slate-100 shadow-sm flex flex-col justify-between relative overflow-hidden group">
-            <div className="absolute top-0 right-0 p-8 text-slate-50 group-hover:text-slate-100/50 transition-colors pointer-events-none">
-              <Heart size={140} strokeWidth={0.5} />
+        {/* --- MORE IMPORTANT ADMIN CHARTS/GRAPHS (ADMIN ONLY) --- */}
+        {isAdmin && (
+          <div className="space-y-8">
+            <div className="flex items-center gap-4 bg-slate-900 p-8 rounded-[36px] text-white relative overflow-hidden shadow-xl">
+              <div className="absolute top-0 right-0 w-64 h-64 bg-emerald-500/10 rounded-full blur-3xl opacity-50 -translate-y-1/2 translate-x-1/3"></div>
+              <div className="p-4 bg-emerald-500/20 text-emerald-300 rounded-2xl relative z-10"><FileBarChart size={28} /></div>
+              <div className="relative z-10">
+                <h2 className="text-2xl font-black uppercase tracking-wider">Advanced LGU Demographic & Hotspot Intelligence</h2>
+                <p className="text-slate-400 text-xs font-semibold mt-1">Real-time geographical density matching and registry demography indicators for LGU administrators.</p>
+              </div>
             </div>
-            <div className="relative z-10">
-              <div className="flex items-center justify-between mb-8">
+
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
+
+              {/* Card 1: Top Barangays Registry Hotspots */}
+              <div className="bg-white p-10 rounded-[48px] border border-slate-100 shadow-sm flex flex-col justify-between relative overflow-hidden group">
                 <div>
-                  <h3 className="text-xs font-black uppercase tracking-[0.2em] text-slate-400">Registry & Mortality Profile</h3>
-                  <h2 className="text-2xl font-black text-slate-900 mt-1">Registry Cleanup & Death Stats</h2>
-                </div>
-                <span className="px-4 py-2 bg-rose-50 text-rose-600 border border-rose-100 rounded-2xl text-[9px] font-black uppercase tracking-wider flex items-center gap-1.5">
-                  <Ghost size={12} />
-                  Death Audit Active
-                </span>
-              </div>
-              
-              <div className="flex flex-col sm:flex-row items-center justify-around gap-8 my-4">
-                {/* SVG Donut Ring */}
-                <div className="relative w-56 h-56 flex items-center justify-center">
-                  <svg width="220" height="220" viewBox="0 0 100 100" className="transform -rotate-90">
-                    <circle cx="50" cy="50" r={radius} fill="transparent" stroke="#f8fafc" strokeWidth="9" />
-                    {donutSegments.map((segment) => {
-                      if (segment.val === 0) return null;
-                      return (
-                        <circle
-                          key={segment.key}
-                          cx="50"
-                          cy="50"
-                          r={radius}
-                          fill="transparent"
-                          stroke={segment.color}
-                          strokeWidth={hoveredSegment === segment.key ? "11" : "9"}
-                          strokeDasharray={`${segment.strokeLength} ${circumference}`}
-                          strokeDashoffset={segment.strokeOffset}
-                          strokeLinecap="round"
-                          className="transition-all duration-300 ease-out cursor-pointer"
-                          onMouseEnter={() => {
-                            setHoveredSegment(segment.key);
-                            setHoveredValue(segment.val);
-                          }}
-                          onMouseLeave={() => {
-                            setHoveredSegment(null);
-                            setHoveredValue(null);
-                          }}
-                        />
-                      );
-                    })}
-                  </svg>
-                  
-                  {/* Absolute Center Labels */}
-                  <div className="absolute flex flex-col items-center justify-center text-center p-6 bg-white rounded-full w-[130px] h-[130px] shadow-lg shadow-slate-100 border border-slate-50">
-                    <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest truncate max-w-[110px]">
-                      {middleLabel}
-                    </span>
-                    <span className="text-3xl font-black text-slate-900 mt-1.5 tabular-nums">
-                      {isLoading ? '...' : middleValue}
-                    </span>
-                    <span className="text-[8px] font-bold text-slate-400 uppercase tracking-wider mt-1">
-                      {totalSeniorsCount > 0 ? `${((middleValue / totalSeniorsCount) * 100).toFixed(1)}%` : "0%"}
-                    </span>
+                  <div className="flex items-center gap-2 mb-2">
+                    <MapPin className="text-emerald-500" size={16} />
+                    <h3 className="text-xs font-black uppercase tracking-[0.2em] text-slate-400">Geographical Hotspots</h3>
                   </div>
+                  <h2 className="text-2xl font-black text-slate-900 mt-1">Registry Density by Barangay</h2>
+                  <p className="text-slate-400 text-xs font-medium mt-1">Top Barangays by active beneficiary registrations and budget weight allocation.</p>
                 </div>
 
-                {/* Slices Indicators Legend */}
-                <div className="flex flex-col gap-4 w-full sm:w-auto">
-                  {donutSegments.map((segment) => (
-                    <div 
-                      key={segment.key}
-                      className={`flex items-center justify-between gap-6 p-3 rounded-2xl transition-all duration-300 ${hoveredSegment === segment.key ? 'bg-slate-50 border border-slate-100 shadow-sm' : 'border border-transparent'}`}
-                      onMouseEnter={() => {
-                        setHoveredSegment(segment.key);
-                        setHoveredValue(segment.val);
-                      }}
-                      onMouseLeave={() => {
-                        setHoveredSegment(null);
-                        setHoveredValue(null);
-                      }}
-                    >
-                      <div className="flex items-center gap-3">
-                        <span className={`w-3.5 h-3.5 rounded-full ${statusBgColors[segment.key]} shadow-sm`}></span>
-                        <span className="text-[10px] font-black text-slate-500 uppercase tracking-wider">{segment.label}</span>
-                      </div>
-                      <div className="text-right">
-                        <span className="text-xs font-black text-slate-900 tabular-nums">{segment.val}</span>
-                        <span className="text-[9px] font-bold text-slate-400 block tabular-nums">{segment.pct.toFixed(1)}%</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-            <div className="text-[10px] font-bold text-slate-400 mt-6 pt-4 border-t border-slate-50 italic">
-              * Active Deceased counts display system database pruning indicators (RA 10173 data sanitation auditing).
-            </div>
-          </div>
-
-          {/* Chart 2: Milestone Age Distribution (Glowing Gradients) */}
-          <div className="bg-white p-10 rounded-[48px] border border-slate-100 shadow-sm flex flex-col justify-between relative overflow-hidden group">
-            <div className="absolute top-0 right-0 p-8 text-slate-50 group-hover:text-slate-100/50 transition-colors pointer-events-none">
-              <Coins size={140} strokeWidth={0.5} />
-            </div>
-            <div className="relative z-10 flex-1 flex flex-col justify-between">
-              <div>
-                <h3 className="text-xs font-black uppercase tracking-[0.2em] text-slate-400">Milestone Distribution</h3>
-                <h2 className="text-2xl font-black text-slate-900 mt-1">Seniors by Age Milestones</h2>
-                <p className="text-slate-400 text-xs font-medium mt-1">Counts of active senior citizens qualifying under Expanded Centenarian Act milestones.</p>
-              </div>
-
-              {/* Bar Layout */}
-              <div className="flex h-56 items-end justify-between gap-4 pt-10 relative border-b border-slate-100 pb-1">
-                {milestoneData.map((data, idx) => {
-                  const heightPercent = maxMilestoneVal > 0 ? (data.val / maxMilestoneVal) * 100 : 0;
-                  return (
-                    <div key={idx} className="flex-1 flex flex-col items-center group relative cursor-pointer h-full justify-end">
-                      {/* Floating Indicator */}
-                      <div className="absolute bottom-full mb-2 bg-slate-900 text-white text-[9px] font-black uppercase px-2.5 py-1.5 rounded-lg shadow-lg opacity-0 group-hover:opacity-100 transition-all pointer-events-none -translate-y-2 group-hover:translate-y-0 z-20 whitespace-nowrap">
-                        {data.val} Seniors
-                      </div>
-                      
-                      {/* Interactive Bar */}
-                      <div 
-                        style={{ height: `${heightPercent}%` }}
-                        className={`w-full bg-gradient-to-t ${data.color} rounded-t-xl group-hover:brightness-95 transition-all duration-700 ease-out shadow-lg shadow-indigo-500/5 relative overflow-hidden min-h-[4px]`}
-                      >
-                        {/* Shimmer Overlay */}
-                        <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/15 to-transparent -translate-x-full group-hover:animate-shimmer"></div>
-                      </div>
-                      
-                      {/* Bar Value Static Label */}
-                      <span className="text-[10px] font-black text-slate-900 mt-2 tabular-nums">
-                        {data.val}
-                      </span>
-                      
-                      {/* Base Label */}
-                      <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest mt-1 text-center truncate w-full">
-                        {data.label}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-
-              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mt-6 pt-4 border-t border-slate-50">
-                <div>
-                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider block">Financial Obligation</span>
-                  <div className="flex items-baseline gap-2">
-                    <span className="text-2xl font-black text-indigo-600">₱{(financialStats.released_amount).toLocaleString()}</span>
-                    <span className="text-[10px] font-bold text-slate-400 uppercase">Released</span>
-                  </div>
-                </div>
-                <div>
-                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider block">Pipeline Scheduled</span>
-                  <div className="flex items-baseline gap-2">
-                    <span className="text-2xl font-black text-amber-500">₱{(financialStats.pending_amount).toLocaleString()}</span>
-                    <span className="text-[10px] font-bold text-slate-400 uppercase">Pending</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-        </div>
-      )}
-
-      {/* --- MORE IMPORTANT ADMIN CHARTS/GRAPHS (ADMIN ONLY) --- */}
-      {isAdmin && (
-        <div className="space-y-8">
-          <div className="flex items-center gap-4 bg-slate-900 p-8 rounded-[36px] text-white relative overflow-hidden shadow-xl">
-            <div className="absolute top-0 right-0 w-64 h-64 bg-emerald-500/10 rounded-full blur-3xl opacity-50 -translate-y-1/2 translate-x-1/3"></div>
-            <div className="p-4 bg-emerald-500/20 text-emerald-300 rounded-2xl relative z-10"><FileBarChart size={28} /></div>
-            <div className="relative z-10">
-              <h2 className="text-2xl font-black uppercase tracking-wider">Advanced LGU Demographic & Hotspot Intelligence</h2>
-              <p className="text-slate-400 text-xs font-semibold mt-1">Real-time geographical density matching and registry demography indicators for LGU administrators.</p>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
-            
-            {/* Card 1: Top Barangays Registry Hotspots */}
-            <div className="bg-white p-10 rounded-[48px] border border-slate-100 shadow-sm flex flex-col justify-between relative overflow-hidden group">
-              <div>
-                <div className="flex items-center gap-2 mb-2">
-                  <MapPin className="text-emerald-500" size={16} />
-                  <h3 className="text-xs font-black uppercase tracking-[0.2em] text-slate-400">Geographical Hotspots</h3>
-                </div>
-                <h2 className="text-2xl font-black text-slate-900 mt-1">Registry Density by Barangay</h2>
-                <p className="text-slate-400 text-xs font-medium mt-1">Top Barangays by active beneficiary registrations and budget weight allocation.</p>
-              </div>
-
-              <div className="space-y-6 mt-8">
-                {(() => {
-                  const barangayData = stats.barangay_breakdown && stats.barangay_breakdown.length > 0
-                    ? stats.barangay_breakdown
-                    : [
+                <div className="space-y-6 mt-8">
+                  {(() => {
+                    const barangayData = stats.barangay_breakdown && stats.barangay_breakdown.length > 0
+                      ? stats.barangay_breakdown
+                      : [
                         { name: "BARANGAY I", count: 42 },
                         { name: "BARANGAY II", count: 28 },
                         { name: "BARANGAY III", count: 19 },
                         { name: "BARANGAY IV", count: 12 },
                         { name: "BARANGAY V", count: 8 }
                       ];
-                  
-                  const maxCount = Math.max(...barangayData.map(b => b.count), 1);
-                  const totalCount = barangayData.reduce((acc, curr) => acc + curr.count, 0);
 
-                  return barangayData.map((brgy, idx) => {
-                    const pct = (brgy.count / maxCount) * 100;
-                    const sharePct = totalCount > 0 ? (brgy.count / totalCount) * 100 : 0;
-                    return (
-                      <div key={idx} className="space-y-2 group/bar cursor-pointer">
-                        <div className="flex justify-between items-center text-xs">
-                          <span className="font-black text-slate-700 tracking-wide uppercase">{brgy.name}</span>
-                          <div className="flex items-center gap-3">
-                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{sharePct.toFixed(1)}% Share</span>
-                            <span className="font-black text-slate-900 tabular-nums">{brgy.count} Seniors</span>
-                          </div>
-                        </div>
-                        <div className="h-4 bg-slate-50 rounded-full overflow-hidden border border-slate-100 relative">
-                          <div 
-                            style={{ width: `${pct}%` }} 
-                            className="h-full bg-gradient-to-r from-emerald-400 to-teal-500 rounded-full transition-all duration-1000 ease-out relative"
-                          >
-                            <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent -translate-x-full group-hover/bar:animate-shimmer"></div>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  });
-                })()}
-              </div>
-            </div>
+                    const maxCount = Math.max(...barangayData.map(b => b.count), 1);
+                    const totalCount = barangayData.reduce((acc, curr) => acc + curr.count, 0);
 
-            {/* Card 2: Demographic Sex & Civil Profile */}
-            <div className="bg-white p-10 rounded-[48px] border border-slate-100 shadow-sm flex flex-col justify-between relative overflow-hidden group">
-              <div>
-                <div className="flex items-center gap-2 mb-2">
-                  <Activity className="text-teal-500" size={16} />
-                  <h3 className="text-xs font-black uppercase tracking-[0.2em] text-slate-400">Demographic Profile</h3>
-                </div>
-                <h2 className="text-2xl font-black text-slate-900 mt-1">Gender & Civil Status Ratio</h2>
-                <p className="text-slate-400 text-xs font-medium mt-1">Registry gender split proportions and active beneficiary civil status indicators.</p>
-              </div>
-
-              {/* Sex ratio horizontal split bar */}
-              {(() => {
-                const sexData = stats.sex_breakdown && (stats.sex_breakdown.male > 0 || stats.sex_breakdown.female > 0)
-                  ? stats.sex_breakdown
-                  : { male: 48, female: 52, other: 0 };
-                
-                const totalSex = sexData.male + sexData.female + sexData.other;
-                const mPct = totalSex > 0 ? (sexData.male / totalSex) * 100 : 48;
-                const fPct = totalSex > 0 ? (sexData.female / totalSex) * 100 : 52;
-
-                return (
-                  <div className="space-y-6 mt-8">
-                    <div className="space-y-3">
-                      <div className="flex justify-between items-center text-xs font-black">
-                        <span className="text-cyan-600 flex items-center gap-1.5"><Mars size={14} /> MALE ({mPct.toFixed(1)}%)</span>
-                        <span className="text-pink-600 flex items-center gap-1.5"><Venus size={14} /> FEMALE ({fPct.toFixed(1)}%)</span>
-                      </div>
-                      
-                      <div className="h-8 rounded-2xl overflow-hidden flex shadow-inner border border-slate-100">
-                        <div 
-                          style={{ width: `${mPct}%` }} 
-                          className="h-full bg-gradient-to-r from-cyan-400 to-blue-500 transition-all duration-1000 ease-out flex items-center justify-start pl-3 text-[10px] font-black text-white"
-                        >
-                          {mPct > 15 && <span className="tabular-nums">{sexData.male || 48}</span>}
-                        </div>
-                        <div 
-                          style={{ width: `${fPct}%` }} 
-                          className="h-full bg-gradient-to-r from-pink-400 to-rose-500 transition-all duration-1000 ease-out flex items-center justify-end pr-3 text-[10px] font-black text-white"
-                        >
-                          {fPct > 15 && <span className="tabular-nums">{sexData.female || 52}</span>}
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Civil Status Indicators Grid */}
-                    {(() => {
-                      const marriedCount = stats.civil_status_breakdown?.married ?? 0;
-                      const widowedCount = stats.civil_status_breakdown?.widowed ?? 0;
-                      const singleCount = stats.civil_status_breakdown?.single ?? 0;
-                      const separatedCount = stats.civil_status_breakdown?.separated ?? 0;
-                      const divorcedCount = stats.civil_status_breakdown?.divorced ?? 0;
-
-                      const totalSeniors = totalSeniorsCount > 0 ? totalSeniorsCount : 1;
-                      const marriedPct = Math.round((marriedCount / totalSeniors) * 100);
-                      const widowedPct = Math.round((widowedCount / totalSeniors) * 100);
-                      const singlePct = Math.round((singleCount / totalSeniors) * 100);
-                      const separatedPct = Math.round((separatedCount / totalSeniors) * 100);
-                      const divorcedPct = Math.round((divorcedCount / totalSeniors) * 100);
-
+                    return barangayData.map((brgy, idx) => {
+                      const pct = (brgy.count / maxCount) * 100;
+                      const sharePct = totalCount > 0 ? (brgy.count / totalCount) * 100 : 0;
                       return (
-                        <div className="pt-4 border-t border-slate-50">
-                          <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Civil Status Representation</h4>
-                          <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                            <div className="p-4 bg-emerald-50 rounded-2xl border border-emerald-100 flex justify-between items-center">
-                              <div>
-                                <span className="text-[9px] font-black text-emerald-600 uppercase tracking-wider block">Married</span>
-                                <span className="text-xs font-bold text-slate-400 mt-1">{marriedPct}% Share</span>
-                              </div>
-                                <span className="text-lg font-black text-emerald-700">{marriedCount}</span>
+                        <div key={idx} className="space-y-2 group/bar cursor-pointer">
+                          <div className="flex justify-between items-center text-xs">
+                            <span className="font-black text-slate-700 tracking-wide uppercase">{brgy.name}</span>
+                            <div className="flex items-center gap-3">
+                              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{sharePct.toFixed(1)}% Share</span>
+                              <span className="font-black text-slate-900 tabular-nums">{brgy.count} Seniors</span>
                             </div>
-                            <div className="p-4 bg-rose-50 rounded-2xl border border-rose-100 flex justify-between items-center">
-                              <div>
-                                <span className="text-[9px] font-black text-rose-600 uppercase tracking-wider block">Widowed</span>
-                                <span className="text-xs font-bold text-slate-400 mt-1">{widowedPct}% Share</span>
-                              </div>
-                              <span className="text-lg font-black text-rose-700">{widowedCount}</span>
-                            </div>
-                            <div className="p-4 bg-indigo-50 rounded-2xl border border-indigo-100 flex justify-between items-center">
-                              <div>
-                                <span className="text-[9px] font-black text-indigo-600 uppercase tracking-wider block">Single</span>
-                                <span className="text-xs font-bold text-slate-400 mt-1">{singlePct}% Share</span>
-                              </div>
-                              <span className="text-lg font-black text-indigo-700">{singleCount}</span>
-                            </div>
-                            <div className="p-4 bg-amber-50 rounded-2xl border border-amber-100 flex justify-between items-center">
-                              <div>
-                                <span className="text-[9px] font-black text-amber-600 uppercase tracking-wider block">Separated</span>
-                                <span className="text-xs font-bold text-slate-400 mt-1">{separatedPct}% Share</span>
-                              </div>
-                              <span className="text-lg font-black text-amber-700">{separatedCount}</span>
-                            </div>
-                            <div className="p-4 bg-violet-50 rounded-2xl border border-violet-100 flex justify-between items-center">
-                              <div>
-                                <span className="text-[9px] font-black text-violet-600 uppercase tracking-wider block">Divorced</span>
-                                <span className="text-xs font-bold text-slate-400 mt-1">{divorcedPct}% Share</span>
-                              </div>
-                              <span className="text-lg font-black text-violet-700">{divorcedCount}</span>
+                          </div>
+                          <div className="h-4 bg-slate-50 rounded-full overflow-hidden border border-slate-100 relative">
+                            <div
+                              style={{ width: `${pct}%` }}
+                              className="h-full bg-gradient-to-r from-emerald-400 to-teal-500 rounded-full transition-all duration-1000 ease-out relative"
+                            >
+                              <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent -translate-x-full group-hover/bar:animate-shimmer"></div>
                             </div>
                           </div>
                         </div>
                       );
-                    })()}
+                    });
+                  })()}
+                </div>
+              </div>
+
+              {/* Card 2: Demographic Sex & Civil Profile */}
+              <div className="bg-white p-10 rounded-[48px] border border-slate-100 shadow-sm flex flex-col justify-between relative overflow-hidden group">
+                <div>
+                  <div className="flex items-center gap-2 mb-2">
+                    <Activity className="text-teal-500" size={16} />
+                    <h3 className="text-xs font-black uppercase tracking-[0.2em] text-slate-400">Demographic Profile</h3>
                   </div>
-                );
-              })()}
+                  <h2 className="text-2xl font-black text-slate-900 mt-1">Gender & Civil Status Ratio</h2>
+                  <p className="text-slate-400 text-xs font-medium mt-1">Registry gender split proportions and active beneficiary civil status indicators.</p>
+                </div>
+
+                {/* Sex ratio horizontal split bar */}
+                {(() => {
+                  const sexData = stats.sex_breakdown && (stats.sex_breakdown.male > 0 || stats.sex_breakdown.female > 0)
+                    ? stats.sex_breakdown
+                    : { male: 48, female: 52, other: 0 };
+
+                  const totalSex = sexData.male + sexData.female + sexData.other;
+                  const mPct = totalSex > 0 ? (sexData.male / totalSex) * 100 : 48;
+                  const fPct = totalSex > 0 ? (sexData.female / totalSex) * 100 : 52;
+
+                  return (
+                    <div className="space-y-6 mt-8">
+                      <div className="space-y-3">
+                        <div className="flex justify-between items-center text-xs font-black">
+                          <span className="text-cyan-600 flex items-center gap-1.5"><Mars size={14} /> MALE ({mPct.toFixed(1)}%)</span>
+                          <span className="text-pink-600 flex items-center gap-1.5"><Venus size={14} /> FEMALE ({fPct.toFixed(1)}%)</span>
+                        </div>
+
+                        <div className="h-8 rounded-2xl overflow-hidden flex shadow-inner border border-slate-100">
+                          <div
+                            style={{ width: `${mPct}%` }}
+                            className="h-full bg-gradient-to-r from-cyan-400 to-blue-500 transition-all duration-1000 ease-out flex items-center justify-start pl-3 text-[10px] font-black text-white"
+                          >
+                            {mPct > 15 && <span className="tabular-nums">{sexData.male || 48}</span>}
+                          </div>
+                          <div
+                            style={{ width: `${fPct}%` }}
+                            className="h-full bg-gradient-to-r from-pink-400 to-rose-500 transition-all duration-1000 ease-out flex items-center justify-end pr-3 text-[10px] font-black text-white"
+                          >
+                            {fPct > 15 && <span className="tabular-nums">{sexData.female || 52}</span>}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Civil Status Indicators Grid */}
+                      {(() => {
+                        const marriedCount = stats.civil_status_breakdown?.married ?? 0;
+                        const widowedCount = stats.civil_status_breakdown?.widowed ?? 0;
+                        const singleCount = stats.civil_status_breakdown?.single ?? 0;
+                        const separatedCount = stats.civil_status_breakdown?.separated ?? 0;
+                        const divorcedCount = stats.civil_status_breakdown?.divorced ?? 0;
+
+                        const totalSeniors = totalSeniorsCount > 0 ? totalSeniorsCount : 1;
+                        const marriedPct = Math.round((marriedCount / totalSeniors) * 100);
+                        const widowedPct = Math.round((widowedCount / totalSeniors) * 100);
+                        const singlePct = Math.round((singleCount / totalSeniors) * 100);
+                        const separatedPct = Math.round((separatedCount / totalSeniors) * 100);
+                        const divorcedPct = Math.round((divorcedCount / totalSeniors) * 100);
+
+                        return (
+                          <div className="pt-4 border-t border-slate-50">
+                            <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Civil Status Representation</h4>
+                            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                              <div className="p-4 bg-emerald-50 rounded-2xl border border-emerald-100 flex justify-between items-center">
+                                <div>
+                                  <span className="text-[9px] font-black text-emerald-600 uppercase tracking-wider block">Married</span>
+                                  <span className="text-xs font-bold text-slate-400 mt-1">{marriedPct}% Share</span>
+                                </div>
+                                <span className="text-lg font-black text-emerald-700">{marriedCount}</span>
+                              </div>
+                              <div className="p-4 bg-rose-50 rounded-2xl border border-rose-100 flex justify-between items-center">
+                                <div>
+                                  <span className="text-[9px] font-black text-rose-600 uppercase tracking-wider block">Widowed</span>
+                                  <span className="text-xs font-bold text-slate-400 mt-1">{widowedPct}% Share</span>
+                                </div>
+                                <span className="text-lg font-black text-rose-700">{widowedCount}</span>
+                              </div>
+                              <div className="p-4 bg-indigo-50 rounded-2xl border border-indigo-100 flex justify-between items-center">
+                                <div>
+                                  <span className="text-[9px] font-black text-indigo-600 uppercase tracking-wider block">Single</span>
+                                  <span className="text-xs font-bold text-slate-400 mt-1">{singlePct}% Share</span>
+                                </div>
+                                <span className="text-lg font-black text-indigo-700">{singleCount}</span>
+                              </div>
+                              <div className="p-4 bg-amber-50 rounded-2xl border border-amber-100 flex justify-between items-center">
+                                <div>
+                                  <span className="text-[9px] font-black text-amber-600 uppercase tracking-wider block">Separated</span>
+                                  <span className="text-xs font-bold text-slate-400 mt-1">{separatedPct}% Share</span>
+                                </div>
+                                <span className="text-lg font-black text-amber-700">{separatedCount}</span>
+                              </div>
+                              <div className="p-4 bg-violet-50 rounded-2xl border border-violet-100 flex justify-between items-center">
+                                <div>
+                                  <span className="text-[9px] font-black text-violet-600 uppercase tracking-wider block">Divorced</span>
+                                  <span className="text-xs font-bold text-slate-400 mt-1">{divorcedPct}% Share</span>
+                                </div>
+                                <span className="text-lg font-black text-violet-700">{divorcedCount}</span>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  );
+                })()}
+              </div>
+
+            </div>
+          </div>
+        )}
+
+        {/* --- R.A. 11982 BUDGET FORECAST CALCULATOR (ADMIN ONLY) --- */}
+        {isAdmin && (
+          <div className="space-y-8">
+            {/* Section Header */}
+            <div className="flex items-center gap-4 bg-gradient-to-r from-indigo-950 to-indigo-800 p-8 rounded-[36px] text-white relative overflow-hidden shadow-xl">
+              <div className="absolute top-0 right-0 w-64 h-64 bg-white/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/3"></div>
+              <div className="p-4 bg-white/10 text-indigo-200 rounded-2xl relative z-10"><Calculator size={28} /></div>
+              <div className="relative z-10 flex-1">
+                <h2 className="text-2xl font-black uppercase tracking-wider">R.A. 11982 Milestone Appropriation &amp; Budget Forecast</h2>
+                <p className="text-indigo-300 text-xs font-semibold mt-1">Expanded Centenarian Act · Automated quarterly cash gift projection for LGU budget planning &amp; DBM supplemental funding requests.</p>
+              </div>
+              {/* Horizon Selector */}
+              <div className="relative z-10 flex gap-2">
+                {(['1q', '2q', '4q'] as const).map(h => (
+                  <button
+                    key={h}
+                    onClick={() => handleHorizonChange(h)}
+                    className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${budgetHorizon === h
+                        ? 'bg-white text-indigo-900 shadow-lg'
+                        : 'bg-white/10 text-indigo-200 hover:bg-white/20'
+                      }`}
+                  >
+                    {h === '1q' ? '3 Months' : h === '2q' ? '6 Months' : '12 Months'}
+                  </button>
+                ))}
+              </div>
             </div>
 
-          </div>
-        </div>
-      )}
+            {isBudgetLoading ? (
+              <div className="bg-white rounded-[48px] border border-slate-100 p-16 flex flex-col items-center justify-center gap-4">
+                <div className="w-12 h-12 border-4 border-indigo-100 border-t-indigo-600 rounded-full animate-spin"></div>
+                <p className="text-xs font-black uppercase tracking-widest text-slate-400">Computing milestone projections...</p>
+              </div>
+            ) : budgetForecast && (
+              <>
+                {/* KPI Summary Row */}
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-6">
+                  <div className="bg-white p-8 rounded-[36px] border border-slate-100 shadow-sm space-y-3 relative overflow-hidden group hover:shadow-lg hover:shadow-indigo-500/5 transition-all">
+                    <div className="absolute top-0 right-0 p-6 text-indigo-50 group-hover:text-indigo-100 transition-colors"><BadgeDollarSign size={64} strokeWidth={0.8} /></div>
+                    <div className="relative z-10">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Total Appropriation</p>
+                      <p className="text-3xl font-black text-indigo-700 mt-1">₱{(budgetForecast.total_appropriation || 0).toLocaleString()}</p>
+                      <p className="text-[10px] font-bold text-slate-400 mt-1 uppercase">Projected Obligation</p>
+                    </div>
+                  </div>
+                  <div className="bg-white p-8 rounded-[36px] border border-slate-100 shadow-sm space-y-3 relative overflow-hidden group hover:shadow-lg hover:shadow-emerald-500/5 transition-all">
+                    <div className="absolute top-0 right-0 p-6 text-emerald-50 group-hover:text-emerald-100 transition-colors"><Users size={64} strokeWidth={0.8} /></div>
+                    <div className="relative z-10">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Upcoming Beneficiaries</p>
+                      <p className="text-3xl font-black text-emerald-600 mt-1">{budgetForecast.total_celebrants || 0}</p>
+                      <p className="text-[10px] font-bold text-slate-400 mt-1 uppercase">Milestone Seniors</p>
+                    </div>
+                  </div>
+                  <div className="bg-white p-8 rounded-[36px] border border-slate-100 shadow-sm space-y-3 relative overflow-hidden group hover:shadow-lg hover:shadow-amber-500/5 transition-all">
+                    <div className="absolute top-0 right-0 p-6 text-amber-50 group-hover:text-amber-100 transition-colors"><CalendarDays size={64} strokeWidth={0.8} /></div>
+                    <div className="relative z-10">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Monthly Average</p>
+                      <p className="text-3xl font-black text-amber-600 mt-1">₱{(budgetForecast.monthly_average || 0).toLocaleString()}</p>
+                      <p className="text-[10px] font-bold text-slate-400 mt-1 uppercase">Per Month Obligation</p>
+                    </div>
+                  </div>
+                  <div className="bg-white p-8 rounded-[36px] border border-slate-100 shadow-sm space-y-3 relative overflow-hidden group hover:shadow-lg hover:shadow-violet-500/5 transition-all">
+                    <div className="absolute top-0 right-0 p-6 text-violet-50 group-hover:text-violet-100 transition-colors"><BarChart3 size={64} strokeWidth={0.8} /></div>
+                    <div className="relative z-10">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Forecast Period</p>
+                      <p className="text-xl font-black text-violet-700 mt-1">{budgetHorizon === '1q' ? '3 Months' : budgetHorizon === '2q' ? '6 Months' : '12 Months'}</p>
+                      <p className="text-[10px] font-bold text-slate-400 mt-1 uppercase">
+                        {new Date(budgetForecast.start_date).toLocaleDateString('en-PH', { month: 'short', year: '2-digit' })} –
+                        {' '}{new Date(budgetForecast.end_date).toLocaleDateString('en-PH', { month: 'short', year: '2-digit' })}
+                      </p>
+                    </div>
+                  </div>
+                </div>
 
-      {/* --- ANALYTICS INSIGHTS FOR STAFF OPERATORS (STAFF ONLY) --- */}
-      {!isAdmin && (
-        <div className="bg-white p-12 rounded-[48px] border border-slate-100 shadow-sm relative overflow-hidden">
+                {/* Quarterly Bar Chart + Milestone Summary */}
+                <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
+                  {/* Quarterly Forecast Bar Chart */}
+                  <div className="xl:col-span-2 bg-white p-10 rounded-[48px] border border-slate-100 shadow-sm">
+                    <div className="flex items-center justify-between mb-8">
+                      <div>
+                        <h3 className="text-xs font-black uppercase tracking-[0.2em] text-slate-400">Quarterly Appropriation</h3>
+                        <h2 className="text-2xl font-black text-slate-900 mt-1">Cash Gift Disbursement Forecast</h2>
+                        <p className="text-slate-400 text-xs font-medium mt-1">Projected R.A. 11982 milestone gift obligations by quarter (₱10k/₱100k rates).</p>
+                      </div>
+                      <span className="px-4 py-2 bg-indigo-50 text-indigo-600 border border-indigo-100 rounded-2xl text-[9px] font-black uppercase tracking-wider flex items-center gap-1.5">
+                        <Calculator size={12} />
+                        Auto-Computed
+                      </span>
+                    </div>
+
+                    {budgetForecast.quarterly_forecast && budgetForecast.quarterly_forecast.length > 0 ? (() => {
+                      const quarters = budgetForecast.quarterly_forecast;
+                      const maxAmt = Math.max(...quarters.map((q: any) => q.amount), 1);
+                      return (
+                        <div className="flex h-64 items-end justify-between gap-3 pt-8 relative border-b border-slate-100 pb-1">
+                          {quarters.map((q: any) => {
+                            const heightPct = (q.amount / maxAmt) * 100;
+                            const isHovered = hoveredQuarter === q.quarter;
+                            return (
+                              <div
+                                key={q.quarter}
+                                className="flex-1 flex flex-col items-center group relative cursor-pointer h-full justify-end"
+                                onMouseEnter={() => setHoveredQuarter(q.quarter)}
+                                onMouseLeave={() => setHoveredQuarter(null)}
+                              >
+                                {/* Tooltip */}
+                                <div className={`absolute bottom-full mb-3 bg-slate-900 text-white text-[9px] font-black px-3 py-2 rounded-xl shadow-lg z-20 whitespace-nowrap transition-all ${isHovered ? 'opacity-100 -translate-y-0' : 'opacity-0 -translate-y-2 pointer-events-none'
+                                  }`}>
+                                  <p className="uppercase tracking-widest">{q.label}</p>
+                                  <p className="text-indigo-300 mt-0.5">₱{q.amount.toLocaleString()}</p>
+                                  <p className="text-slate-400">{q.count} beneficiaries</p>
+                                </div>
+                                {/* Bar */}
+                                <div
+                                  style={{ height: `${Math.max(heightPct, 2)}%` }}
+                                  className={`w-full bg-gradient-to-t from-indigo-700 to-indigo-400 rounded-t-xl transition-all duration-700 ease-out shadow-lg relative overflow-hidden min-h-[4px] ${isHovered ? 'brightness-110 scale-x-105' : ''
+                                    }`}
+                                >
+                                  <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/15 to-transparent"></div>
+                                </div>
+                                <span className="text-[9px] font-black text-indigo-600 mt-2 tabular-nums">
+                                  {q.amount > 0 ? `₱${(q.amount / 1000).toFixed(0)}k` : '—'}
+                                </span>
+                                <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest mt-0.5 text-center">
+                                  {q.label}
+                                </span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      );
+                    })() : (
+                      <div className="h-64 flex items-center justify-center text-slate-300">
+                        <p className="text-xs font-bold uppercase tracking-widest">No milestone beneficiaries in this horizon</p>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Milestone Breakdown Panel */}
+                  <div className="bg-white p-10 rounded-[48px] border border-slate-100 shadow-sm flex flex-col justify-between">
+                    <div>
+                      <h3 className="text-xs font-black uppercase tracking-[0.2em] text-slate-400">Milestone Breakdown</h3>
+                      <h2 className="text-2xl font-black text-slate-900 mt-1">By Age &amp; Gift Amount</h2>
+                      <p className="text-slate-400 text-xs font-medium mt-1">R.A. 11982 statutory rates per milestone category.</p>
+                    </div>
+                    <div className="space-y-4 mt-6">
+                      {budgetForecast.milestone_summary && Object.entries(budgetForecast.milestone_summary).map(([age, data]: [string, any]) => {
+                        const grantAmt = age === '100' ? 100000 : 10000;
+                        const colorMap: Record<string, string> = {
+                          '80': 'bg-indigo-100 text-indigo-700 border-indigo-200',
+                          '85': 'bg-violet-100 text-violet-700 border-violet-200',
+                          '90': 'bg-purple-100 text-purple-700 border-purple-200',
+                          '95': 'bg-fuchsia-100 text-fuchsia-700 border-fuchsia-200',
+                          '100': 'bg-emerald-100 text-emerald-700 border-emerald-200',
+                        };
+                        return (
+                          <div key={age} className={`p-5 rounded-2xl border flex items-center justify-between ${colorMap[age] || 'bg-slate-100 text-slate-700 border-slate-200'}`}>
+                            <div>
+                              <p className="text-[10px] font-black uppercase tracking-widest">Age {age} Milestone</p>
+                              <p className="text-xs font-bold mt-0.5 opacity-70">₱{grantAmt.toLocaleString()} each</p>
+                            </div>
+                            <div className="text-right">
+                              <p className="text-xl font-black tabular-nums">{data.count}</p>
+                              <p className="text-[9px] font-bold opacity-70">₱{(data.amount || 0).toLocaleString()}</p>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Top Barangays Allocation */}
+                {budgetForecast.top_barangays && budgetForecast.top_barangays.length > 0 && (
+                  <div className="bg-white p-10 rounded-[48px] border border-slate-100 shadow-sm">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Building2 className="text-indigo-500" size={16} />
+                      <h3 className="text-xs font-black uppercase tracking-[0.2em] text-slate-400">Barangay Allocation Hotspots</h3>
+                    </div>
+                    <h2 className="text-2xl font-black text-slate-900 mb-1">Projected Budget by Barangay</h2>
+                    <p className="text-slate-400 text-xs font-medium mb-8">Ranked barangays by expected R.A. 11982 cash gift disbursements for budget pre-positioning.</p>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {budgetForecast.top_barangays.map((brgy: any, idx: number) => {
+                        const maxAmt = budgetForecast.top_barangays[0]?.amount || 1;
+                        const pct = (brgy.amount / maxAmt) * 100;
+                        return (
+                          <div key={idx} className="space-y-2">
+                            <div className="flex justify-between items-center text-xs">
+                              <span className="font-black text-slate-700 uppercase tracking-wide">{brgy.name}</span>
+                              <div className="flex items-center gap-3">
+                                <span className="text-[10px] font-bold text-slate-400 uppercase">{brgy.count} seniors</span>
+                                <span className="font-black text-indigo-700">₱{brgy.amount.toLocaleString()}</span>
+                              </div>
+                            </div>
+                            <div className="h-3 bg-slate-50 rounded-full overflow-hidden border border-slate-100">
+                              <div
+                                style={{ width: `${pct}%` }}
+                                className="h-full bg-gradient-to-r from-indigo-500 to-indigo-300 rounded-full transition-all duration-1000 ease-out"
+                              />
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <p className="text-[10px] font-bold text-slate-300 mt-8 pt-4 border-t border-slate-50 italic">
+                      * Projections based on active senior citizens' recorded dates of birth per R.A. 11982 and R.A. 10868. For official appropriation requests, submit to DBM with supporting OSCA registry printout.
+                    </p>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        )}
+
+        {/* --- ANALYTICS INSIGHTS FOR STAFF OPERATORS (STAFF ONLY) --- */}
+        {!isAdmin && (
+          <div className="bg-white p-12 rounded-[48px] border border-slate-100 shadow-sm relative overflow-hidden">
             <div className="absolute top-0 right-0 w-96 h-96 bg-indigo-50 rounded-full blur-3xl opacity-50 -translate-y-1/2 translate-x-1/2"></div>
             <div className="relative z-10 grid grid-cols-1 md:grid-cols-2 gap-12 items-center">
-                <div className="space-y-8">
-                    <div className="flex items-center gap-3">
-                        <div className="p-2 bg-indigo-100 rounded-lg text-indigo-600"><UserCheck size={20} /></div>
-                        <h3 className="text-xs font-black uppercase tracking-widest text-indigo-600">Operational Focus</h3>
-                    </div>
-                    <h2 className="text-4xl font-black text-slate-900 leading-tight">Registry Accuracy <br/><span className="text-indigo-600">& Payout Readiness</span></h2>
-                    <p className="text-slate-500 font-medium leading-relaxed">
-                        Ensure all senior citizens are correctly encoded. High-quality data prevents disbursement delays and guarantees every beneficiary receives their milestone awards on time.
-                    </p>
-                    <div className="flex flex-wrap gap-4">
-                        <Link href="/seniors" className="px-8 py-4 bg-indigo-600 text-white rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-lg shadow-indigo-200">Start Encoding</Link>
-                        <Link href="/disbursements" className="px-8 py-4 bg-white border border-slate-200 text-slate-600 rounded-2xl font-black uppercase tracking-widest text-[10px]">View Payouts</Link>
-                    </div>
+              <div className="space-y-8">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-indigo-100 rounded-lg text-indigo-600"><UserCheck size={20} /></div>
+                  <h3 className="text-xs font-black uppercase tracking-widest text-indigo-600">Operational Focus</h3>
                 </div>
-                <div className="grid grid-cols-2 gap-4">
-                    <div className="p-6 bg-slate-50 rounded-3xl border border-slate-100 space-y-4">
-                        <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center text-indigo-600 shadow-sm"><FileText size={20} /></div>
-                        <p className="text-[10px] font-black text-slate-400 uppercase">Documents</p>
-                        <p className="text-xl font-black text-slate-900 tabular-nums">{stats.verified_percentage}%</p>
-                        <p className="text-[10px] font-bold text-emerald-500 uppercase tracking-widest">Verified</p>
-                    </div>
-                    <div className="p-6 bg-slate-50 rounded-3xl border border-slate-100 space-y-4">
-                        <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center text-emerald-600 shadow-sm"><CheckCircle size={20} /></div>
-                        <p className="text-[10px] font-black text-slate-400 uppercase">Registry</p>
-                        <p className="text-sm font-black text-slate-900 truncate">
-                          {stats.last_sync ? new Date(stats.last_sync).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : '...'}
-                        </p>
-                        <p className="text-[10px] font-bold text-indigo-500 uppercase tracking-widest">Last Update</p>
-                    </div>
+                <h2 className="text-4xl font-black text-slate-900 leading-tight">Registry Accuracy <br /><span className="text-indigo-600">& Payout Readiness</span></h2>
+                <p className="text-slate-500 font-medium leading-relaxed">
+                  Ensure all senior citizens are correctly encoded. High-quality data prevents disbursement delays and guarantees every beneficiary receives their milestone awards on time.
+                </p>
+                <div className="flex flex-wrap gap-4">
+                  <Link href="/seniors" className="px-8 py-4 bg-indigo-600 text-white rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-lg shadow-indigo-200">Start Encoding</Link>
+                  <Link href="/disbursements" className="px-8 py-4 bg-white border border-slate-200 text-slate-600 rounded-2xl font-black uppercase tracking-widest text-[10px]">View Payouts</Link>
                 </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="p-6 bg-slate-50 rounded-3xl border border-slate-100 space-y-4">
+                  <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center text-indigo-600 shadow-sm"><FileText size={20} /></div>
+                  <p className="text-[10px] font-black text-slate-400 uppercase">Documents</p>
+                  <p className="text-xl font-black text-slate-900 tabular-nums">{stats.verified_percentage}%</p>
+                  <p className="text-[10px] font-bold text-emerald-500 uppercase tracking-widest">Verified</p>
+                </div>
+                <div className="p-6 bg-slate-50 rounded-3xl border border-slate-100 space-y-4">
+                  <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center text-emerald-600 shadow-sm"><CheckCircle size={20} /></div>
+                  <p className="text-[10px] font-black text-slate-400 uppercase">Registry</p>
+                  <p className="text-sm font-black text-slate-900 truncate">
+                    {stats.last_sync ? new Date(stats.last_sync).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '...'}
+                  </p>
+                  <p className="text-[10px] font-bold text-indigo-500 uppercase tracking-widest">Last Update</p>
+                </div>
+              </div>
             </div>
-        </div>
-      )}
+          </div>
+        )}
       </div>
 
       {/* --- AI INTELLIGENCE BRIEFING MODAL --- */}
       {isModalOpen && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-900/60 backdrop-blur-md p-4 animate-in fade-in duration-300">
-            <div className="bg-white rounded-[50px] shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden border border-slate-200 flex flex-col">
-                <div className="px-12 py-10 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
-                    <div className="flex items-center gap-4">
-                        <div className="w-14 h-14 bg-slate-900 text-white rounded-2xl flex items-center justify-center shadow-lg"><FileText size={28} /></div>
-                        <div><h2 className="text-2xl font-black text-slate-900 tracking-tight uppercase">AI Intelligence Briefing</h2><p className="text-xs font-black text-slate-400 uppercase tracking-widest mt-1">Prescriptive Recommendations for LGU Decision Makers</p></div>
-                    </div>
-                    <button onClick={() => setIsModalOpen(false)} className="p-3 text-slate-400 hover:text-slate-900 hover:bg-slate-100 rounded-2xl transition-all"><X size={24} /></button>
-                </div>
-
-                <div className="flex-1 overflow-y-auto p-12 custom-scrollbar space-y-10">
-                    {isReportLoading ? (
-                        <div className="py-20 text-center space-y-4"><div className="w-12 h-12 border-4 border-slate-100 border-t-slate-900 rounded-full animate-spin mx-auto"></div><p className="text-xs font-black uppercase tracking-widest text-slate-400">Scanning Database Patterns...</p></div>
-                    ) : aiReport && (
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                            
-                            {/* 1. Budget Deficit */}
-                            <div className="p-8 bg-indigo-50 rounded-[40px] border border-indigo-100 space-y-6 relative overflow-hidden group">
-                                <div className="absolute top-0 right-0 p-6 text-indigo-100 group-hover:text-indigo-200 transition-colors"><TrendingUp size={64} /></div>
-                                <div className="relative z-10 space-y-4">
-                                    <div className="flex items-center gap-3 text-indigo-600"><TrendingUp size={20} /><h3 className="text-xs font-black uppercase tracking-widest">Financial Planning</h3></div>
-                                    <h4 className="text-xl font-black text-slate-900">Budget Deficit Early Warning</h4>
-                                    <div className="bg-white p-6 rounded-[32px] border border-indigo-200 shadow-sm space-y-1">
-                                        <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Forecast for Next Cycle</p>
-                                        <p className="text-3xl font-black text-slate-900">₱{aiReport.budget_forecast.recommended_funding.toLocaleString()}</p>
-                                        <p className="text-[10px] font-bold text-indigo-500 uppercase tracking-wider">{aiReport.budget_forecast.upcoming_beneficiaries} New Milestone Beneficiaries</p>
-                                    </div>
-                                    <p className="text-[10px] font-bold text-slate-500 leading-relaxed">Recommendation: Draft Supplemental Budget Request to DBM now to avoid payout delays.</p>
-                                </div>
-                            </div>
-
-                            {/* 3. Door-to-Door Logistics */}
-                            <div className="p-8 bg-emerald-50 rounded-[40px] border border-emerald-100 space-y-6 relative overflow-hidden group">
-                                <div className="absolute top-0 right-0 p-6 text-emerald-100 group-hover:text-emerald-200 transition-colors"><Truck size={64} /></div>
-                                <div className="relative z-10 space-y-4">
-                                    <div className="flex items-center gap-3 text-emerald-600"><Truck size={20} /><h3 className="text-xs font-black uppercase tracking-widest">Operational Logistics</h3></div>
-                                    <h4 className="text-xl font-black text-slate-900">Routing Recommendation</h4>
-                                    <div className="flex items-center gap-4">
-                                        <div className="text-4xl font-black text-slate-900">{aiReport.logistics.medical_utilization_rate}%</div>
-                                        <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">of seniors utilize funds for Medicine</p>
-                                    </div>
-                                    <div className={`p-4 rounded-2xl text-[10px] font-black uppercase tracking-widest text-center ${aiReport.logistics.medical_utilization_rate > 50 ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-400'}`}>
-                                        Strategy: {aiReport.logistics.recommendation}
-                                    </div>
-                                </div>
-                            </div>
-
-                            {/* 4. Ghost Pensioner Anomaly */}
-                            <Link href="/anomalies" className="block p-8 bg-slate-50 rounded-[40px] border border-slate-200 space-y-6 relative overflow-hidden group hover:bg-slate-100 transition-all cursor-pointer">
-                                <div className="absolute top-0 right-0 p-6 text-slate-200 group-hover:text-slate-300 transition-colors"><Ghost size={64} /></div>
-                                <div className="relative z-10 space-y-4">
-                                    <div className="flex items-center gap-3 text-slate-600"><ShieldAlert size={20} /><h3 className="text-xs font-black uppercase tracking-widest">Mortality Audit</h3></div>
-                                    <h4 className="text-xl font-black text-slate-900 flex items-center justify-between">
-                                        Unnatural Survival Rate
-                                        <ChevronRight size={20} className="text-slate-400 opacity-0 group-hover:opacity-100 -translate-x-4 group-hover:translate-x-0 transition-all" />
-                                    </h4>
-                                    {aiReport.ghost_warnings.length > 0 ? (
-                                        <div className="space-y-3">
-                                            {aiReport.ghost_warnings.slice(0, 10).map((w: any) => (
-                                                <div key={w.barangay} className="bg-white p-4 rounded-2xl border border-slate-300 shadow-sm">
-                                                    <p className="text-xs font-black text-slate-900 uppercase">Brgy. {w.barangay}</p>
-                                                    <p className="text-[10px] font-bold text-rose-600 uppercase tracking-widest mt-1">Warning: {w.message}</p>
-                                                </div>
-                                            ))}
-                                            {aiReport.ghost_warnings.length > 10 && (
-                                                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest text-center animate-pulse pt-2">
-                                                    + {aiReport.ghost_warnings.length - 10} more anomalies (Click to Investigate)
-                                                </p>
-                                            )}
-                                            <div className="mt-4 p-4 bg-slate-900 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest text-center">CLICK TO INVESTIGATE</div>
-                                        </div>
-                                    ) : (
-                                        <p className="text-xs font-bold text-slate-500 italic">Mortality rates are within normal national statistics.</p>
-                                    )}
-                                </div>
-                            </Link>
-
-                            {/* 5. Syndicate / Shared Representative Detection (REAL DATA) */}
-                            <Link href="/anomalies" className="block p-8 bg-rose-50 rounded-[40px] border border-rose-100 space-y-6 relative overflow-hidden group hover:bg-rose-100 transition-all cursor-pointer">
-                                <div className="absolute top-0 right-0 p-6 text-rose-100 group-hover:text-rose-200 transition-colors"><ShieldAlert size={64} /></div>
-                                <div className="relative z-10 space-y-4">
-                                    <div className="flex items-center gap-3 text-rose-600"><ShieldAlert size={20} /><h3 className="text-xs font-black uppercase tracking-widest text-rose-500">Fraud Prevention</h3></div>
-                                    <h4 className="text-xl font-black text-slate-900 flex items-center justify-between">
-                                        Syndicate / Shared Rep. Detection
-                                        <ChevronRight size={20} className="text-rose-400 opacity-0 group-hover:opacity-100 -translate-x-4 group-hover:translate-x-0 transition-all" />
-                                    </h4>
-                                    
-                                    {aiReport.syndicate_warnings && aiReport.syndicate_warnings.length > 0 ? (
-                                        <div className="space-y-4">
-                                            {aiReport.syndicate_warnings.slice(0, 10).map((w: any, idx: number) => (
-                                                <div key={idx} className="bg-white p-6 rounded-[32px] border border-rose-200 shadow-sm space-y-4">
-                                                    <div className="flex items-start gap-3">
-                                                        <div className="p-2 bg-rose-100 text-rose-600 rounded-xl"><AlertCircle size={18} /></div>
-                                                        <div>
-                                                            <p className="text-xs font-black text-slate-900 uppercase">Suspicious {w.roles} Match</p>
-                                                            <p className="text-[10px] font-medium text-slate-500 leading-tight mt-1">
-                                                                <span className="font-black text-slate-900">"{w.rep_name}"</span> is linked to <span className="text-rose-600 font-bold">{w.count} different seniors</span> in Brgy. {w.barangay}.
-                                                            </p>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            ))}
-                                            {aiReport.syndicate_warnings.length > 10 && (
-                                                <p className="text-[10px] font-black text-rose-400 uppercase tracking-widest text-center animate-pulse pt-2">
-                                                    + {aiReport.syndicate_warnings.length - 10} more patterns (Click to Investigate)
-                                                </p>
-                                            )}
-                                            <div className="pt-2">
-                                                <p className="text-[9px] font-black text-rose-600 uppercase tracking-widest mb-2 text-center">System Recommendation:</p>
-                                                <div className="p-4 bg-rose-600 text-white rounded-2xl text-[10px] font-black text-center leading-tight shadow-lg shadow-rose-200">
-                                                    CLICK TO REVIEW ALL RECORDS
-                                                </div>
-                                            </div>
-                                        </div>
-                                    ) : (
-                                        <div className="bg-white p-8 rounded-[32px] border border-emerald-100 shadow-sm text-center">
-                                            <div className="w-12 h-12 bg-emerald-50 text-emerald-500 rounded-full flex items-center justify-center mx-auto mb-4">
-                                                <CheckCircle size={24} />
-                                            </div>
-                                            <p className="text-xs font-black text-slate-900 uppercase">System Secure</p>
-                                            <p className="text-[10px] font-medium text-slate-400 mt-1">No suspicious shared representatives detected.</p>
-                                        </div>
-                                    )}
-                                </div>
-                            </Link>
-                        </div>
-                    )}
-                </div>
-
-                <div className="px-12 py-8 bg-slate-50/80 border-t border-slate-100 flex gap-4">
-                    <button onClick={handlePrint} className="flex-1 py-5 bg-slate-900 text-white rounded-3xl font-black uppercase tracking-widest text-[10px] shadow-xl shadow-slate-200 hover:-translate-y-1 transition-all flex items-center justify-center gap-3">
-                        <Printer size={18} />
-                        Export PDF Intelligence Report
-                    </button>
-                    <button onClick={() => setIsModalOpen(false)} className="px-12 py-5 bg-white border border-slate-200 text-slate-400 font-black uppercase tracking-widest text-[10px] rounded-3xl hover:text-slate-900 transition-colors">Dismiss</button>
-                </div>
+          <div className="bg-white rounded-[50px] shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden border border-slate-200 flex flex-col">
+            <div className="px-12 py-10 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+              <div className="flex items-center gap-4">
+                <div className="w-14 h-14 bg-slate-900 text-white rounded-2xl flex items-center justify-center shadow-lg"><FileText size={28} /></div>
+                <div><h2 className="text-2xl font-black text-slate-900 tracking-tight uppercase">AI Intelligence Briefing</h2><p className="text-xs font-black text-slate-400 uppercase tracking-widest mt-1">Prescriptive Recommendations for LGU Decision Makers</p></div>
+              </div>
+              <button onClick={() => setIsModalOpen(false)} className="p-3 text-slate-400 hover:text-slate-900 hover:bg-slate-100 rounded-2xl transition-all"><X size={24} /></button>
             </div>
+
+            <div className="flex-1 overflow-y-auto p-12 custom-scrollbar space-y-10">
+              {isReportLoading ? (
+                <div className="py-20 text-center space-y-4"><div className="w-12 h-12 border-4 border-slate-100 border-t-slate-900 rounded-full animate-spin mx-auto"></div><p className="text-xs font-black uppercase tracking-widest text-slate-400">Scanning Database Patterns...</p></div>
+              ) : aiReport && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+
+                  {/* 1. Budget Deficit */}
+                  <div className="p-8 bg-indigo-50 rounded-[40px] border border-indigo-100 space-y-6 relative overflow-hidden group">
+                    <div className="absolute top-0 right-0 p-6 text-indigo-100 group-hover:text-indigo-200 transition-colors"><TrendingUp size={64} /></div>
+                    <div className="relative z-10 space-y-4">
+                      <div className="flex items-center gap-3 text-indigo-600"><TrendingUp size={20} /><h3 className="text-xs font-black uppercase tracking-widest">Financial Planning</h3></div>
+                      <h4 className="text-xl font-black text-slate-900">Budget Deficit Early Warning</h4>
+                      <div className="bg-white p-6 rounded-[32px] border border-indigo-200 shadow-sm space-y-1">
+                        <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Forecast for Next Cycle</p>
+                        <p className="text-3xl font-black text-slate-900">₱{aiReport.budget_forecast.recommended_funding.toLocaleString()}</p>
+                        <p className="text-[10px] font-bold text-indigo-500 uppercase tracking-wider">{aiReport.budget_forecast.upcoming_beneficiaries} New Milestone Beneficiaries</p>
+                      </div>
+                      <p className="text-[10px] font-bold text-slate-500 leading-relaxed">Recommendation: Draft Supplemental Budget Request to DBM now to avoid payout delays.</p>
+                    </div>
+                  </div>
+
+                  {/* 3. Door-to-Door Logistics */}
+                  <div className="p-8 bg-emerald-50 rounded-[40px] border border-emerald-100 space-y-6 relative overflow-hidden group">
+                    <div className="absolute top-0 right-0 p-6 text-emerald-100 group-hover:text-emerald-200 transition-colors"><Truck size={64} /></div>
+                    <div className="relative z-10 space-y-4">
+                      <div className="flex items-center gap-3 text-emerald-600"><Truck size={20} /><h3 className="text-xs font-black uppercase tracking-widest">Operational Logistics</h3></div>
+                      <h4 className="text-xl font-black text-slate-900">Routing Recommendation</h4>
+                      <div className="flex items-center gap-4">
+                        <div className="text-4xl font-black text-slate-900">{aiReport.logistics.medical_utilization_rate}%</div>
+                        <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">of seniors utilize funds for Medicine</p>
+                      </div>
+                      <div className={`p-4 rounded-2xl text-[10px] font-black uppercase tracking-widest text-center ${aiReport.logistics.medical_utilization_rate > 50 ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-400'}`}>
+                        Strategy: {aiReport.logistics.recommendation}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 4. Ghost Pensioner Anomaly */}
+                  <Link href="/anomalies" className="block p-8 bg-slate-50 rounded-[40px] border border-slate-200 space-y-6 relative overflow-hidden group hover:bg-slate-100 transition-all cursor-pointer">
+                    <div className="absolute top-0 right-0 p-6 text-slate-200 group-hover:text-slate-300 transition-colors"><Ghost size={64} /></div>
+                    <div className="relative z-10 space-y-4">
+                      <div className="flex items-center gap-3 text-slate-600"><ShieldAlert size={20} /><h3 className="text-xs font-black uppercase tracking-widest">Mortality Audit</h3></div>
+                      <h4 className="text-xl font-black text-slate-900 flex items-center justify-between">
+                        Unnatural Survival Rate
+                        <ChevronRight size={20} className="text-slate-400 opacity-0 group-hover:opacity-100 -translate-x-4 group-hover:translate-x-0 transition-all" />
+                      </h4>
+                      {aiReport.ghost_warnings.length > 0 ? (
+                        <div className="space-y-3">
+                          {aiReport.ghost_warnings.slice(0, 10).map((w: any) => (
+                            <div key={w.barangay} className="bg-white p-4 rounded-2xl border border-slate-300 shadow-sm">
+                              <p className="text-xs font-black text-slate-900 uppercase">Brgy. {w.barangay}</p>
+                              <p className="text-[10px] font-bold text-rose-600 uppercase tracking-widest mt-1">Warning: {w.message}</p>
+                            </div>
+                          ))}
+                          {aiReport.ghost_warnings.length > 10 && (
+                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest text-center animate-pulse pt-2">
+                              + {aiReport.ghost_warnings.length - 10} more anomalies (Click to Investigate)
+                            </p>
+                          )}
+                          <div className="mt-4 p-4 bg-slate-900 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest text-center">CLICK TO INVESTIGATE</div>
+                        </div>
+                      ) : (
+                        <p className="text-xs font-bold text-slate-500 italic">Mortality rates are within normal national statistics.</p>
+                      )}
+                    </div>
+                  </Link>
+
+                  {/* 5. Syndicate / Shared Representative Detection (REAL DATA) */}
+                  <Link href="/anomalies" className="block p-8 bg-rose-50 rounded-[40px] border border-rose-100 space-y-6 relative overflow-hidden group hover:bg-rose-100 transition-all cursor-pointer">
+                    <div className="absolute top-0 right-0 p-6 text-rose-100 group-hover:text-rose-200 transition-colors"><ShieldAlert size={64} /></div>
+                    <div className="relative z-10 space-y-4">
+                      <div className="flex items-center gap-3 text-rose-600"><ShieldAlert size={20} /><h3 className="text-xs font-black uppercase tracking-widest text-rose-500">Fraud Prevention</h3></div>
+                      <h4 className="text-xl font-black text-slate-900 flex items-center justify-between">
+                        Syndicate / Shared Rep. Detection
+                        <ChevronRight size={20} className="text-rose-400 opacity-0 group-hover:opacity-100 -translate-x-4 group-hover:translate-x-0 transition-all" />
+                      </h4>
+
+                      {aiReport.syndicate_warnings && aiReport.syndicate_warnings.length > 0 ? (
+                        <div className="space-y-4">
+                          {aiReport.syndicate_warnings.slice(0, 10).map((w: any, idx: number) => (
+                            <div key={idx} className="bg-white p-6 rounded-[32px] border border-rose-200 shadow-sm space-y-4">
+                              <div className="flex items-start gap-3">
+                                <div className="p-2 bg-rose-100 text-rose-600 rounded-xl"><AlertCircle size={18} /></div>
+                                <div>
+                                  <p className="text-xs font-black text-slate-900 uppercase">Suspicious {w.roles} Match</p>
+                                  <p className="text-[10px] font-medium text-slate-500 leading-tight mt-1">
+                                    <span className="font-black text-slate-900">"{w.rep_name}"</span> is linked to <span className="text-rose-600 font-bold">{w.count} different seniors</span> in Brgy. {w.barangay}.
+                                  </p>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                          {aiReport.syndicate_warnings.length > 10 && (
+                            <p className="text-[10px] font-black text-rose-400 uppercase tracking-widest text-center animate-pulse pt-2">
+                              + {aiReport.syndicate_warnings.length - 10} more patterns (Click to Investigate)
+                            </p>
+                          )}
+                          <div className="pt-2">
+                            <p className="text-[9px] font-black text-rose-600 uppercase tracking-widest mb-2 text-center">System Recommendation:</p>
+                            <div className="p-4 bg-rose-600 text-white rounded-2xl text-[10px] font-black text-center leading-tight shadow-lg shadow-rose-200">
+                              CLICK TO REVIEW ALL RECORDS
+                            </div>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="bg-white p-8 rounded-[32px] border border-emerald-100 shadow-sm text-center">
+                          <div className="w-12 h-12 bg-emerald-50 text-emerald-500 rounded-full flex items-center justify-center mx-auto mb-4">
+                            <CheckCircle size={24} />
+                          </div>
+                          <p className="text-xs font-black text-slate-900 uppercase">System Secure</p>
+                          <p className="text-[10px] font-medium text-slate-400 mt-1">No suspicious shared representatives detected.</p>
+                        </div>
+                      )}
+                    </div>
+                  </Link>
+                </div>
+              )}
+            </div>
+
+            <div className="px-12 py-8 bg-slate-50/80 border-t border-slate-100 flex gap-4">
+              <button onClick={handlePrint} className="flex-1 py-5 bg-slate-900 text-white rounded-3xl font-black uppercase tracking-widest text-[10px] shadow-xl shadow-slate-200 hover:-translate-y-1 transition-all flex items-center justify-center gap-3">
+                <Printer size={18} />
+                Export PDF Intelligence Report
+              </button>
+              <button onClick={() => setIsModalOpen(false)} className="px-12 py-5 bg-white border border-slate-200 text-slate-400 font-black uppercase tracking-widest text-[10px] rounded-3xl hover:text-slate-900 transition-colors">Dismiss</button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -939,7 +1186,7 @@ export default function Dashboard() {
       {activeActionModal && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-950/70 backdrop-blur-md p-4 animate-in fade-in duration-300">
           <div className="bg-white rounded-[50px] shadow-2xl w-full max-w-lg overflow-hidden border border-slate-200 flex flex-col p-10 space-y-8 relative">
-            
+
             {/* Modal Glow Accent */}
             <div className="absolute top-0 left-1/2 -translate-x-1/2 w-48 h-48 bg-indigo-500/10 rounded-full blur-2xl"></div>
 
@@ -958,12 +1205,12 @@ export default function Dashboard() {
             {/* Progress Area */}
             <div className="space-y-4 relative z-10">
               <div className="h-2 bg-slate-100 rounded-full overflow-hidden shadow-inner">
-                <div 
+                <div
                   style={{ width: `${modalProgress}%` }}
                   className="h-full bg-gradient-to-r from-indigo-600 to-indigo-400 transition-all duration-300 rounded-full"
                 ></div>
               </div>
-              
+
               <div className="bg-slate-50 p-6 rounded-3xl border border-slate-100 min-h-[96px] flex items-center justify-center text-center">
                 <p className="text-xs font-bold text-slate-600 leading-relaxed">
                   {modalStatusText}
@@ -974,7 +1221,7 @@ export default function Dashboard() {
             {/* Action Buttons */}
             <div className="relative z-10">
               {isActionComplete ? (
-                <button 
+                <button
                   onClick={() => setActiveActionModal(null)}
                   className="w-full py-5 bg-indigo-600 text-white rounded-3xl font-black uppercase tracking-widest text-[10px] shadow-lg shadow-indigo-200 hover:-translate-y-0.5 transition-all flex items-center justify-center gap-2"
                 >
@@ -982,7 +1229,7 @@ export default function Dashboard() {
                   Dismiss & Refresh Board
                 </button>
               ) : (
-                <button 
+                <button
                   disabled
                   className="w-full py-5 bg-slate-100 text-slate-400 rounded-3xl font-black uppercase tracking-widest text-[10px] cursor-not-allowed flex items-center justify-center gap-2"
                 >
@@ -1005,7 +1252,7 @@ export default function Dashboard() {
             <div style={{ textAlign: 'center', fontWeight: 'bold', fontSize: '13pt', marginBottom: '20px', textTransform: 'uppercase' }}>
               R.A. 11982 COMPLIANCE AUDIT & AI INTELLIGENCE BRIEFING
             </div>
-            
+
             <table style={{ marginBottom: '20px' }}>
               <tbody>
                 <tr>

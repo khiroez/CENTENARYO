@@ -29,17 +29,27 @@ const NotificationContext = createContext<NotificationContextType | undefined>(u
 export function NotificationProvider({ children }: { children: ReactNode }) {
     const [notifications, setNotifications] = useState<Notification[]>([]);
 
-    const unreadCount = notifications.filter(n => !n.isRead).length;
-
-    // Load initial mock data but structure it to be dynamic
+    // Initialize from localStorage or fallback
     useEffect(() => {
-        // In a real app, this would fetch from /api/notifications/
+        try {
+            const saved = localStorage.getItem('centenaryo_notifications');
+            if (saved) {
+                const parsed = JSON.parse(saved);
+                if (Array.isArray(parsed) && parsed.length > 0) {
+                    setNotifications(parsed);
+                    return;
+                }
+            }
+        } catch (e) {
+            console.warn("Could not read notifications from storage:", e);
+        }
+
         const initialNotifs: Notification[] = [
             {
                 id: '1',
                 type: 'ML_FLAG',
                 title: 'AI Anomaly Detected',
-                description: "AI detected a potential fraud attempt in Brgy. San Jose.",
+                description: "AI detected a potential duplicate record in Brgy. San Jose.",
                 time: 'Just now',
                 link: '/anomalies',
                 isRead: false,
@@ -49,6 +59,35 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
         setNotifications(initialNotifs);
     }, []);
 
+    // Sync across browser tabs in real time
+    useEffect(() => {
+        const handleStorage = (e: StorageEvent) => {
+            if (e.key === 'centenaryo_notifications' && e.newValue) {
+                try {
+                    const updated = JSON.parse(e.newValue);
+                    if (Array.isArray(updated)) {
+                        setNotifications(updated);
+                    }
+                } catch (err) {
+                    console.warn("Storage sync parse error:", err);
+                }
+            }
+        };
+        window.addEventListener('storage', handleStorage);
+        return () => window.removeEventListener('storage', handleStorage);
+    }, []);
+
+    const saveNotifs = (newNotifs: Notification[]) => {
+        setNotifications(newNotifs);
+        try {
+            localStorage.setItem('centenaryo_notifications', JSON.stringify(newNotifs));
+        } catch (e) {
+            console.warn("Could not persist notifications:", e);
+        }
+    };
+
+    const unreadCount = notifications.filter(n => !n.isRead).length;
+
     const addNotification = (notif: Omit<Notification, 'id' | 'time' | 'isRead'>) => {
         const newNotif: Notification = {
             ...notif,
@@ -56,15 +95,18 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
             time: 'Just now',
             isRead: false
         };
-        setNotifications(prev => [newNotif, ...prev]);
+        const updated = [newNotif, ...notifications];
+        saveNotifs(updated);
     };
 
     const markAsRead = (id: string) => {
-        setNotifications(prev => prev.map(n => n.id === id ? { ...n, isRead: true } : n));
+        const updated = notifications.map(n => n.id === id ? { ...n, isRead: true } : n);
+        saveNotifs(updated);
     };
 
     const markAllAsRead = () => {
-        setNotifications(prev => prev.map(n => ({ ...n, isRead: true })));
+        const updated = notifications.map(n => ({ ...n, isRead: true }));
+        saveNotifs(updated);
     };
 
     return (

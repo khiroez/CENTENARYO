@@ -49,6 +49,15 @@ class Senior(models.Model):
     psa_cert_file = models.FileField(upload_to='requirements/psa/', null=True, blank=True)
     primary_id_file = models.FileField(upload_to='requirements/id/', null=True, blank=True)
     picture_2x2_file = models.ImageField(upload_to='requirements/pictures/', null=True, blank=True)
+    
+    # Document Integrity & Deduplication Hashes (SHA-256)
+    psa_hash = models.CharField(max_length=64, blank=True, null=True, db_index=True)
+    primary_id_hash = models.CharField(max_length=64, blank=True, null=True, db_index=True)
+    picture_2x2_hash = models.CharField(max_length=64, blank=True, null=True, db_index=True)
+
+    # Deceased Beneficiary Documentation (Anti-Ghost Pensioner Audit Compliance)
+    date_of_death = models.DateField(null=True, blank=True, help_text="Official date of death recorded by civil registry")
+    death_cert_file = models.FileField(upload_to='requirements/death_certs/', null=True, blank=True, help_text="Scanned PSA Death Certificate")
 
     # Registration Review Workflow
     registration_status = models.CharField(
@@ -128,16 +137,6 @@ class Disbursement(models.Model):
     
     def __str__(self):
         return f"{self.reference_number} - {self.senior} ({self.status})"
-
-class AuditLog(models.Model):
-    user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
-    activity = models.CharField(max_length=255)
-    reference_id = models.CharField(max_length=100, blank=True, null=True, help_text="Related ID (e.g., Disbursement Ref or Senior OSCA ID)")
-    status = models.CharField(max_length=50)
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    def __str__(self):
-        return f"[{self.created_at.strftime('%Y-%m-%d %H:%M')}] {self.activity}"
 
 class UserProfile(models.Model):
     """

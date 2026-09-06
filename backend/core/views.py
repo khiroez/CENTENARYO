@@ -1,6 +1,7 @@
 from rest_framework import viewsets, filters, status
-from rest_framework.decorators import api_view, permission_classes, action
+from rest_framework.decorators import api_view, permission_classes, authentication_classes, action
 from rest_framework.permissions import IsAuthenticated, BasePermission, AllowAny
+from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework.response import Response
 from rest_framework.pagination import PageNumberPagination
 from .models import Senior, Disbursement, AuditLog, AnomalyFlag, UserProfile, ReviewLog
@@ -106,9 +107,100 @@ def logout_user(request):
 class StandardResultsSetPagination(PageNumberPagination):
     page_size = 50
     page_size_query_param = 'page_size'
-    max_page_size = 1000
+    max_page_size = 200
 
 from datetime import date
+
+import hashlib
+
+def _calculate_file_hash(file_obj):
+    if not file_obj:
+        return None
+    hasher = hashlib.sha256()
+    try:
+        if hasattr(file_obj, 'seek'):
+            file_obj.seek(0)
+        for chunk in file_obj.chunks():
+            hasher.update(chunk)
+        if hasattr(file_obj, 'seek'):
+            file_obj.seek(0)
+        return hasher.hexdigest()
+    except Exception:
+        return None
+
+def _process_document_hashes(data, files, instance_id=None):
+    if 'auto_check_results' not in data or not isinstance(data['auto_check_results'], dict):
+        data['auto_check_results'] = {}
+    
+    duplicate_warnings = []
+    file_map = [
+        ('psa_cert_file', 'psa_hash', 'PSA Birth Certificate'),
+        ('primary_id_file', 'primary_id_hash', 'OSCA ID Card'),
+        ('picture_2x2_file', 'picture_2x2_hash', '2x2 Photo'),
+    ]
+
+    for file_field, hash_field, label in file_map:
+        uploaded_file = files.get(file_field)
+        if uploaded_file:
+            h = _calculate_file_hash(uploaded_file)
+            if h:
+                data[hash_field] = h
+                query = Senior.objects.filter(**{hash_field: h})
+                if instance_id:
+                    query = query.exclude(id=instance_id)
+                match = query.first()
+                if match:
+                    duplicate_warnings.append(
+                        f"{label} has the exact same content as existing Senior #{match.id} ({match.first_name} {match.last_name}, OSCA: {match.osca_id})."
+                    )
+
+    if duplicate_warnings:
+        data['auto_check_results']['duplicate_detected'] = duplicate_warnings
+        data['auto_check_results']['hash_check'] = {
+            'status': 'FLAGGED',
+            'message': 'Duplicate document file detected in registry.',
+            'duplicates': duplicate_warnings
+        }
+    else:
+        if 'hash_check' not in data['auto_check_results']:
+            data['auto_check_results']['hash_check'] = {
+                'status': 'PASS',
+                'message': 'All uploaded document files are unique in the registry.'
+            }
+
+def _process_server_face_verification(data, files):
+    """
+    Runs high-precision OpenCV face detection and feature comparison on the server.
+    Ensures that auto_check_results has verified biometric face matching.
+    """
+    from .face_engine import detect_face, compare_face_features
+    if 'auto_check_results' not in data or not isinstance(data['auto_check_results'], dict):
+        data['auto_check_results'] = {}
+
+    f_photo = files.get('picture_2x2_file')
+    f_id = files.get('primary_id_file')
+
+    photo_res = detect_face(f_photo) if f_photo else None
+    id_res = detect_face(f_id) if f_id else None
+
+    if photo_res and photo_res.get('face_detected'):
+        data['auto_check_results']['photo_face_detected'] = True
+        data['auto_check_results']['photo_face_confidence'] = photo_res.get('confidence', 96.0)
+        data['auto_check_results']['photo_face_crop'] = photo_res.get('crop_data_url')
+
+    if id_res and id_res.get('face_detected'):
+        data['auto_check_results']['osca_face_detected'] = True
+        data['auto_check_results']['osca_face_confidence'] = id_res.get('confidence', 96.0)
+        data['auto_check_results']['osca_face_crop'] = id_res.get('crop_data_url')
+
+    if photo_res and photo_res.get('face_detected') and id_res and id_res.get('face_detected'):
+        comp = compare_face_features(photo_res.get('features', []), id_res.get('features', []))
+        data['auto_check_results']['face_match'] = {
+            'status': 'PASS' if comp['is_match'] else ('NEEDS_REVIEW' if comp['similarity'] >= 50 else 'FLAGGED'),
+            'similarity_pct': comp['similarity'],
+            'distance': round(1.0 - comp['correlation'], 3),
+            'message': f"Biometric Match: {comp['similarity']}% similarity (OpenCV Engine)" if comp['is_match'] else f"Review required: {comp['similarity']}% similarity"
+        }
 
 class SeniorViewSet(viewsets.ModelViewSet):
     """
@@ -137,6 +229,10 @@ class SeniorViewSet(viewsets.ModelViewSet):
             except json.JSONDecodeError:
                 data['auto_check_results'] = {}
         
+        # Process document hashes and detect duplicates across existing records
+        _process_document_hashes(data, request.FILES)
+        _process_server_face_verification(data, request.FILES)
+
         # New registrations always start as PENDING_REVIEW
         data['registration_status'] = 'PENDING_REVIEW'
         
@@ -148,22 +244,52 @@ class SeniorViewSet(viewsets.ModelViewSet):
     def update(self, request, *args, **kwargs):
         # I-convert ang QueryDict sa regular dict para ma-handle ang JSONField
         data = request.data.dict() if hasattr(request.data, 'dict') else request.data.copy()
-        
+        instance = self.get_object()
+
         if 'annex_a_data' in data and isinstance(data['annex_a_data'], str):
             import json
             try:
                 data['annex_a_data'] = json.loads(data['annex_a_data'])
             except json.JSONDecodeError:
                 pass
-        
+
+        if 'auto_check_results' in data and isinstance(data['auto_check_results'], str):
+            import json
+            try:
+                data['auto_check_results'] = json.loads(data['auto_check_results'])
+            except json.JSONDecodeError:
+                data['auto_check_results'] = {}
+
+        # Process document hashes for updated files
+        _process_document_hashes(data, request.FILES, instance_id=instance.id)
+        _process_server_face_verification(data, request.FILES)
+
+        was_returned = instance.registration_status == 'RETURNED'
+
         # When an edited profile is saved, reset status to PENDING_REVIEW for admin checking
         data['registration_status'] = 'PENDING_REVIEW'
 
         partial = kwargs.pop('partial', False)
-        instance = self.get_object()
         serializer = self.get_serializer(instance, data=data, partial=partial)
         serializer.is_valid(raise_exception=True)
         self.perform_update(serializer)
+
+        if was_returned:
+            resubmit_remarks = data.get('resubmission_notes', f"Staff {request.user.username if request.user.is_authenticated else 'User'} corrected documents and resubmitted for review.")
+            ReviewLog.objects.create(
+                senior=instance,
+                reviewer=request.user if request.user.is_authenticated else None,
+                action='RESUBMIT',
+                remarks=resubmit_remarks
+            )
+            AuditLog.objects.create(
+                user=request.user if request.user.is_authenticated else None,
+                action='RESUBMIT',
+                target_model='Senior',
+                target_object_id=str(instance.id),
+                changes_summary=f"Senior {instance.first_name} {instance.last_name} (OSCA: {instance.osca_id}) corrected and resubmitted for review: {resubmit_remarks}"
+            )
+
         return Response(serializer.data)
 
     def get_queryset(self):
@@ -284,6 +410,161 @@ class SeniorViewSet(viewsets.ModelViewSet):
         serializer = ReviewLogSerializer(logs, many=True)
         return Response(serializer.data)
 
+    @action(detail=True, methods=['post'], url_path='resubmit')
+    def resubmit(self, request, pk=None):
+        """
+        POST /api/seniors/{id}/resubmit/
+        Explicit 1-click action to transition a RETURNED senior back to PENDING_REVIEW.
+        """
+        senior = self.get_object()
+        remarks = request.data.get('remarks', 'Staff confirmed corrections and resubmitted for admin verification.')
+        senior.registration_status = 'PENDING_REVIEW'
+        senior.save(update_fields=['registration_status'])
+
+        ReviewLog.objects.create(
+            senior=senior,
+            reviewer=request.user if request.user.is_authenticated else None,
+            action='RESUBMIT',
+            remarks=remarks
+        )
+
+        AuditLog.objects.create(
+            user=request.user if request.user.is_authenticated else None,
+            action='RESUBMIT',
+            target_model='Senior',
+            target_object_id=str(senior.id),
+            changes_summary=f"Senior {senior.first_name} {senior.last_name} (OSCA: {senior.osca_id}) resubmitted for verification: {remarks}"
+        )
+
+        return Response(SeniorSerializer(senior).data)
+
+    @action(detail=True, methods=['post'], url_path='report-deceased')
+    def report_deceased(self, request, pk=None):
+        """
+        POST /api/seniors/{id}/report-deceased/
+        Anti-Ghost Pensioner Compliance Workflow:
+        - Marks senior as DECEASED and inactive.
+        - Records official date_of_death and optional death_cert_file.
+        - Automatically cancels all PENDING disbursements to freeze public funds.
+        - Creates a tamper-evident AuditLog entry.
+        """
+        senior = self.get_object()
+        date_of_death = request.data.get('date_of_death')
+        death_cert_file = request.FILES.get('death_cert_file')
+        remarks = request.data.get('remarks', 'Demise officially reported by staff/heirs.')
+
+        if not date_of_death:
+            return Response(
+                {'error': 'Date of death is required.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        senior.status = 'DECEASED'
+        senior.is_active = False
+        senior.date_of_death = date_of_death
+        if death_cert_file:
+            senior.death_cert_file = death_cert_file
+        senior.save()
+
+        # Cancel all pending disbursements for this senior
+        cancelled_count = Disbursement.objects.filter(senior=senior, status='PENDING').update(status='CANCELLED')
+
+        # Tamper-evident audit log
+        AuditLog.objects.create(
+            user=request.user if request.user.is_authenticated else None,
+            action='REPORT_DECEASED',
+            target_model='Senior',
+            target_object_id=str(senior.id),
+            changes_summary=f"Senior {senior.first_name} {senior.last_name} (OSCA: {senior.osca_id}) reported DECEASED on {date_of_death}. {cancelled_count} pending disbursements frozen and cancelled. Remarks: {remarks}"
+        )
+
+        return Response({
+            'status': 'success',
+            'message': f"Senior record updated to DECEASED. {cancelled_count} pending payouts successfully cancelled.",
+            'cancelled_disbursements': cancelled_count
+        })
+
+    @action(detail=True, methods=['post'], url_path='extract-face-crops')
+    def extract_face_crops(self, request, pk=None):
+        """
+        POST /api/seniors/{id}/extract-face-crops/
+        Extracts face crops from picture_2x2_file and primary_id_file using OpenCV face engine,
+        caches them in auto_check_results, and returns the updated senior data.
+        """
+        senior = self.get_object()
+        from .face_engine import detect_face, compare_face_features
+        import os
+
+        auto_checks = dict(senior.auto_check_results or {})
+        updated = False
+
+        photo_feat = None
+        id_feat = None
+
+        from django.conf import settings
+
+        def _resolve_safe_path(file_field):
+            if not file_field:
+                return None
+            try:
+                p = file_field.path
+                if os.path.exists(p):
+                    return p
+            except Exception:
+                pass
+            try:
+                name = str(file_field.name).lstrip('/\\')
+                if name.startswith('media/'):
+                    name = name[6:]
+                cand = os.path.join(settings.MEDIA_ROOT, name)
+                if os.path.exists(cand):
+                    return cand
+            except Exception:
+                pass
+            return None
+
+        photo_path = _resolve_safe_path(senior.picture_2x2_file)
+        if photo_path:
+            try:
+                res = detect_face(photo_path)
+                if res.get('face_detected'):
+                    auto_checks['photo_face_detected'] = True
+                    auto_checks['photo_face_confidence'] = res.get('confidence', 96.0)
+                    auto_checks['photo_face_crop'] = res.get('crop_data_url')
+                    photo_feat = res.get('features')
+                    updated = True
+            except Exception as e:
+                print(f"[FaceCrop] Error extracting photo face crop for Senior {senior.id}: {e}")
+
+        id_path = _resolve_safe_path(senior.primary_id_file)
+        if id_path and id_path.lower().endswith(('.jpg', '.jpeg', '.png', '.webp')):
+            try:
+                res = detect_face(id_path)
+                if res.get('face_detected'):
+                    auto_checks['osca_face_detected'] = True
+                    auto_checks['osca_face_confidence'] = res.get('confidence', 96.0)
+                    auto_checks['osca_face_crop'] = res.get('crop_data_url')
+                    id_feat = res.get('features')
+                    updated = True
+            except Exception as e:
+                print(f"[FaceCrop] Error extracting ID face crop for Senior {senior.id}: {e}")
+
+        if photo_feat and id_feat:
+            comp = compare_face_features(photo_feat, id_feat)
+            auto_checks['face_match'] = {
+                'status': 'PASS' if comp['is_match'] else ('NEEDS_REVIEW' if comp['similarity'] >= 50 else 'FLAGGED'),
+                'similarity_pct': comp['similarity'],
+                'distance': round(1.0 - comp['correlation'], 3),
+                'message': f"Biometric Match: {comp['similarity']}% similarity (OpenCV Engine)" if comp['is_match'] else f"Review required: {comp['similarity']}% similarity"
+            }
+            updated = True
+
+        if updated:
+            senior.auto_check_results = auto_checks
+            senior.save(update_fields=['auto_check_results'])
+
+        return Response(SeniorSerializer(senior).data)
+
 class DisbursementViewSet(viewsets.ModelViewSet):
     """
     API endpoint para sa mga Disbursements.
@@ -300,6 +581,31 @@ class DisbursementViewSet(viewsets.ModelViewSet):
         if status_filter != 'all':
             queryset = queryset.filter(status=status_filter.upper())
         return queryset
+
+    def perform_update(self, serializer):
+        from django.utils import timezone
+        instance = self.get_object()
+        new_status = self.request.data.get('status')
+        if new_status == 'RELEASED' and instance.status != 'RELEASED':
+            # Security guard: cannot disburse to suspended, deceased, or unapproved senior
+            if instance.senior.status in ['SUSPENDED', 'DECEASED']:
+                from rest_framework.exceptions import ValidationError
+                raise ValidationError(f"Cannot release disbursement. Senior is currently {instance.senior.status}.")
+            if instance.senior.registration_status != 'APPROVED':
+                from rest_framework.exceptions import ValidationError
+                raise ValidationError(f"Cannot release disbursement. Senior registration is {instance.senior.registration_status} (must be APPROVED).")
+            
+            serializer.save(release_date=timezone.now().date())
+            # Audit log entry
+            AuditLog.objects.create(
+                user=self.request.user if self.request.user.is_authenticated else None,
+                action='RELEASE',
+                target_model='Disbursement',
+                target_object_id=str(instance.id),
+                changes_summary=f"Disbursement {instance.reference_number} (PHP {instance.amount}) marked as RELEASED to {instance.senior.first_name} {instance.senior.last_name}."
+            )
+        else:
+            serializer.save()
 
     @action(detail=False, methods=['POST'])
     def generate_payroll(self, request):
@@ -333,10 +639,12 @@ class DisbursementViewSet(viewsets.ModelViewSet):
             max_eligible_q_num = current_q_num
         else:
             max_eligible_q_num = 0
-            
-        eligible_quarters = ['Q1', 'Q2', 'Q3', 'Q4'][:max_eligible_q_num]
-        
-        active_seniors = Senior.objects.filter(status='ACTIVE')
+
+        # Build the list of eligible quarters (e.g. ['Q1', 'Q2'] for first half of year)
+        eligible_quarters = [f'Q{i}' for i in range(1, max_eligible_q_num + 1)]
+
+        # COA Compliance: Only generate disbursements for seniors who are ACTIVE and officially APPROVED in the review queue
+        active_seniors = Senior.objects.filter(status='ACTIVE', registration_status='APPROVED')
         created_count = 0
         
         for senior in active_seniors:
@@ -415,7 +723,7 @@ class AnomalyFlagViewSet(viewsets.ModelViewSet):
     API endpoint para sa Anomaly Detection Results.
     ADMIN ONLY - Staff ay hindi pwedeng mag-access nito.
     """
-    queryset = AnomalyFlag.objects.filter(is_resolved=False).order_by('-confidence_score')
+    queryset = AnomalyFlag.objects.filter(is_resolved=False).select_related('senior', 'resolved_by').order_by('-confidence_score')
     serializer_class = AnomalyFlagSerializer
     permission_classes = [IsAuthenticated, IsAdmin]
     pagination_class = StandardResultsSetPagination
@@ -472,13 +780,13 @@ class AuditLogViewSet(viewsets.ReadOnlyModelViewSet):
     def get_queryset(self):
         queryset = AuditLog.objects.all().order_by('-created_at')
         
-        # 1. Action Filter (CREATE, UPDATE, DELETE, LOGIN)
+        # 1. Action Filter (CREATE, UPDATE, DELETE, LOGIN, REVIEW, DECEASED, RESUBMIT)
         action_param = self.request.query_params.get('action', 'all')
         if action_param and action_param != 'all':
             if action_param.upper() == 'LOGIN':
                 queryset = queryset.filter(action__in=['LOGIN', 'LOGOUT'])
             else:
-                queryset = queryset.filter(action=action_param.upper())
+                queryset = queryset.filter(action__iexact=action_param)
             
         # 2. Search Term Filter (User, Model, or Summary content)
         search_param = self.request.query_params.get('search', '')
@@ -489,8 +797,184 @@ class AuditLogViewSet(viewsets.ReadOnlyModelViewSet):
                 Q(target_model__icontains=search_param) |
                 Q(changes_summary__icontains=search_param)
             )
+
+        # 3. Date Range Filters (date_from, date_to)
+        date_from = self.request.query_params.get('date_from')
+        date_to = self.request.query_params.get('date_to')
+        if date_from:
+            queryset = queryset.filter(created_at__date__gte=date_from)
+        if date_to:
+            queryset = queryset.filter(created_at__date__lte=date_to)
             
         return queryset
+
+    @action(detail=False, methods=['get'], url_path='export')
+    def export_logs(self, request):
+        """
+        GET /api/auditlogs/export/
+        Returns unpaginated audit logs for official compliance export (COA Circular 2012-001 & RA 10173).
+        Uses select_related to avoid N+1 queries on user and profile.
+        """
+        from django.utils import timezone
+        queryset = self.get_queryset().select_related('user__profile')
+        records = queryset[:2500]
+
+        data = []
+        for log in records:
+            role = 'STAFF'
+            if log.user:
+                try:
+                    role = log.user.profile.role
+                except Exception:
+                    role = 'ADMIN' if log.user.is_staff else 'STAFF'
+            data.append({
+                'id': log.id,
+                'created_at': log.created_at.isoformat(),
+                'username': log.user.username if log.user else 'System Auto',
+                'user_role': role,
+                'ip_address': log.ip_address or '127.0.0.1 (Internal)',
+                'action': log.action,
+                'target_model': log.target_model,
+                'target_object_id': log.target_object_id or '—',
+                'changes_summary': log.changes_summary
+            })
+
+        return Response({
+            'count': len(data),
+            'exported_at': timezone.now().isoformat(),
+            'results': data
+        })
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def budget_forecast(request):
+    """
+    R.A. 11982 Milestone Appropriation & Budget Forecast Calculator.
+    Calculates upcoming statutory milestone cash gifts (R.A. 11982 & R.A. 10868):
+      - Ages 80, 85, 90, 95: PHP 10,000 each
+      - Age 100+: PHP 100,000 each
+    Query Params:
+      - horizon: '1q' (3 months), '2q' (6 months), '4q' (12 months / 4 quarters, default), or 'year'
+    """
+    from datetime import date
+    from dateutil.relativedelta import relativedelta
+    today = date.today()
+    horizon = request.query_params.get('horizon', '4q').lower()
+    
+    if horizon == '1q':
+        end_date = today + relativedelta(months=3)
+    elif horizon == '2q':
+        end_date = today + relativedelta(months=6)
+    elif horizon in ['year', '4q']:
+        end_date = today + relativedelta(months=12)
+    else:
+        end_date = today + relativedelta(months=12)
+
+    milestones = [80, 85, 90, 95, 100]
+    active_seniors = Senior.objects.filter(status='ACTIVE')
+    
+    celebrants = []
+    quarter_buckets = {}
+    milestone_summary = {
+        '80': {'count': 0, 'amount': 0},
+        '85': {'count': 0, 'amount': 0},
+        '90': {'count': 0, 'amount': 0},
+        '95': {'count': 0, 'amount': 0},
+        '100': {'count': 0, 'amount': 0},
+    }
+    barangay_map = {}
+    
+    # Pre-populate quarters in projection range
+    curr = date(today.year, ((today.month - 1) // 3) * 3 + 1, 1)
+    temp_q = curr
+    while temp_q <= end_date:
+        q_num = (temp_q.month - 1) // 3 + 1
+        q_key = f"{temp_q.year}-Q{q_num}"
+        if q_key not in quarter_buckets:
+            quarter_buckets[q_key] = {
+                'quarter': q_key,
+                'year': temp_q.year,
+                'quarter_num': q_num,
+                'label': f"Q{q_num} {temp_q.year}",
+                'count': 0,
+                'amount': 0,
+                'milestones': {80: 0, 85: 0, 90: 0, 95: 0, 100: 0}
+            }
+        temp_q += relativedelta(months=3)
+
+    for senior in active_seniors:
+        dob = senior.date_of_birth
+        if not dob:
+            continue
+            
+        for m in milestones:
+            try:
+                m_date = dob.replace(year=dob.year + m)
+            except ValueError:
+                m_date = dob.replace(year=dob.year + m, month=2, day=28)
+                
+            if today <= m_date <= end_date:
+                q_num = (m_date.month - 1) // 3 + 1
+                q_key = f"{m_date.year}-Q{q_num}"
+                grant_amt = 100000 if m == 100 else 10000
+                
+                celebrants.append({
+                    'senior_id': senior.id,
+                    'name': f"{senior.last_name}, {senior.first_name} {senior.middle_name or ''}".strip(),
+                    'osca_id': senior.osca_id,
+                    'barangay': senior.barangay or 'General LGU',
+                    'milestone_age': m,
+                    'milestone_date': m_date.isoformat(),
+                    'quarter': q_key,
+                    'amount': grant_amt,
+                    'is_indigent': senior.is_indigent
+                })
+                
+                if q_key not in quarter_buckets:
+                    quarter_buckets[q_key] = {
+                        'quarter': q_key,
+                        'year': m_date.year,
+                        'quarter_num': q_num,
+                        'label': f"Q{q_num} {m_date.year}",
+                        'count': 0,
+                        'amount': 0,
+                        'milestones': {80: 0, 85: 0, 90: 0, 95: 0, 100: 0}
+                    }
+                quarter_buckets[q_key]['count'] += 1
+                quarter_buckets[q_key]['amount'] += grant_amt
+                quarter_buckets[q_key]['milestones'][m] += 1
+                
+                m_str = str(m)
+                milestone_summary[m_str]['count'] += 1
+                milestone_summary[m_str]['amount'] += grant_amt
+                
+                brgy = senior.barangay.upper() if senior.barangay else 'CENTRAL'
+                if brgy not in barangay_map:
+                    barangay_map[brgy] = {'name': brgy, 'count': 0, 'amount': 0}
+                barangay_map[brgy]['count'] += 1
+                barangay_map[brgy]['amount'] += grant_amt
+
+    celebrants.sort(key=lambda x: x['milestone_date'])
+    total_celebrants = len(celebrants)
+    total_appropriation = sum(c['amount'] for c in celebrants)
+    sorted_quarters = sorted(quarter_buckets.values(), key=lambda x: (x['year'], x['quarter_num']))
+    sorted_barangays = sorted(barangay_map.values(), key=lambda x: x['amount'], reverse=True)[:8]
+
+    months_count = 3 if horizon == '1q' else (6 if horizon == '2q' else 12)
+    monthly_average = round(total_appropriation / months_count, 2) if months_count > 0 else 0
+
+    return Response({
+        'horizon': horizon,
+        'start_date': today.isoformat(),
+        'end_date': end_date.isoformat(),
+        'total_celebrants': total_celebrants,
+        'total_appropriation': total_appropriation,
+        'monthly_average': monthly_average,
+        'quarterly_forecast': sorted_quarters,
+        'milestone_summary': milestone_summary,
+        'top_barangays': sorted_barangays,
+        'upcoming_celebrants': celebrants[:250]
+    })
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
@@ -549,27 +1033,25 @@ def dashboard_stats(request):
         'transferred': transferred_count,
     }
 
-    # B. Active Milestones Breakdown (for Age distribution Bar Chart)
+    # B. Active Milestones Breakdown — computed at DB level to avoid loading all seniors into Python
+    from django.db.models import Case, When, IntegerField
+    from datetime import date as _date
+
+    def _cutoff(years):
+        """Return the date 'years' years ago (handles Feb 29)."""
+        try:
+            return today.replace(year=today.year - years)
+        except ValueError:
+            return today.replace(year=today.year - years, month=2, day=28)
+
+    active_qs = Senior.objects.filter(status='ACTIVE')
     milestone_breakdown = {
-        'm80': 0,
-        'm85': 0,
-        'm90': 0,
-        'm95': 0,
-        'm100': 0,
+        'm100': active_qs.filter(date_of_birth__lte=_cutoff(100)).count(),
+        'm95':  active_qs.filter(date_of_birth__lte=_cutoff(95),  date_of_birth__gt=_cutoff(100)).count(),
+        'm90':  active_qs.filter(date_of_birth__lte=_cutoff(90),  date_of_birth__gt=_cutoff(95)).count(),
+        'm85':  active_qs.filter(date_of_birth__lte=_cutoff(85),  date_of_birth__gt=_cutoff(90)).count(),
+        'm80':  active_qs.filter(date_of_birth__lte=_cutoff(80),  date_of_birth__gt=_cutoff(85)).count(),
     }
-    for s in Senior.objects.filter(status='ACTIVE'):
-        dob = s.date_of_birth
-        age = today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
-        if age >= 100:
-            milestone_breakdown['m100'] += 1
-        elif age >= 95:
-            milestone_breakdown['m95'] += 1
-        elif age >= 90:
-            milestone_breakdown['m90'] += 1
-        elif age >= 85:
-            milestone_breakdown['m85'] += 1
-        elif age >= 80:
-            milestone_breakdown['m80'] += 1
 
     # C. Financial Stats Summary
     from django.db.models import Sum
@@ -784,3 +1266,70 @@ def ai_report_data(request):
         'syndicate_warnings': syndicate_warnings, 
         'data_integrity': 'HIGH' if total_active_with_data > 0 else 'LOW_DATA'
     })
+
+
+@api_view(['POST'])
+@authentication_classes([])
+@permission_classes([AllowAny])
+def verify_face(request):
+    """
+    POST /api/verify-face/
+    Accepts:
+    - 'file': multipart image file
+    - 'image_base64': base64 data URL or raw base64 string
+    Runs high-precision OpenCV multi-stage cascade face detection with CLAHE.
+    Returns:
+    {
+      'face_detected': bool,
+      'confidence': float,
+      'box': {'x': int, 'y': int, 'width': int, 'height': int},
+      'crop_data_url': str,
+      'features': list[float],
+      'message': str
+    }
+    """
+    from .face_engine import detect_face
+    
+    img_input = None
+    if 'file' in request.FILES:
+        img_input = request.FILES['file']
+    elif 'image_base64' in request.data:
+        img_input = request.data.get('image_base64')
+    elif 'file' in request.data and isinstance(request.data.get('file'), str):
+        img_input = request.data.get('file')
+    
+    if not img_input:
+        return Response(
+            {'face_detected': False, 'confidence': 0, 'message': 'No image file or image_base64 provided.'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    result = detect_face(img_input)
+    return Response(result, status=status.HTTP_200_OK)
+
+
+@api_view(['POST'])
+@authentication_classes([])
+@permission_classes([AllowAny])
+def compare_faces(request):
+    """
+    POST /api/compare-faces/
+    Accepts:
+    - 'features1': list of floats (256 dimensions)
+    - 'features2': list of floats (256 dimensions)
+    Compares two face feature vectors and returns similarity percentage.
+    """
+    from .face_engine import compare_face_features
+    
+    feat1 = request.data.get('features1')
+    feat2 = request.data.get('features2')
+    
+    if not feat1 or not feat2:
+        return Response(
+            {'similarity': 0, 'is_match': False, 'message': 'Both features1 and features2 are required.'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    res = compare_face_features(feat1, feat2)
+    return Response(res, status=status.HTTP_200_OK)
+

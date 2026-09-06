@@ -22,5 +22,8 @@ urlpatterns = [
     # Ang ating mga API endpoints
     path('stats/', views.dashboard_stats, name='dashboard-stats'),
     path('ai-report/', views.ai_report_data, name='ai-report'),
+    path('verify-face/', views.verify_face, name='verify-face'),
+    path('compare-faces/', views.compare_faces, name='compare-faces'),
+    path('budget-forecast/', views.budget_forecast, name='budget-forecast'),
     path('', include(router.urls)),
 ]
