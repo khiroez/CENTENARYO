@@ -94,6 +94,7 @@ export default function Dashboard() {
   });
 
   const [aiReport, setAiReport] = useState<any>(null);
+  const [aiReportError, setAiReportError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isReportLoading, setIsReportLoading] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -156,14 +157,21 @@ export default function Dashboard() {
   const fetchAiReport = async () => {
     setIsReportLoading(true);
     setIsModalOpen(true);
+    setAiReport(null);
+    setAiReportError(null);
     try {
       const res = await authFetch(`${process.env.NEXT_PUBLIC_API_URL}/ai-report/`);
       if (res.ok) {
         const data = await res.json();
         setAiReport(data);
+      } else {
+        const errText = await res.text();
+        console.error("AI report API error:", res.status, errText);
+        setAiReportError(`Server error (${res.status}): ${errText.slice(0, 200)}`);
       }
     } catch (error) {
       console.error("Error fetching AI report:", error);
+      setAiReportError("Network error. Could not connect to the server.");
     } finally {
       setIsReportLoading(false);
     }
@@ -332,7 +340,6 @@ export default function Dashboard() {
               {isAdmin ? 'System Oversight' : 'Operational Command'}
             </h1>
             <p className="text-slate-500 mt-2 font-bold uppercase tracking-widest text-xs flex items-center gap-2">
-              <Activity size={16} className="text-emerald-500" />
               {isAdmin ? 'Decision Maker Analytics Dashboard' : 'Staff Operational Workspace'}
             </p>
           </div>
@@ -804,8 +811,8 @@ export default function Dashboard() {
                     key={h}
                     onClick={() => handleHorizonChange(h)}
                     className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${budgetHorizon === h
-                        ? 'bg-white text-indigo-900 shadow-lg'
-                        : 'bg-white/10 text-indigo-200 hover:bg-white/20'
+                      ? 'bg-white text-indigo-900 shadow-lg'
+                      : 'bg-white/10 text-indigo-200 hover:bg-white/20'
                       }`}
                   >
                     {h === '1q' ? '3 Months' : h === '2q' ? '6 Months' : '12 Months'}
@@ -1055,8 +1062,25 @@ export default function Dashboard() {
             <div className="flex-1 overflow-y-auto p-12 custom-scrollbar space-y-10">
               {isReportLoading ? (
                 <div className="py-20 text-center space-y-4"><div className="w-12 h-12 border-4 border-slate-100 border-t-slate-900 rounded-full animate-spin mx-auto"></div><p className="text-xs font-black uppercase tracking-widest text-slate-400">Scanning Database Patterns...</p></div>
-              ) : aiReport && (
+              ) : aiReportError ? (
+                <div className="py-20 text-center space-y-6">
+                  <div className="w-16 h-16 bg-rose-50 text-rose-500 rounded-full flex items-center justify-center mx-auto">
+                    <AlertCircle size={32} />
+                  </div>
+                  <div>
+                    <p className="text-sm font-black text-slate-900 uppercase tracking-widest">Failed to Generate Report</p>
+                    <p className="text-xs font-medium text-slate-500 mt-2 max-w-md mx-auto">{aiReportError}</p>
+                  </div>
+                  <button
+                    onClick={fetchAiReport}
+                    className="px-8 py-3 bg-slate-900 text-white rounded-2xl text-xs font-black uppercase tracking-widest hover:bg-slate-800 transition-colors"
+                  >
+                    Retry
+                  </button>
+                </div>
+              ) : aiReport ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+
 
                   {/* 1. Budget Deficit */}
                   <div className="p-8 bg-indigo-50 rounded-[40px] border border-indigo-100 space-y-6 relative overflow-hidden group">
@@ -1167,6 +1191,10 @@ export default function Dashboard() {
                       )}
                     </div>
                   </Link>
+                </div>
+              ) : (
+                <div className="py-20 text-center space-y-4">
+                  <p className="text-xs font-black uppercase tracking-widest text-slate-400">No data available. Try generating the report again.</p>
                 </div>
               )}
             </div>

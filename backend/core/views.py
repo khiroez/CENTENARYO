@@ -1116,156 +1116,175 @@ def ai_report_data(request):
     """
     CENTENARYO AI Intelligence Engine
     Generates prescriptive insights for fraud prevention and financial planning.
+    Wrapped in try/except so any internal error returns a clean JSON 500.
     """
-    from django.db.models import Count
-    from collections import Counter
-    
-    # 1. Fetch all senior data in a single highly-optimized values query
-    seniors_data = list(Senior.objects.values('id', 'status', 'barangay', 'annex_a_data', 'date_of_birth'))
-
-    # 2. Budget Deficit Early Warning (Next 24 Months)
-    today = date.today()
     try:
-        date_80_years_ago = today.replace(year=today.year - 80)
-        date_78_years_ago = today.replace(year=today.year - 78)
-    except ValueError:
-        date_80_years_ago = today.replace(year=today.year - 80, month=2, day=28)
-        date_78_years_ago = today.replace(year=today.year - 78, month=2, day=28)
+        from django.db.models import Count
+        from collections import Counter
 
-    upcoming_count = sum(
-        1 for s in seniors_data
-        if s['status'] == 'ACTIVE' and s['date_of_birth']
-        and date_80_years_ago < s['date_of_birth'] <= date_78_years_ago
-    )
-    
-    # 3. Door-to-Door Logistics (Based on Section C: Benefit Utilization)
-    med_utilization = 0
-    total_active_with_data = 0
-    for s in seniors_data:
-        if s['status'] != 'ACTIVE':
-            continue
-        
-        data = s['annex_a_data'] or {}
-        util = data.get('utilization', [])
-        if util:
-            total_active_with_data += 1
-            is_medical = any(item.upper() in ['MEDICINE', 'HEALTH SERVICES', 'HEALTH'] for item in util)
-            if is_medical:
-                med_utilization += 1
-    
-    med_percentage = (med_utilization / total_active_with_data * 100) if total_active_with_data > 0 else 0
+        # 1. Fetch all senior data in a single highly-optimized values query
+        seniors_data = list(Senior.objects.values('id', 'status', 'barangay', 'annex_a_data', 'date_of_birth'))
 
-    # 4. Ghost Pensioner Anomaly (Audit of Mortality vs Registry)
-    # CLEAR OLD SURVIVAL FLAGS FIRST
-    AnomalyFlag.objects.filter(flag_reason__icontains="Survival Rate").delete()
-    
-    date_90_years_ago = today.replace(year=today.year - 90)
-    oldest_seniors = [
-        s for s in seniors_data
-        if s['status'] == 'ACTIVE' and s['date_of_birth'] and s['date_of_birth'] <= date_90_years_ago
-    ]
-    brgy_counts = Counter(s['barangay'] for s in oldest_seniors)
-    deceased_barangays = {s['barangay'] for s in seniors_data if s['status'] == 'DECEASED'}
-    
-    ghost_warnings = []
-    new_flags = []
-    
-    # Keep track of existing/created flags to avoid duplicates
-    created_pairs = set(AnomalyFlag.objects.exclude(
-        flag_reason__icontains="Survival Rate"
-    ).exclude(
-        flag_reason__icontains="Syndicate Risk"
-    ).values_list('senior_id', 'flag_reason'))
-    
-    for barangay, count in brgy_counts.items():
-        if count >= 2:
-            if barangay not in deceased_barangays:
-                reason = f"Unnatural Survival Rate: {count} seniors aged 90+ in this barangay with 0 reported deaths."
-                
-                brgy_old_seniors = [s for s in oldest_seniors if s['barangay'] == barangay]
-                for s in brgy_old_seniors:
-                    if (s['id'], reason) not in created_pairs:
+        # 2. Budget Deficit Early Warning (Next 24 Months)
+        today = date.today()
+        try:
+            date_80_years_ago = today.replace(year=today.year - 80)
+            date_78_years_ago = today.replace(year=today.year - 78)
+        except ValueError:
+            date_80_years_ago = today.replace(year=today.year - 80, month=2, day=28)
+            date_78_years_ago = today.replace(year=today.year - 78, month=2, day=28)
+
+        upcoming_count = sum(
+            1 for s in seniors_data
+            if s['status'] == 'ACTIVE' and s['date_of_birth']
+            and date_80_years_ago < s['date_of_birth'] <= date_78_years_ago
+        )
+
+        # 3. Door-to-Door Logistics (Based on Section C: Benefit Utilization)
+        med_utilization = 0
+        total_active_with_data = 0
+        for s in seniors_data:
+            if s['status'] != 'ACTIVE':
+                continue
+
+            data = s['annex_a_data'] or {}
+            util = data.get('utilization', [])
+            if util:
+                total_active_with_data += 1
+                is_medical = any(item.upper() in ['MEDICINE', 'HEALTH SERVICES', 'HEALTH'] for item in util)
+                if is_medical:
+                    med_utilization += 1
+
+        med_percentage = (med_utilization / total_active_with_data * 100) if total_active_with_data > 0 else 0
+
+        # 4. Ghost Pensioner Anomaly (Audit of Mortality vs Registry)
+        # CLEAR OLD SURVIVAL FLAGS FIRST
+        AnomalyFlag.objects.filter(flag_reason__icontains="Survival Rate").delete()
+
+        try:
+            date_90_years_ago = today.replace(year=today.year - 90)
+        except ValueError:
+            date_90_years_ago = today.replace(year=today.year - 90, month=2, day=28)
+
+        oldest_seniors = [
+            s for s in seniors_data
+            if s['status'] == 'ACTIVE' and s['date_of_birth'] and s['date_of_birth'] <= date_90_years_ago
+        ]
+        brgy_counts = Counter(s['barangay'] for s in oldest_seniors)
+        deceased_barangays = {s['barangay'] for s in seniors_data if s['status'] == 'DECEASED'}
+
+        ghost_warnings = []
+        new_flags = []
+
+        # Keep track of existing/created flags to avoid duplicates
+        created_pairs = set(AnomalyFlag.objects.exclude(
+            flag_reason__icontains="Survival Rate"
+        ).exclude(
+            flag_reason__icontains="Syndicate Risk"
+        ).values_list('senior_id', 'flag_reason'))
+
+        for barangay, count in brgy_counts.items():
+            if count >= 2:
+                if barangay not in deceased_barangays:
+                    reason = f"Unnatural Survival Rate: {count} seniors aged 90+ in this barangay with 0 reported deaths."
+
+                    brgy_old_seniors = [s for s in oldest_seniors if s['barangay'] == barangay]
+                    for s in brgy_old_seniors:
+                        if (s['id'], reason) not in created_pairs:
+                            new_flags.append(
+                                AnomalyFlag(
+                                    senior_id=s['id'],
+                                    flag_reason=reason,
+                                    confidence_score=0.85
+                                )
+                            )
+                            created_pairs.add((s['id'], reason))
+
+                    ghost_warnings.append({
+                        'barangay': barangay,
+                        'count_95plus': count,
+                        'message': reason
+                    })
+
+        # 5. Syndicate / Shared Representative Detection
+        AnomalyFlag.objects.filter(flag_reason__icontains="Syndicate Risk").delete()
+
+        person_counts = Counter()
+        person_to_details = {}
+
+        for s in seniors_data:
+            s_data = s['annex_a_data'] or {}
+            reps = s_data.get('reps', [])
+            for r in reps:
+                r_name = r.get('name', '').strip().upper()
+                if r_name and len(r_name) > 3:
+                    person_counts[r_name] += 1
+                    if r_name not in person_to_details:
+                        person_to_details[r_name] = {'barangays': [], 'senior_data': {}}
+
+                    if s['id'] not in person_to_details[r_name]['senior_data']:
+                        person_to_details[r_name]['senior_data'][s['id']] = set()
+
+                    person_to_details[r_name]['senior_data'][s['id']].add('Authorized Rep')
+                    person_to_details[r_name]['barangays'].append(s['barangay'])
+
+        syndicate_warnings = []
+        for name, count in person_counts.items():
+            if count >= 3:
+                details = person_to_details[name]
+                brgy_counter = Counter(details['barangays'])
+                top_brgy = brgy_counter.most_common(1)[0][0]
+
+                for s_id in details['senior_data'].keys():
+                    reason = f"Syndicate Risk: {name} is listed as Authorized Rep for {count} seniors."
+                    if (s_id, reason) not in created_pairs:
                         new_flags.append(
                             AnomalyFlag(
-                                senior_id=s['id'],
+                                senior_id=s_id,
                                 flag_reason=reason,
-                                confidence_score=0.85
+                                confidence_score=0.95
                             )
                         )
-                        created_pairs.add((s['id'], reason))
+                        created_pairs.add((s_id, reason))
 
-                ghost_warnings.append({
-                    'barangay': barangay,
-                    'count_95plus': count,
-                    'message': reason
+                syndicate_warnings.append({
+                    'rep_name': name,
+                    'count': count,
+                    'barangay': top_brgy,
+                    'message': f"Listed as Authorized Rep for {count} seniors."
                 })
 
-    # 5. Syndicate / Shared Representative Detection (REPRESENTATIVES ONLY)
-    # Clear old syndicate flags first
-    AnomalyFlag.objects.filter(flag_reason__icontains="Syndicate Risk").delete()
-    
-    person_counts = Counter()
-    person_to_details = {} # name -> {'barangays': [], 'senior_data': {senior_id: set(roles)}}
-    
-    for s in seniors_data:
-        s_data = s['annex_a_data'] or {}
-        reps = s_data.get('reps', [])
-        for r in reps:
-            r_name = r.get('name', '').strip().upper()
-            if r_name and len(r_name) > 3:
-                person_counts[r_name] += 1
-                if r_name not in person_to_details:
-                    person_to_details[r_name] = {'barangays': [], 'senior_data': {}}
-                
-                if s['id'] not in person_to_details[r_name]['senior_data']:
-                    person_to_details[r_name]['senior_data'][s['id']] = set()
-                
-                person_to_details[r_name]['senior_data'][s['id']].add('Authorized Rep')
-                person_to_details[r_name]['barangays'].append(s['barangay'])
-    
-    syndicate_warnings = []
-    for name, count in person_counts.items():
-        if count >= 3:
-            details = person_to_details[name]
-            brgy_counter = Counter(details['barangays'])
-            top_brgy = brgy_counter.most_common(1)[0][0]
-            
-            for s_id in details['senior_data'].keys():
-                reason = f"Syndicate Risk: {name} is listed as Authorized Rep for {count} seniors."
-                if (s_id, reason) not in created_pairs:
-                    new_flags.append(
-                        AnomalyFlag(
-                            senior_id=s_id,
-                            flag_reason=reason,
-                            confidence_score=0.95
-                        )
-                    )
-                    created_pairs.add((s_id, reason))
-            
-            syndicate_warnings.append({
-                'rep_name': name,
-                'count': count,
-                'barangay': top_brgy,
-                'message': f"Listed as Authorized Rep for {count} seniors."
-            })
-            
-    if new_flags:
-        AnomalyFlag.objects.bulk_create(new_flags)
+        if new_flags:
+            AnomalyFlag.objects.bulk_create(new_flags, ignore_conflicts=True)
 
-    return Response({
-        'budget_forecast': {
-            'upcoming_beneficiaries': upcoming_count,
-            'recommended_funding': upcoming_count * 10000,
-            'warning': upcoming_count > 20 
-        },
-        'logistics': {
-            'medical_utilization_rate': round(med_percentage, 1),
-            'recommendation': 'Prioritize Door-to-Door Payout' if med_percentage > 50 else 'Standard Payout'
-        },
-        'ghost_warnings': ghost_warnings,
-        'syndicate_warnings': syndicate_warnings, 
-        'data_integrity': 'HIGH' if total_active_with_data > 0 else 'LOW_DATA'
-    })
+        return Response({
+            'budget_forecast': {
+                'upcoming_beneficiaries': upcoming_count,
+                'recommended_funding': upcoming_count * 10000,
+                'warning': upcoming_count > 20
+            },
+            'logistics': {
+                'medical_utilization_rate': round(med_percentage, 1),
+                'recommendation': 'Prioritize Door-to-Door Payout' if med_percentage > 50 else 'Standard Payout'
+            },
+            'ghost_warnings': ghost_warnings,
+            'syndicate_warnings': syndicate_warnings,
+            'data_integrity': 'HIGH' if total_active_with_data > 0 else 'LOW_DATA'
+        })
+
+    except Exception as e:
+        import traceback
+        print(f"[AI Report] Error: {e}\n{traceback.format_exc()}")
+        return Response(
+            {'error': f'AI report generation failed: {str(e)}'},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
+
+
+
+
+    
 
 
 @api_view(['POST'])
