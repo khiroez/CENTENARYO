@@ -1,3 +1,4 @@
+from django.views.decorators.csrf import csrf_exempt
 from rest_framework import viewsets, filters, status
 from rest_framework.decorators import api_view, permission_classes, authentication_classes, action
 from rest_framework.permissions import IsAuthenticated, BasePermission, AllowAny
@@ -229,16 +230,40 @@ class SeniorViewSet(viewsets.ModelViewSet):
             except json.JSONDecodeError:
                 data['auto_check_results'] = {}
         
-        # Process document hashes and detect duplicates across existing records
-        _process_document_hashes(data, request.FILES)
-        _process_server_face_verification(data, request.FILES)
+        # Process deep document verification, OCR & deduplication
+        from .document_verifier import perform_complete_document_verification
+        from django.utils import timezone
+        v_res = perform_complete_document_verification(data, request.FILES)
+        data['auto_check_results'].update(v_res)
 
-        # New registrations always start as PENDING_REVIEW
-        data['registration_status'] = 'PENDING_REVIEW'
+        # Straight-Through Processing (STP): If 100% verified across all layers, auto-approve
+        can_auto = v_res.get('can_auto_approve', False)
+        if can_auto:
+            data['registration_status'] = 'APPROVED'
+            data['reviewed_at'] = timezone.now()
+        else:
+            data['registration_status'] = 'PENDING_REVIEW'
         
         serializer = self.get_serializer(data=data)
         serializer.is_valid(raise_exception=True)
-        self.perform_create(serializer)
+        senior = serializer.save()
+
+        if can_auto:
+            ReviewLog.objects.create(
+                senior=senior,
+                reviewer=request.user if request.user.is_authenticated else None,
+                action='APPROVE',
+                remarks='Awtomatikong inaprubahan sa pamamagitan ng AI Automated Verification (100% Passed)',
+                checklist_results={'name_match': True, 'dob_match': True, 'photo_match': True, 'document_authentic': True}
+            )
+            AuditLog.objects.create(
+                user=request.user if request.user.is_authenticated else None,
+                action='REVIEW',
+                target_model='Senior',
+                target_id=str(senior.id),
+                details=f"AI Straight-Through Auto-Approved Senior {senior.first_name} {senior.last_name} ({senior.osca_id})."
+            )
+
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
     def update(self, request, *args, **kwargs):
@@ -260,21 +285,44 @@ class SeniorViewSet(viewsets.ModelViewSet):
             except json.JSONDecodeError:
                 data['auto_check_results'] = {}
 
-        # Process document hashes for updated files
-        _process_document_hashes(data, request.FILES, instance_id=instance.id)
-        _process_server_face_verification(data, request.FILES)
+        # Process deep document verification for updated files
+        from .document_verifier import perform_complete_document_verification
+        from django.utils import timezone
+        v_res = perform_complete_document_verification(data, request.FILES, instance_id=instance.id)
+        if 'auto_check_results' not in data or not isinstance(data['auto_check_results'], dict):
+            data['auto_check_results'] = {}
+        data['auto_check_results'].update(v_res)
 
         was_returned = instance.registration_status == 'RETURNED'
 
-        # When an edited profile is saved, reset status to PENDING_REVIEW for admin checking
-        data['registration_status'] = 'PENDING_REVIEW'
+        can_auto = v_res.get('can_auto_approve', False)
+        if can_auto:
+            data['registration_status'] = 'APPROVED'
+            data['reviewed_at'] = timezone.now()
+        else:
+            data['registration_status'] = 'PENDING_REVIEW'
 
         partial = kwargs.pop('partial', False)
         serializer = self.get_serializer(instance, data=data, partial=partial)
         serializer.is_valid(raise_exception=True)
         self.perform_update(serializer)
 
-        if was_returned:
+        if can_auto:
+            ReviewLog.objects.create(
+                senior=instance,
+                reviewer=request.user if request.user.is_authenticated else None,
+                action='APPROVE',
+                remarks='Awtomatikong inaprubahan sa pamamagitan ng AI Automated Verification (100% Passed)',
+                checklist_results={'name_match': True, 'dob_match': True, 'photo_match': True, 'document_authentic': True}
+            )
+            AuditLog.objects.create(
+                user=request.user if request.user.is_authenticated else None,
+                action='REVIEW',
+                target_model='Senior',
+                target_id=str(instance.id),
+                details=f"AI Straight-Through Auto-Approved Senior {instance.first_name} {instance.last_name} ({instance.osca_id})."
+            )
+        elif was_returned:
             resubmit_remarks = data.get('resubmission_notes', f"Staff {request.user.username if request.user.is_authenticated else 'User'} corrected documents and resubmitted for review.")
             ReviewLog.objects.create(
                 senior=instance,
@@ -564,6 +612,89 @@ class SeniorViewSet(viewsets.ModelViewSet):
             senior.save(update_fields=['auto_check_results'])
 
         return Response(SeniorSerializer(senior).data)
+
+    @action(detail=True, methods=['post'], url_path='verify-documents')
+    def verify_documents_action(self, request, pk=None):
+        """
+        POST /api/seniors/{id}/verify-documents/
+        Runs the complete, deep OCR + Biometric document verification engine on this senior's files.
+        """
+        senior = self.get_object()
+        from .document_verifier import perform_complete_document_verification
+
+        senior_data = {
+            'first_name': senior.first_name,
+            'last_name': senior.last_name,
+            'middle_name': senior.middle_name,
+            'date_of_birth': senior.date_of_birth,
+            'osca_id': senior.osca_id
+        }
+        files = {
+            'psa_cert_file': senior.psa_cert_file,
+            'primary_id_file': senior.primary_id_file,
+            'picture_2x2_file': senior.picture_2x2_file
+        }
+        res = perform_complete_document_verification(senior_data, files, instance_id=senior.id)
+        
+        # Merge results into auto_check_results
+        existing = dict(senior.auto_check_results or {})
+        existing.update(res)
+        senior.auto_check_results = existing
+        senior.save(update_fields=['auto_check_results'])
+        
+        return Response(SeniorSerializer(senior).data)
+
+    @action(detail=False, methods=['post'], url_path='batch-approve-verified')
+    def batch_approve_verified(self, request):
+        """
+        POST /api/seniors/batch-approve-verified/
+        Instantly approves all pending registrations that have passed 100% of automated pre-checks.
+        """
+        from django.utils import timezone
+        pending_seniors = Senior.objects.filter(registration_status__in=['PENDING_REVIEW', 'UNDER_REVIEW'])
+        approved_count = 0
+        approved_ids = []
+
+        for senior in pending_seniors:
+            checks = senior.auto_check_results or {}
+            can_approve = checks.get('can_auto_approve', False)
+            if not can_approve:
+                psa_ok = checks.get('psa_check', {}).get('status') == 'PASS'
+                id_ok = checks.get('id_check', {}).get('status') == 'PASS'
+                face_ok = checks.get('face_match', {}).get('status') == 'PASS'
+                hash_ok = checks.get('hash_check', {}).get('status') == 'PASS'
+                can_approve = psa_ok and id_ok and face_ok and hash_ok
+
+            if can_approve:
+                senior.registration_status = 'APPROVED'
+                senior.reviewed_by = request.user if request.user.is_authenticated else None
+                senior.reviewed_at = timezone.now()
+                senior.save(update_fields=['registration_status', 'reviewed_by', 'reviewed_at'])
+
+                ReviewLog.objects.create(
+                    senior=senior,
+                    reviewer=request.user if request.user.is_authenticated else None,
+                    action='APPROVE',
+                    remarks='Awtomatikong inaprubahan sa pamamagitan ng AI Automated Verification (100% Passed)',
+                    checklist_results={'name_match': True, 'dob_match': True, 'photo_match': True, 'document_authentic': True}
+                )
+
+                AuditLog.objects.create(
+                    user=request.user if request.user.is_authenticated else None,
+                    action='REVIEW',
+                    target_model='Senior',
+                    target_object_id=str(senior.id),
+                    changes_summary=f"Batch AI Auto-Approved Senior {senior.first_name} {senior.last_name} ({senior.osca_id})."
+                )
+                approved_count += 1
+                approved_ids.append(senior.id)
+
+        return Response({
+            'status': 'success',
+            'approved_count': approved_count,
+            'approved_ids': approved_ids,
+            'message': f"Matagumpay na na-approve ang {approved_count} pre-verified senior records!"
+        })
 
 class DisbursementViewSet(viewsets.ModelViewSet):
     """
@@ -1294,6 +1425,7 @@ def ai_report_data(request):
     
 
 
+@csrf_exempt
 @api_view(['POST'])
 @authentication_classes([])
 @permission_classes([AllowAny])
@@ -1334,6 +1466,7 @@ def verify_face(request):
     return Response(result, status=status.HTTP_200_OK)
 
 
+@csrf_exempt
 @api_view(['POST'])
 @authentication_classes([])
 @permission_classes([AllowAny])
@@ -1358,4 +1491,49 @@ def compare_faces(request):
 
     res = compare_face_features(feat1, feat2)
     return Response(res, status=status.HTTP_200_OK)
+
+
+@csrf_exempt
+@api_view(['POST'])
+@authentication_classes([])
+@permission_classes([AllowAny])
+def scan_psa_qr(request):
+    """
+    POST /api/scan-psa-qr/
+    Accepts:
+    - 'file': multipart image file
+    - 'image_base64': base64 data URL or raw base64 string
+    Decodes the QR code and extracts document OCR text (if present) for cross-checking.
+    """
+    from .qr_engine import decode_qr
+    from .document_verifier import _extract_text_and_image_from_file
+
+    img_input = None
+    if 'file' in request.FILES:
+        img_input = request.FILES['file']
+    elif 'image_base64' in request.data:
+        img_input = request.data.get('image_base64')
+
+    if not img_input:
+        return Response(
+            {'qr_detected': False, 'payload': '', 'message': 'No image file or image_base64 provided.'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    qr_res = decode_qr(img_input)
+
+    # Also extract OCR text from the uploaded document if available
+    ocr_text = ""
+    try:
+        if hasattr(img_input, 'seek'):
+            img_input.seek(0)
+        extracted, _ = _extract_text_and_image_from_file(img_input)
+        ocr_text = extracted or ""
+    except Exception as e:
+        print(f"[ScanPsaQr] OCR extraction notice: {e}")
+
+    qr_res['ocr_text'] = ocr_text
+    qr_res['has_ocr_text'] = bool(ocr_text and len(ocr_text.strip()) > 15)
+    return Response(qr_res, status=status.HTTP_200_OK)
+
 

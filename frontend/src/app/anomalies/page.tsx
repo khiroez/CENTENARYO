@@ -371,7 +371,7 @@ export default function AnomalyReviewPage() {
                                     )) || 'N/A'}
                                 </div>
                             </div>
-                            <div className="flex justify-between border-t border-slate-200/60 pt-4"><span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Primary Beneficiary</span><span className="text-xs font-bold text-slate-700">{selectedSenior.annex_a_data?.primary_ben_name || 'N/A'}</span></div>
+                            <div className="flex justify-between border-t border-slate-200/60 pt-4"><span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Authorized Representative</span><span className="text-xs font-bold text-slate-700">{selectedSenior.annex_a_data?.reps?.[0]?.name || 'N/A'}</span></div>
                         </div>
 
                         <div className="flex items-center gap-3 mb-2 mt-8"><FileText size={20} className="text-indigo-500" /><h3 className="text-sm font-black text-slate-800 uppercase tracking-widest">Audit Evidence (Mock)</h3></div>

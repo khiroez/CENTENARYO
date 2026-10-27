@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Users, Search, Plus, Edit, Trash2, X, FileText, CheckSquare, PlusCircle, MinusCircle, AlertCircle, AlertTriangle, RefreshCcw, RotateCcw, UserX, Upload, FileCheck, Image as ImageIcon, Filter, Calendar, ChevronLeft, ChevronRight, Info, CheckCircle2 } from 'lucide-react';
+import { Users, Search, Plus, Edit, Trash2, X, FileText, CheckSquare, PlusCircle, MinusCircle, AlertCircle, AlertTriangle, RefreshCcw, RotateCcw, UserX, Upload, FileCheck, Image as ImageIcon, Filter, Calendar, ChevronLeft, ChevronRight, Info, CheckCircle2, ShieldCheck } from 'lucide-react';
 import { useAuth } from "@/context/AuthContext";
 import { useNotifications } from "@/context/NotificationContext";
 import { useSearchParams } from "next/navigation";
@@ -91,17 +91,41 @@ export default function SeniorRegistryPage() {
     detectedFaceCropUrl?: string;
     fileSizeStr?: string;
     imageDimensions?: string;
+    psaQr?: {
+      detected: boolean;
+      status: 'PASS' | 'FLAGGED';
+      nameMatch?: boolean;
+      dobMatch?: boolean;
+      extractedName?: string | null;
+      extractedDob?: string | null;
+      engine?: string;
+      isBinarySeal?: boolean;
+      bytesLen?: number;
+    };
   }
   const [verificationState, setVerificationState] = useState<VerificationState | null>(null);
   const faceDescriptorsRef = useRef<{ photo2x2: Float32Array | number[] | null; oscaId: Float32Array | number[] | null }>({
     photo2x2: null,
     oscaId: null,
   });
+  // Temporary storage for the decoded PSA QR payload (same pattern as faceDescriptorsRef)
+  const psaQrRef = useRef<{
+    payload: string;
+    engine: string;
+    isBinarySeal?: boolean;
+    bytesLen?: number;
+    ocrText?: string;
+    hasOcrText?: boolean;
+    extractedName?: string | null;
+    extractedDob?: string | null;
+  } | null>(null);
   const [pdfPreviewSrc, setPdfPreviewSrc] = useState<{ url?: string; file?: File | null; title: string } | null>(null);
 
   const openSuccess = (title: string, message: string) => showModal('success', title, message);
   const openError = (title: string, message: string) => showModal('error', title, message);
   const openWarning = (title: string, message: string) => showModal('warning', title, message);
+  const needsManualReview = (v: VerificationState) =>
+    v.fieldName !== 'psa_cert_file' && v.faceDetected === false;
 
   const handleDeleteSenior = async (id: number) => {
     try {
@@ -136,8 +160,7 @@ export default function SeniorRegistryPage() {
     spouse_name: '', spouse_citizenship: '',
     children: [''],
     reps: [{ name: '', relation: '', contact: '' }],
-    contact_number: '', email: '',
-    primary_ben_name: '', primary_ben_rel: '',
+    contact_number: '',
     cont_ben_name: '', cont_ben_rel: '',
     utilization: [] as string[],
     utilization_others: '',
@@ -266,7 +289,9 @@ export default function SeniorRegistryPage() {
       setReturnedCorrectionInfo(null);
     }
     const oscaParts = senior.osca_id ? senior.osca_id.split('-') : ['', '', ''];
-    const annexData = senior.annex_a_data || {};
+    // Strip deprecated fields (email, primary beneficiary) from legacy records
+    const { email: _email, primary_ben_name: _pbn, primary_ben_rel: _pbr, ...annexData } = senior.annex_a_data || {};
+    resetPsaQr();
     setFormData({
       ...initialFormState,
       ...annexData,
@@ -370,7 +395,7 @@ export default function SeniorRegistryPage() {
     const hasPhoto = !!(formData.picture_2x2_file || formData.picture_2x2_url);
 
     if (!hasPsa || !hasPrimaryId || !hasPhoto) {
-      openWarning("Missing Documents", "Please upload all three required documents (PSA Birth Certificate, OSCA ID, and 2x2 Photo) before saving changes.");
+      openWarning("Missing Documents", "Please upload all three required documents (PSA QR Code, OSCA ID, and 2x2 Photo) before saving changes.");
       return;
     }
 
@@ -381,6 +406,16 @@ export default function SeniorRegistryPage() {
 
     if (!formData.res_brgy) {
       openWarning("Barangay Required", "Please select a barangay from the dropdown.");
+      return;
+    }
+
+    if (!formData.res_house?.trim()) {
+      openWarning("House / Unit # Required", "Please provide the House / Unit number of the residential address.");
+      return;
+    }
+
+    if (!formData.res_street?.trim()) {
+      openWarning("Street Required", "Please provide the Street of the residential address.");
       return;
     }
 
@@ -396,15 +431,6 @@ export default function SeniorRegistryPage() {
     if (!formData.contact_number.startsWith('09')) {
       openWarning("Invalid Mobile Number", "The mobile number must start with 09 (e.g., 09171234567).");
       return;
-    }
-
-    // Validate Email Address (Restrict special characters, only allow '.', '+', and alphanumeric characters)
-    if (formData.email) {
-      const emailRegex = /^[a-zA-Z0-9.+]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
-      if (!emailRegex.test(formData.email)) {
-        openWarning("Invalid Email Address", "The email format is invalid or contains forbidden special characters. Only alphanumeric characters, period (.), and plus (+) are allowed in the local part.");
-        return;
-      }
     }
 
     // Validate Representative Mobile Number (If provided, must be exactly 11 digits)
@@ -443,9 +469,28 @@ export default function SeniorRegistryPage() {
       delete (cleanAnnexData as any).psa_cert_file;
       delete (cleanAnnexData as any).primary_id_file;
       delete (cleanAnnexData as any).picture_2x2_file;
+      delete (cleanAnnexData as any).email;
+      delete (cleanAnnexData as any).primary_ben_name;
+      delete (cleanAnnexData as any).primary_ben_rel;
+
+      // Re-run PSA QR cross-check against the FINAL Name / DOB values before submitting
+      const finalAutoChecks = { ...autoCheckResults };
+      if (psaQrRef.current) {
+        finalAutoChecks.psa_qr = buildPsaQrCheck(
+          psaQrRef.current,
+          comparePsaQrWithForm(
+            psaQrRef.current.payload,
+            formData,
+            psaQrRef.current.isBinarySeal,
+            psaQrRef.current.ocrText,
+            psaQrRef.current.extractedName,
+            psaQrRef.current.extractedDob
+          )
+        );
+      }
 
       fd.append('annex_a_data', JSON.stringify(cleanAnnexData));
-      fd.append('auto_check_results', JSON.stringify(autoCheckResults));
+      fd.append('auto_check_results', JSON.stringify(finalAutoChecks));
 
       if (formData.psa_cert_file) fd.append('psa_cert_file', formData.psa_cert_file);
       if (formData.primary_id_file) fd.append('primary_id_file', formData.primary_id_file);
@@ -652,7 +697,10 @@ export default function SeniorRegistryPage() {
     }
   };
 
-  const parsePdfPageAndText = async (buffer: ArrayBuffer): Promise<{ numPages: number; text: string; canvas: HTMLCanvasElement }> => {
+  const parsePdfPageAndText = async (
+    buffer: ArrayBuffer,
+    qrScale?: number
+  ): Promise<{ numPages: number; text: string; canvas: HTMLCanvasElement; qrCanvas?: HTMLCanvasElement }> => {
     const pdfjsLib = await import('pdfjs-dist');
     pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs';
     const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(buffer) });
@@ -669,11 +717,48 @@ export default function SeniorRegistryPage() {
     if (ctx) {
       await (page.render as any)({ canvasContext: ctx, viewport, canvas }).promise;
     }
-    return { numPages: pdf.numPages, text, canvas };
+
+    // Optional high-resolution render for QR decoding (QR modules need more pixels)
+    let qrCanvas: HTMLCanvasElement | undefined;
+    if (qrScale) {
+      const qrViewport = page.getViewport({ scale: qrScale });
+      qrCanvas = document.createElement('canvas');
+      qrCanvas.width = qrViewport.width;
+      qrCanvas.height = qrViewport.height;
+      const qrCtx = qrCanvas.getContext('2d', { willReadFrequently: true } as any) as CanvasRenderingContext2D | null;
+      if (qrCtx) {
+        qrCtx.fillStyle = '#ffffff';
+        qrCtx.fillRect(0, 0, qrCanvas.width, qrCanvas.height);
+        await (page.render as any)({ canvasContext: qrCtx, viewport: qrViewport, canvas: qrCanvas }).promise;
+      }
+    }
+    return { numPages: pdf.numPages, text, canvas, qrCanvas };
   };
 
   const compareFaceDescriptors = (descA: Float32Array | number[], descB: Float32Array | number[]) => {
-    // If both are 256-dim feature vectors from OpenCV backend
+    // 1. Deep 128-dimensional SFace embeddings from OpenCV backend
+    if ((descA as any).length === 128 && (descB as any).length === 128) {
+      const a = Array.from(descA as any) as number[];
+      const b = Array.from(descB as any) as number[];
+      let dot = 0, normA = 0, normB = 0;
+      for (let i = 0; i < 128; i++) {
+        dot += a[i] * b[i];
+        normA += a[i] * a[i];
+        normB += b[i] * b[i];
+      }
+      const denom = Math.sqrt(normA) * Math.sqrt(normB);
+      const cosine = denom > 0 ? dot / denom : 0;
+      const isMatch = cosine >= 0.363;
+      let similarity = 0;
+      if (isMatch) {
+        similarity = Math.max(70, Math.min(99, Math.round(70 + ((cosine - 0.363) / (1.0 - 0.363)) * 29)));
+      } else {
+        similarity = Math.max(10, Math.min(65, Math.round(15 + (Math.max(0, cosine) / 0.363) * 50)));
+      }
+      return { distance: Number((1 - cosine).toFixed(3)), similarity, isMatch };
+    }
+
+    // 2. Legacy 256-dim feature vectors
     if (Array.isArray(descA) && Array.isArray(descB) && descA.length === 256 && descB.length === 256) {
       const a = descA;
       const b = descB;
@@ -707,6 +792,337 @@ export default function SeniorRegistryPage() {
     const similarity = Math.max(12, Math.min(98, Math.round((1 - (distance / 0.85)) * 100)));
     const isMatch = distance <= 0.62;
     return { distance, similarity, isMatch };
+  };
+
+  // ---------------- PSA QR Code Verification Helpers ----------------
+  const MONTHS = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+
+  const normalizeName = (s: string) =>
+    (s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z\s]/g, ' ').replace(/\s+/g, ' ').trim();
+
+  const toIso = (y: number, m: number, d: number): string | null => {
+    if (!y || m < 1 || m > 12 || d < 1 || d > 31) return null;
+    return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+  };
+
+  // Finds every date-like value in a string and converts each to YYYY-MM-DD
+  const findDatesInText = (raw: string): string[] => {
+    const text = (raw || '').toUpperCase();
+    const found: string[] = [];
+    const push = (v: string | null) => { if (v && !found.includes(v)) found.push(v); };
+    let m: RegExpExecArray | null;
+
+    const ymd = /\b(\d{4})[-\/.](\d{1,2})[-\/.](\d{1,2})\b/g;
+    while ((m = ymd.exec(text))) push(toIso(+m[1], +m[2], +m[3]));
+
+    const mdy = /\b(\d{1,2})[-\/.](\d{1,2})[-\/.](\d{4})\b/g; // PH convention MM/DD/YYYY; swap if first part > 12
+    while ((m = mdy.exec(text))) {
+      const a = +m[1], b = +m[2];
+      push(a > 12 ? toIso(+m[3], b, a) : toIso(+m[3], a, b));
+    }
+
+    const compact = /\b(\d{4})(\d{2})(\d{2})\b/g;
+    while ((m = compact.exec(text))) push(toIso(+m[1], +m[2], +m[3]));
+
+    const monthIdx = (name: string) => MONTHS.indexOf(name.slice(0, 3)) + 1;
+    const mdyWords = /\b([A-Z]{3,9})\.?\s+(\d{1,2}),?\s+(\d{4})\b/g;
+    while ((m = mdyWords.exec(text))) { const mo = monthIdx(m[1]); if (mo) push(toIso(+m[3], mo, +m[2])); }
+
+    const dmyWords = /\b(\d{1,2})\s+([A-Z]{3,9})\.?,?\s+(\d{4})\b/g;
+    while ((m = dmyWords.exec(text))) { const mo = monthIdx(m[2]); if (mo) push(toIso(+m[3], mo, +m[1])); }
+
+    return found;
+  };
+
+  // Tolerant parser: supports JSON, URL query strings, and "KEY: VALUE" / "KEY=VALUE" payloads
+  const parsePsaQrPayload = (payload: string) => {
+    const fields: Record<string, string> = {};
+    const add = (k: string, v: any) => {
+      if (v === undefined || v === null || !String(v).trim()) return;
+      fields[k.toLowerCase().replace(/[^a-z]/g, '')] = String(v).trim();
+    };
+
+    let isJson = false;
+    try {
+      const obj = JSON.parse(payload);
+      if (obj && typeof obj === 'object') {
+        isJson = true;
+        const walk = (o: any) => Object.entries(o).forEach(([k, v]) => (v && typeof v === 'object') ? walk(v) : add(k, v));
+        walk(obj);
+      }
+    } catch { /* not JSON */ }
+
+    if (!isJson) {
+      try { new URL(payload).searchParams.forEach((v, k) => add(k, v)); } catch { /* not a URL */ }
+      payload.split(/[\r\n|;]+/).forEach(seg => {
+        const kv = seg.match(/^\s*([A-Za-z][A-Za-z _.\-]{1,40}?)\s*[:=]\s*(.+)$/);
+        if (kv) add(kv[1], kv[2]);
+      });
+    }
+
+    // Ignore parent / registrar fields so we only read the document owner's details
+    const ownerKeys = Object.keys(fields).filter(k => !/father|mother|parent|spouse|informant|registrar|officer|attendant/.test(k));
+    const find = (...patterns: RegExp[]) => {
+      for (const p of patterns) {
+        const key = ownerKeys.find(k => p.test(k));
+        if (key) return fields[key];
+      }
+      return undefined;
+    };
+
+    return {
+      lastName: find(/^(last|sur|family)name$/, /^(lname|surname|apelyido)$/, /last|surname/),
+      firstName: find(/^(first|given)names?$/, /^(fname|given)$/, /first|given/),
+      middleName: find(/^middlename$/, /^mname$/, /middle/),
+      fullName: find(/^(full)?name$/, /^(child|owner|registrant|document)s?(full)?name$/, /name/),
+      dob: find(/^(dateofbirth|birthdate|dob|bdate|birthday)$/, /birth|dob/),
+    };
+  };
+
+  type PsaQrComparison = {
+    status: 'PASS' | 'FLAGGED';
+    nameMatch: boolean;
+    lastNameMatch: boolean;
+    givenNameMatch: boolean;
+    middleNameMatch: boolean | null;
+    dobMatch: boolean;
+    extractedName: string | null;
+    extractedDob: string | null;
+    message: string;
+  };
+
+  // Cross-checks the scanned QR payload against the Document Owner's Name & Date of Birth
+  const comparePsaQrWithForm = (
+    payload: string,
+    form: { last_name: string; given_name: string; middle_name: string; date_of_birth: string },
+    isBinarySeal: boolean = false,
+    ocrText?: string,
+    qrExtractedName?: string | null,
+    qrExtractedDob?: string | null
+  ): PsaQrComparison => {
+    // 1. Resolve QR Extracted Name & DOB
+    let extractedName: string | null = qrExtractedName || null;
+    let extractedDob: string | null = qrExtractedDob || null;
+
+    if (!extractedName || !extractedDob) {
+      const parsed = parsePsaQrPayload(payload);
+      if (!extractedName) {
+        const parsedName = [parsed.firstName, parsed.middleName, parsed.lastName].filter(Boolean).join(' ') || parsed.fullName || null;
+        if (parsedName) extractedName = parsedName;
+      }
+      if (!extractedDob) {
+        const candidateDates = findDatesInText(parsed.dob || payload);
+        if (candidateDates.length > 0) extractedDob = candidateDates[0];
+      }
+    }
+
+    if (!extractedDob && ocrText) {
+      const ocrDates = findDatesInText(ocrText);
+      if (ocrDates.length > 0) extractedDob = ocrDates[0];
+    }
+
+    // 2. Token-based cross-matching with Personal Information Form
+    const normFormGiven = normalizeName(form.given_name || '');
+    const normFormLast = normalizeName(form.last_name || '');
+    const normQrName = normalizeName(extractedName || '');
+
+    const givenTokens = normFormGiven.split(' ').filter(Boolean);
+    const lastTokens = normFormLast.split(' ').filter(Boolean);
+    const qrTokens = normQrName.split(' ').filter(Boolean);
+
+    const lastNameMatch = lastTokens.length > 0 && qrTokens.length > 0 && lastTokens.every(tok => qrTokens.includes(tok));
+    const givenNameMatch = givenTokens.length > 0 && qrTokens.length > 0 && givenTokens.some(tok => qrTokens.includes(tok));
+    const nameMatch = Boolean(lastNameMatch && givenNameMatch);
+
+    const formDob = (form.date_of_birth || '').trim();
+    const qrDob = (extractedDob || '').trim();
+    const dobMatch = Boolean(formDob && qrDob && formDob === qrDob);
+
+    const isMatch = Boolean(nameMatch && dobMatch);
+    const status: PsaQrComparison['status'] = isMatch ? 'PASS' : 'FLAGGED';
+    const message = isMatch
+      ? 'Match: Personal Information matches PSA QR code details.'
+      : 'Mismatch: Personal Information does not match PSA QR code details.';
+
+    return {
+      status,
+      nameMatch,
+      lastNameMatch,
+      givenNameMatch,
+      middleNameMatch: null,
+      dobMatch,
+      extractedName: extractedName || 'Not readable in QR',
+      extractedDob: extractedDob || 'Not readable in QR',
+      message
+    };
+  };
+
+  // Shape persisted into auto_check_results.psa_qr for the Admin Review Queue
+  const buildPsaQrCheck = (
+    qr: { payload: string; engine: string; isBinarySeal?: boolean; bytesLen?: number; extractedName?: string | null; extractedDob?: string | null },
+    cmp: PsaQrComparison
+  ) => ({
+    status: cmp.status,
+    qr_detected: true,
+    engine: qr.engine,
+    is_binary_seal: Boolean(qr.isBinarySeal),
+    bytes_len: qr.bytesLen || 703,
+    name_match: cmp.nameMatch,
+    last_name_match: cmp.lastNameMatch,
+    given_name_match: cmp.givenNameMatch,
+    middle_name_match: cmp.middleNameMatch,
+    dob_match: cmp.dobMatch,
+    extracted_name: cmp.extractedName,
+    extracted_dob: cmp.extractedDob,
+    payload: qr.payload.slice(0, 500),
+    message: cmp.message,
+  });
+
+  const resetPsaQr = () => {
+    psaQrRef.current = null;
+    setAutoCheckResults((prev: any) => {
+      const { psa_qr: _removed, ...rest } = prev || {};
+      return rest;
+    });
+  };
+
+  // Whenever the applicant's Name or DOB is edited at the top of the form,
+  // re-compare against the temporarily stored PSA QR payload (stored in psaQrRef.current)
+  useEffect(() => {
+    if (!psaQrRef.current) return;
+    const cmp = comparePsaQrWithForm(
+      psaQrRef.current.payload,
+      formData,
+      psaQrRef.current.isBinarySeal,
+      psaQrRef.current.ocrText,
+      psaQrRef.current.extractedName,
+      psaQrRef.current.extractedDob
+    );
+    setAutoCheckResults((prev: any) => ({
+      ...prev,
+      psa_qr: buildPsaQrCheck(psaQrRef.current!, cmp),
+      ocr_psa: {
+        status: cmp.status,
+        name_found: cmp.nameMatch,
+        dob_found: cmp.dobMatch,
+        message: cmp.message,
+      }
+    }));
+    setVerificationState(prev => {
+      if (!prev || prev.fieldName !== 'psa_cert_file') return prev;
+      return {
+        ...prev,
+        matchNote: cmp.message,
+        psaQr: {
+          detected: true,
+          status: cmp.status,
+          nameMatch: cmp.nameMatch,
+          dobMatch: cmp.dobMatch,
+          extractedName: cmp.extractedName,
+          extractedDob: cmp.extractedDob,
+          engine: psaQrRef.current?.engine,
+          isBinarySeal: psaQrRef.current?.isBinarySeal,
+          bytesLen: psaQrRef.current?.bytesLen,
+        }
+      };
+    });
+  }, [formData.last_name, formData.given_name, formData.middle_name, formData.date_of_birth]);
+
+  // Decodes the PSA QR: server-side ZXing/OpenCV first, browser jsQR fallback
+  const extractPsaQrPayload = async (
+    canvasOrImg?: HTMLCanvasElement | HTMLImageElement | null,
+    file?: File | null
+  ): Promise<{
+    payload: string;
+    engine: string;
+    isBinarySeal?: boolean;
+    bytesLen?: number;
+    ocrText?: string;
+    hasOcrText?: boolean;
+    extractedName?: string | null;
+    extractedDob?: string | null;
+  } | null> => {
+    try {
+      const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api';
+      let res: Response | null = null;
+
+      if (file && (file.type.startsWith('image/') || file.name.toUpperCase().match(/\.(JPG|JPEG|PNG|WEBP)$/))) {
+        const fd = new FormData();
+        fd.append('file', file);
+        res = await fetch(`${apiBase}/scan-psa-qr/`, { method: 'POST', body: fd });
+      } else if (canvasOrImg) {
+        let blob: Blob | null = null;
+        if ('toBlob' in canvasOrImg && typeof (canvasOrImg as any).toBlob === 'function') {
+          blob = await new Promise<Blob | null>(resolve => (canvasOrImg as HTMLCanvasElement).toBlob(resolve, 'image/png'));
+        } else {
+          const c = document.createElement('canvas');
+          c.width = 'naturalWidth' in canvasOrImg ? (canvasOrImg.naturalWidth || canvasOrImg.width) : canvasOrImg.width;
+          c.height = 'naturalHeight' in canvasOrImg ? (canvasOrImg.naturalHeight || canvasOrImg.height) : canvasOrImg.height;
+          const ctx = c.getContext('2d');
+          if (ctx) ctx.drawImage(canvasOrImg, 0, 0);
+          blob = await new Promise<Blob | null>(resolve => c.toBlob(resolve, 'image/png'));
+        }
+        if (blob) {
+          const fd = new FormData();
+          fd.append('file', blob, 'psa_qr.png');
+          res = await fetch(`${apiBase}/scan-psa-qr/`, { method: 'POST', body: fd });
+        }
+      }
+
+      if (res && res.ok) {
+        const data = await res.json();
+        if (data.qr_detected && (data.payload || data.payload_hex)) {
+          return {
+            payload: String(data.payload || data.payload_hex),
+            engine: data.engine || 'ZXing_Deep_QR',
+            isBinarySeal: Boolean(data.is_binary_seal),
+            bytesLen: data.bytes_len,
+            ocrText: data.ocr_text || '',
+            hasOcrText: Boolean(data.has_ocr_text),
+            extractedName: data.extracted_name || null,
+            extractedDob: data.extracted_dob || null,
+          };
+        }
+      }
+    } catch (backendErr) {
+      console.warn("Backend PSA QR scan unavailable, attempting browser fallback:", backendErr);
+    }
+
+    try {
+      const jsQR = (await import('jsqr')).default;
+      let canvas: HTMLCanvasElement | null = null;
+      if (canvasOrImg && 'getContext' in canvasOrImg && typeof (canvasOrImg as any).getContext === 'function') {
+        canvas = canvasOrImg as HTMLCanvasElement;
+      } else if (canvasOrImg) {
+        canvas = document.createElement('canvas');
+        canvas.width = 'naturalWidth' in canvasOrImg ? (canvasOrImg.naturalWidth || canvasOrImg.width) : canvasOrImg.width;
+        canvas.height = 'naturalHeight' in canvasOrImg ? (canvasOrImg.naturalHeight || canvasOrImg.height) : canvasOrImg.height;
+        const ctx = canvas.getContext('2d');
+        if (ctx) ctx.drawImage(canvasOrImg, 0, 0);
+      }
+      if (canvas) {
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+          const code = jsQR(imageData.data, imageData.width, imageData.height, { inversionAttempts: 'attemptBoth' });
+          if (code?.data) {
+            const parsed = parsePsaQrPayload(code.data);
+            const extName = [parsed.firstName, parsed.middleName, parsed.lastName].filter(Boolean).join(' ') || parsed.fullName || null;
+            const extDob = (parsed.dob ? findDatesInText(parsed.dob)[0] : null) || findDatesInText(code.data)[0] || null;
+            return {
+              payload: code.data,
+              engine: 'jsQR_Browser',
+              isBinarySeal: false,
+              extractedName: extName,
+              extractedDob: extDob
+            };
+          }
+        }
+      }
+    } catch (err) {
+      console.warn("Browser PSA QR scan failed:", err);
+    }
+    return null;
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>, field: string) => {
@@ -782,51 +1198,92 @@ export default function SeniorRegistryPage() {
         let faceDetected: boolean | undefined = undefined;
         let faceConfidence: number | undefined = undefined;
         let detectedFaceCropUrl: string | undefined = undefined;
+        let psaQrResult: VerificationState['psaQr'] = undefined;
 
-        // 1. PSA Birth Certificate
+        // 1. PSA QR Code
         if (field === 'psa_cert_file') {
-          detectedType = 'PSA Birth Certificate';
-          if (!isPdf) {
-            finalStatus = 'FAIL';
-            errorMessage = 'Rejected: Must be a PDF file.';
-          } else {
+          detectedType = 'PSA QR Code';
+          let qrCanvasOrImg: HTMLCanvasElement | HTMLImageElement | null = null;
+
+          if (isPdf) {
             try {
-              const { numPages, text, canvas } = await parsePdfPageAndText(buffer);
-              if (numPages !== 1) {
-                finalStatus = 'FAIL';
-                errorMessage = `Rejected: PDF must be exactly 1 page. (Detected ${numPages} pages).`;
-              } else {
-                previewUrl = canvas.toDataURL('image/jpeg', 0.88);
-                imageDimensions = `${canvas.width} × ${canvas.height} px (Page 1)`;
-                const rawText = text.toLowerCase();
-                const lName = formData.last_name?.trim().toLowerCase();
-                const gName = formData.given_name?.trim().toLowerCase();
-                const bYear = formData.date_of_birth ? formData.date_of_birth.split('-')[0] : '';
-
-                const nameFound = (lName && rawText.includes(lName)) || (gName && rawText.includes(gName));
-                const dobFound = bYear ? rawText.includes(bYear) : false;
-
-                setAutoCheckResults((prev: any) => ({
-                  ...prev,
-                  psa_hash: fileHash,
-                  ocr_psa: {
-                    status: (nameFound && dobFound) ? 'PASS' : 'NEEDS_REVIEW',
-                    name_found: nameFound,
-                    dob_found: dobFound,
-                    message: (nameFound && dobFound)
-                      ? 'Identity & Birth Year text confirmed on PSA.'
-                      : 'Could not fully match text in PSA; manual review queued.'
-                  }
-                }));
-
-                matchNote = (nameFound && dobFound)
-                  ? 'PSA OCR Pre-Check: Name and birth year verified.'
-                  : 'PSA OCR Pre-Check: Document formatted properly, flagged for manual text verification.';
-              }
+              const { numPages, canvas, qrCanvas } = await parsePdfPageAndText(buffer, 3);
+              previewUrl = canvas.toDataURL('image/jpeg', 0.88);
+              imageDimensions = `${canvas.width} × ${canvas.height} px (Page 1)`;
+              qrCanvasOrImg = qrCanvas || canvas;
             } catch (err) {
-              console.error("PSA read error:", err);
+              console.error("PSA PDF read error:", err);
               finalStatus = 'FAIL';
-              errorMessage = 'Rejected: Could not parse PDF file.';
+              errorMessage = 'Rejected: Could not read PSA document PDF.';
+            }
+          } else if (isImage) {
+            try {
+              const img = new Image();
+              previewUrl = URL.createObjectURL(file);
+              img.src = previewUrl;
+              await new Promise(r => { img.onload = r; img.onerror = r; });
+              imageDimensions = `${img.naturalWidth || img.width} × ${img.naturalHeight || img.height} px`;
+              qrCanvasOrImg = img;
+            } catch (err) {
+              console.error("PSA Image read error:", err);
+              finalStatus = 'FAIL';
+              errorMessage = 'Rejected: Could not load QR code image.';
+            }
+          } else {
+            finalStatus = 'FAIL';
+            errorMessage = 'Rejected: Must be an image (PNG, JPG) or PDF of the PSA QR code.';
+          }
+
+          if (finalStatus === 'PASS' && qrCanvasOrImg) {
+            const qr = await extractPsaQrPayload(qrCanvasOrImg, file);
+            if (qr) {
+              psaQrRef.current = qr;
+              const cmp = comparePsaQrWithForm(
+                qr.payload,
+                formData,
+                qr.isBinarySeal,
+                qr.ocrText,
+                qr.extractedName,
+                qr.extractedDob
+              );
+              psaQrResult = {
+                detected: true,
+                status: cmp.status,
+                nameMatch: cmp.nameMatch,
+                dobMatch: cmp.dobMatch,
+                extractedName: cmp.extractedName,
+                extractedDob: cmp.extractedDob,
+                engine: qr.engine,
+                isBinarySeal: qr.isBinarySeal,
+                bytesLen: qr.bytesLen
+              };
+              setAutoCheckResults((prev: any) => ({
+                ...prev,
+                psa_hash: fileHash,
+                psa_qr: buildPsaQrCheck(qr, cmp),
+                ocr_psa: {
+                  status: cmp.status,
+                  name_found: cmp.nameMatch,
+                  dob_found: cmp.dobMatch,
+                  message: cmp.message
+                }
+              }));
+              matchNote = cmp.message;
+            } else {
+              psaQrRef.current = null;
+              psaQrResult = { detected: false, status: 'FLAGGED' };
+              finalStatus = 'FAIL';
+              errorMessage = 'Rejected: No readable PSA QR code detected. Please upload only the QR code of the PSA.';
+              matchNote = 'No QR code pattern detected in the uploaded file.';
+              setAutoCheckResults((prev: any) => ({
+                ...prev,
+                psa_hash: fileHash,
+                psa_qr: {
+                  status: 'FLAGGED',
+                  qr_detected: false,
+                  message: 'No readable QR code found on PSA; please upload only the PSA QR code.'
+                }
+              }));
             }
           }
         }
@@ -997,7 +1454,8 @@ export default function SeniorRegistryPage() {
           faceConfidence,
           detectedFaceCropUrl,
           fileSizeStr: fileSizeStr || prev.fileSizeStr,
-          imageDimensions
+          imageDimensions,
+          psaQr: psaQrResult
         } : null);
       };
 
@@ -1028,7 +1486,7 @@ export default function SeniorRegistryPage() {
             <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-indigo-600 transition-colors" size={18} />
             <input type="text" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} placeholder="Search Name or ID..." className="w-full pl-11 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:bg-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-all text-sm font-medium shadow-sm" />
           </form>
-          <button onClick={() => { setFormData(initialFormState); setIsEditMode(false); setReturnedCorrectionInfo(null); setIsModalOpen(true); }} className="flex items-center justify-center gap-2 px-6 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl shadow-lg shadow-indigo-500/20 transition-all hover:-translate-y-0.5 whitespace-nowrap text-sm font-bold w-full md:w-auto">
+          <button onClick={() => { setFormData(initialFormState); resetPsaQr(); setIsEditMode(false); setReturnedCorrectionInfo(null); setIsModalOpen(true); }} className="flex items-center justify-center gap-2 px-6 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl shadow-lg shadow-indigo-500/20 transition-all hover:-translate-y-0.5 whitespace-nowrap text-sm font-bold w-full md:w-auto">
             <Plus size={18} />
             <span>New Record</span>
           </button>
@@ -1247,7 +1705,7 @@ export default function SeniorRegistryPage() {
                         <input required type="text" maxLength={15} value={formData.osca_id_serial} onChange={(e) => setFormData({ ...formData, osca_id_serial: handleNumberInput(e.target.value) })} className="flex-1 px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold" placeholder="SC ID NO." />
                       </div>
                     </div>
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 gap-4">
                       <div className="space-y-2">
                         <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-1.5">
                           Mobile / Landline
@@ -1260,19 +1718,6 @@ export default function SeniorRegistryPage() {
                           </div>
                         </label>
                         <input type="text" maxLength={11} value={formData.contact_number} onChange={(e) => setFormData({ ...formData, contact_number: handleNumberInput(e.target.value) })} className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold" placeholder="09171234567" />
-                      </div>
-                      <div className="space-y-2">
-                        <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-1.5">
-                          Email
-                          <div className="group relative">
-                            <Info size={12} className="text-slate-300 cursor-help" />
-                            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 p-2 bg-slate-800 text-white text-[10px] rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-20 font-medium text-center shadow-xl">
-                              Optional: For digital receipts and system updates.
-                              <div className="absolute top-full left-1/2 -translate-x-1/2 border-8 border-transparent border-t-slate-800"></div>
-                            </div>
-                          </div>
-                        </label>
-                        <input type="email" value={formData.email} onChange={(e) => setFormData({ ...formData, email: e.target.value })} className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-medium" />
                       </div>
                     </div>
                   </div>
@@ -1407,12 +1852,12 @@ export default function SeniorRegistryPage() {
                         </select>
                       </div>
                       <div className="space-y-1.5">
-                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">House / Unit #</label>
-                        <input type="text" placeholder="e.g. 123 / Blk 5 Lot 10" value={formData.res_house} onChange={(e) => setFormData({ ...formData, res_house: e.target.value })} className="w-full px-4 py-3.5 bg-white border border-slate-200 rounded-xl text-sm font-medium" />
+                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">House / Unit # *</label>
+                        <input required type="text" placeholder="e.g. 123 / Blk 5 Lot 10" value={formData.res_house} onChange={(e) => setFormData({ ...formData, res_house: e.target.value })} className="w-full px-4 py-3.5 bg-white border border-slate-200 rounded-xl text-sm font-medium" />
                       </div>
                       <div className="space-y-1.5">
-                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Street</label>
-                        <input type="text" placeholder="e.g. Sampaguita St." value={formData.res_street} onChange={(e) => setFormData({ ...formData, res_street: e.target.value })} className="w-full px-4 py-3.5 bg-white border border-slate-200 rounded-xl text-sm font-medium" />
+                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Street *</label>
+                        <input required type="text" placeholder="e.g. Sampaguita St." value={formData.res_street} onChange={(e) => setFormData({ ...formData, res_street: e.target.value })} className="w-full px-4 py-3.5 bg-white border border-slate-200 rounded-xl text-sm font-medium" />
                       </div>
                     </div>
                     <div className="mt-3 px-4 py-2.5 bg-indigo-50 border border-indigo-100 rounded-xl">
@@ -1451,22 +1896,6 @@ export default function SeniorRegistryPage() {
                         className={`w-full px-5 py-4 border rounded-2xl font-bold uppercase transition-all ${(formData.civil_status !== 'MARRIED' && formData.civil_status !== 'SEPARATED') ? 'bg-slate-100 border-slate-200 text-slate-400 cursor-not-allowed shadow-none' : 'bg-slate-50 border-slate-200 text-slate-800'}`}
                         placeholder={(formData.civil_status !== 'MARRIED' && formData.civil_status !== 'SEPARATED') ? "Spouse Details Disabled" : "Spouse Citizenship"}
                       />
-                    </div>
-                    <div className="space-y-4">
-                      <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-1.5">
-                        Primary Beneficiary
-                        <div className="group relative">
-                          <Info size={12} className="text-slate-300 cursor-help" />
-                          <div className="absolute bottom-full left-0 mb-2 w-48 p-2 bg-slate-800 text-white text-[10px] rounded-lg opacity-0 group-hover:opacity-100 transition-opacity z-20 font-medium text-center shadow-xl">
-                            Person to receive the benefit in case of any issues.
-                            <div className="absolute top-full left-4 border-8 border-transparent border-t-slate-800"></div>
-                          </div>
-                        </div>
-                      </h4>
-                      <div className="flex gap-2">
-                        <input type="text" placeholder="Full Name" value={formData.primary_ben_name} onChange={(e) => setFormData({ ...formData, primary_ben_name: handleNameInput(e.target.value) })} className="w-2/3 px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-bold uppercase" />
-                        <input type="text" placeholder="Relation" value={formData.primary_ben_rel} onChange={(e) => setFormData({ ...formData, primary_ben_rel: handleNameInput(e.target.value) })} className="w-1/3 px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-bold uppercase" />
-                      </div>
                     </div>
                   </div>
 
@@ -1581,33 +2010,43 @@ export default function SeniorRegistryPage() {
                   <div className="flex items-center gap-3 mb-8"><span className="w-8 h-8 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center font-black text-sm">D</span><h3 className="text-lg font-black text-slate-800 tracking-tight">Documentary Requirements</h3></div>
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                     <div className="p-6 bg-slate-50 rounded-[32px] border-2 border-dashed border-slate-200 hover:border-indigo-400 group relative transition-all border-spacing-2">
-                      <input type="file" accept=".pdf" onChange={(e) => handleFileChange(e, 'psa_cert_file')} className="absolute inset-0 opacity-0 cursor-pointer z-10" />
+                      <input type="file" accept="image/*,.pdf" onChange={(e) => handleFileChange(e, 'psa_cert_file')} className="absolute inset-0 opacity-0 cursor-pointer z-10" />
                       <div className="flex flex-col items-center text-center gap-3">
                         <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center text-slate-400 group-hover:text-indigo-600 shadow-sm">
                           {formData.psa_cert_file ? <FileCheck size={24} className="text-emerald-500" /> : (formData.psa_cert_url ? <FileCheck size={24} className="text-indigo-400" /> : <Upload size={24} />)}
                         </div>
                         <div>
                           <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-700 flex items-center gap-1.5 justify-center">
-                            PSA Birth Cert
+                            PSA QR Code
                             <div className="group relative">
                               <Info size={10} className="text-slate-300" />
-                              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-40 p-2 bg-slate-800 text-white text-[9px] rounded-lg opacity-0 group-hover:opacity-100 transition-opacity z-20 font-medium">
-                                Authenticated copy from PSA for age verification.
+                              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 p-2 bg-slate-800 text-white text-[9px] rounded-lg opacity-0 group-hover:opacity-100 transition-opacity z-20 font-medium text-center">
+                                Upload the official QR code from the PSA Birth Certificate.
                               </div>
                             </div>
                           </h4>
                           <div className="flex flex-col items-center">
                             <p className="text-[9px] font-bold text-slate-400 mt-1 truncate max-w-[150px]">
-                              {formData.psa_cert_file ? formData.psa_cert_file.name : (formData.psa_cert_url ? getFileNameFromUrl(formData.psa_cert_url) : 'Upload PDF Only')}
+                              {formData.psa_cert_file ? formData.psa_cert_file.name : (formData.psa_cert_url ? getFileNameFromUrl(formData.psa_cert_url) : 'Upload QR Code (JPG, PNG, PDF)')}
                             </p>
                             {(formData.psa_cert_file || formData.psa_cert_url) && (
                               <button
                                 type="button"
-                                onClick={() => setPdfPreviewSrc({
-                                  url: formData.psa_cert_file ? undefined : formData.psa_cert_url,
-                                  file: formData.psa_cert_file || null,
-                                  title: 'PSA Birth Certificate'
-                                })}
+                                onClick={() => {
+                                  const file = formData.psa_cert_file;
+                                  const url = formData.psa_cert_url;
+                                  const isPdfDoc = file ? (file.type === 'application/pdf' || file.name.toUpperCase().endsWith('.PDF')) : (url.toUpperCase().endsWith('.PDF'));
+                                  if (isPdfDoc) {
+                                    setPdfPreviewSrc({
+                                      url: file ? undefined : url,
+                                      file: file || null,
+                                      title: 'PSA QR Code'
+                                    });
+                                  } else {
+                                    const imgUrl = file ? URL.createObjectURL(file) : url;
+                                    if (imgUrl) window.open(imgUrl, '_blank');
+                                  }
+                                }}
                                 className="mt-2 px-3 py-1 bg-indigo-50 text-indigo-600 rounded-lg text-[9px] font-black uppercase tracking-widest hover:bg-indigo-100 transition-all relative z-20"
                               >
                                 View File
@@ -1914,10 +2353,12 @@ export default function SeniorRegistryPage() {
                   </div>
                   <div className="text-center space-y-2">
                     <h4 className="text-sm font-black uppercase tracking-widest text-slate-800 animate-pulse">
-                      Analyzing Document Layout & Biometrics...
+                      {verificationState.fieldName === 'psa_cert_file' ? 'Scanning & Decoding PSA QR Code...' : 'Analyzing Document Layout & Biometrics...'}
                     </h4>
                     <p className="text-xs text-slate-400 font-medium max-w-sm mx-auto">
-                      Running multi-scale CNN face landmark isolation, SHA-256 integrity hashing, and security framing checks.
+                      {verificationState.fieldName === 'psa_cert_file'
+                        ? 'Extracting QR payload and cross-checking against Document Owner Name & Date of Birth.'
+                        : 'Running multi-scale CNN face landmark isolation, SHA-256 integrity hashing, and security framing checks.'}
                     </p>
                   </div>
                 </div>
@@ -1927,39 +2368,75 @@ export default function SeniorRegistryPage() {
               {verificationState.stage === 'results' && (
                 <div className="space-y-6">
                   {/* Status Banner */}
-                  <div className={`p-6 rounded-[24px] border flex items-center justify-between transition-all ${verificationState.status === 'FAIL'
-                      ? 'bg-rose-50 border-rose-100 text-rose-800'
-                      : (verificationState.faceDetected === false
-                        ? 'bg-amber-50/90 border-amber-200/80 text-amber-900'
-                        : 'bg-emerald-50 border-emerald-100 text-emerald-800')
+                  {verificationState.fieldName === 'psa_cert_file' ? (
+                    <div className={`p-6 rounded-[24px] border flex items-center justify-between transition-all ${
+                      verificationState.status === 'FAIL' || verificationState.psaQr?.status === 'FLAGGED'
+                        ? 'bg-rose-50 border-rose-100 text-rose-800'
+                        : 'bg-emerald-50 border-emerald-100 text-emerald-800'
                     }`}>
-                    <div className="flex items-center gap-4">
-                      <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 ${verificationState.status === 'FAIL'
-                          ? 'bg-rose-500 text-white'
-                          : (verificationState.faceDetected === false ? 'bg-amber-500 text-white' : 'bg-emerald-500 text-white')
+                      <div className="flex items-center gap-4">
+                        <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 ${
+                          verificationState.status === 'FAIL' || verificationState.psaQr?.status === 'FLAGGED'
+                            ? 'bg-rose-500 text-white'
+                            : 'bg-emerald-500 text-white'
                         }`}>
-                        {verificationState.status === 'FAIL' ? (
-                          <X size={24} />
-                        ) : (
-                          verificationState.faceDetected === false ? <AlertCircle size={24} /> : <CheckSquare size={24} />
-                        )}
-                      </div>
-                      <div>
-                        <h4 className="text-sm font-black uppercase tracking-wider">
-                          {verificationState.status === 'FAIL'
-                            ? 'Document Rejected'
-                            : (verificationState.faceDetected === false
-                              ? 'Format Verified • Queued for Manual Admin Review'
-                              : 'Format & Biometrics Pre-Check Verified')}
-                        </h4>
-                        <p className="text-xs font-bold opacity-80 mt-0.5 uppercase tracking-wider">
-                          {verificationState.errorMessage
-                            ? verificationState.errorMessage
-                            : (verificationState.matchNote || `Document meets required formatting standards.`)}
-                        </p>
+                          {verificationState.status === 'FAIL' || verificationState.psaQr?.status === 'FLAGGED' ? (
+                            <X size={24} />
+                          ) : (
+                            <CheckSquare size={24} />
+                          )}
+                        </div>
+                        <div>
+                          <h4 className="text-sm font-black uppercase tracking-wider">
+                            {verificationState.status === 'FAIL' || verificationState.psaQr?.status === 'FLAGGED'
+                              ? 'PSA QR Code Mismatch'
+                              : 'Format & PSA QR Identity Verified'}
+                          </h4>
+                          <p className="text-xs font-bold opacity-80 mt-0.5 uppercase tracking-wider">
+                            {verificationState.errorMessage
+                              ? verificationState.errorMessage
+                              : (verificationState.psaQr?.status === 'PASS'
+                                  ? 'Name and Date of Birth match the PSA QR code.'
+                                  : (verificationState.matchNote || 'Personal Information does not match PSA QR code details.'))}
+                          </p>
+                        </div>
                       </div>
                     </div>
-                  </div>
+                  ) : (
+                    <div className={`p-6 rounded-[24px] border flex items-center justify-between transition-all ${verificationState.status === 'FAIL'
+                        ? 'bg-rose-50 border-rose-100 text-rose-800'
+                        : (needsManualReview(verificationState)
+                          ? 'bg-amber-50/90 border-amber-200/80 text-amber-900'
+                          : 'bg-emerald-50 border-emerald-100 text-emerald-800')
+                      }`}>
+                      <div className="flex items-center gap-4">
+                        <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 ${verificationState.status === 'FAIL'
+                            ? 'bg-rose-500 text-white'
+                            : (needsManualReview(verificationState) ? 'bg-amber-500 text-white' : 'bg-emerald-500 text-white')
+                          }`}>
+                          {verificationState.status === 'FAIL' ? (
+                            <X size={24} />
+                          ) : (
+                            needsManualReview(verificationState) ? <AlertCircle size={24} /> : <CheckSquare size={24} />
+                          )}
+                        </div>
+                        <div>
+                          <h4 className="text-sm font-black uppercase tracking-wider">
+                            {verificationState.status === 'FAIL'
+                              ? 'Document Rejected'
+                              : (needsManualReview(verificationState)
+                                ? 'Format Verified • Queued for Manual Admin Review'
+                                : 'Format & Biometrics Pre-Check Verified')}
+                          </h4>
+                          <p className="text-xs font-bold opacity-80 mt-0.5 uppercase tracking-wider">
+                            {verificationState.errorMessage
+                              ? verificationState.errorMessage
+                              : (verificationState.matchNote || `Document meets required formatting standards.`)}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
 
                   {/* 2-Column Inspection Grid */}
                   <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
@@ -2010,6 +2487,112 @@ export default function SeniorRegistryPage() {
 
                     {/* RIGHT: Diagnostics & Biometric Scorecard */}
                     <div className="lg:col-span-5 space-y-4">
+
+                      {/* PSA QR Code Cross-Check */}
+                      {verificationState.fieldName === 'psa_cert_file' && verificationState.psaQr && (
+                        <div className="space-y-2">
+                          <h5 className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                            PSA QR Code Cross-Check
+                          </h5>
+                          <div className={`p-4 rounded-3xl border space-y-3 shadow-sm ${
+                            verificationState.psaQr.status === 'PASS'
+                              ? 'bg-emerald-50/70 border-emerald-200/80'
+                              : 'bg-rose-50/70 border-rose-200/80'
+                          }`}>
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2 font-black text-xs uppercase tracking-wider text-slate-800">
+                                {verificationState.psaQr.detected
+                                  ? <CheckCircle2 size={16} className="text-emerald-600 shrink-0" />
+                                  : <AlertCircle size={16} className="text-rose-600 shrink-0" />}
+                                <span>{verificationState.psaQr.detected ? 'QR CODE DECODED' : 'QR CODE NOT READABLE'}</span>
+                              </div>
+                              <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${
+                                verificationState.psaQr.status === 'PASS'
+                                  ? 'bg-emerald-100 text-emerald-700'
+                                  : 'bg-rose-100 text-rose-700'
+                              }`}>
+                                {verificationState.psaQr.status === 'PASS' ? 'MATCH' : 'MISMATCH'}
+                              </span>
+                            </div>
+
+                            {verificationState.psaQr.detected ? (
+                              <div className="space-y-2.5 text-[11px]">
+                                {/* DOCUMENT OWNER NAME */}
+                                <div className="p-3.5 bg-white rounded-2xl border border-slate-100/80 space-y-1.5 shadow-sm">
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-[9px] font-black uppercase tracking-wider text-slate-400">
+                                      DOCUMENT OWNER NAME
+                                    </span>
+                                    {verificationState.psaQr.nameMatch ? (
+                                      <span className="text-[10px] font-black uppercase text-emerald-600 flex items-center gap-1">
+                                        <CheckCircle2 size={12} /> MATCH
+                                      </span>
+                                    ) : (
+                                      <span className="text-[10px] font-black uppercase text-rose-600 flex items-center gap-1">
+                                        <X size={12} /> NO MATCH
+                                      </span>
+                                    )}
+                                  </div>
+                                  <div className="grid grid-cols-2 gap-3 pt-0.5">
+                                    <div>
+                                      <div className="text-[8px] font-bold text-slate-400 uppercase tracking-wider">FORM</div>
+                                      <div className="font-bold text-slate-800 break-words text-xs leading-tight uppercase">
+                                        {[formData.given_name, formData.middle_name, formData.last_name].filter(Boolean).join(' ') || '—'}
+                                      </div>
+                                    </div>
+                                    <div>
+                                      <div className="text-[8px] font-bold text-slate-400 uppercase tracking-wider">PSA QR</div>
+                                      <div className="font-bold text-slate-800 break-words text-xs leading-tight uppercase">
+                                        {verificationState.psaQr.extractedName || 'Not found in QR'}
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
+
+                                {/* DATE OF BIRTH */}
+                                <div className="p-3.5 bg-white rounded-2xl border border-slate-100/80 space-y-1.5 shadow-sm">
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-[9px] font-black uppercase tracking-wider text-slate-400">
+                                      DATE OF BIRTH
+                                    </span>
+                                    {verificationState.psaQr.dobMatch ? (
+                                      <span className="text-[10px] font-black uppercase text-emerald-600 flex items-center gap-1">
+                                        <CheckCircle2 size={12} /> MATCH
+                                      </span>
+                                    ) : (
+                                      <span className="text-[10px] font-black uppercase text-rose-600 flex items-center gap-1">
+                                        <X size={12} /> NO MATCH
+                                      </span>
+                                    )}
+                                  </div>
+                                  <div className="grid grid-cols-2 gap-3 pt-0.5">
+                                    <div>
+                                      <div className="text-[8px] font-bold text-slate-400 uppercase tracking-wider">FORM</div>
+                                      <div className="font-bold text-slate-800 break-words text-xs leading-tight">
+                                        {formData.date_of_birth || '—'}
+                                      </div>
+                                    </div>
+                                    <div>
+                                      <div className="text-[8px] font-bold text-slate-400 uppercase tracking-wider">PSA QR</div>
+                                      <div className="font-bold text-slate-800 break-words text-xs leading-tight">
+                                        {verificationState.psaQr.extractedDob || 'Not found in QR'}
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
+
+                                <p className="text-[10px] text-slate-500 font-medium pt-1">
+                                  Decoded via {verificationState.psaQr.engine === 'jsQR_Browser' ? 'browser jsQR fallback' : 'server-side high-density QR engine'}. Re-validated automatically as Name / DOB is typed at top.
+                                </p>
+                              </div>
+                            ) : (
+                              <p className="text-[11px] text-rose-900/90 leading-relaxed font-medium">
+                                No readable QR code detected. Please ensure the QR code on the PSA certificate is clearly visible and not cut off.
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      )}
 
                       {/* Biometric Landmark Status */}
                       {verificationState.fieldName !== 'psa_cert_file' && (
@@ -2140,6 +2723,7 @@ export default function SeniorRegistryPage() {
               <button
                 type="button"
                 onClick={() => {
+                  if (verificationState.fieldName === 'psa_cert_file') resetPsaQr();
                   setFormData(prev => ({ ...prev, [verificationState.fieldName]: null }));
                   setVerificationState(null);
                 }}

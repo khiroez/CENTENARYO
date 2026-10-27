@@ -28,7 +28,7 @@ if exist "dist\CENTENARYO" (
 :: 3. Compile with PyInstaller
 echo.
 echo [3/3] Kinokompile ang buong system gamit ang PyInstaller...
-call backend\venv\Scripts\pyinstaller.exe -y --name="CENTENARYO" --onedir --collect-all rest_framework --collect-all rest_framework_simplejwt --collect-all corsheaders --collect-all whitenoise --add-data "backend;backend" --add-data "frontend\out;frontend\out" app_launcher.py
+call backend\venv\Scripts\pyinstaller.exe -y --name="CENTENARYO" --onedir --collect-all rest_framework --collect-all rest_framework_simplejwt --collect-all corsheaders --collect-all whitenoise --collect-all rapidfuzz --collect-all pypdf --collect-all pypdfium2 --collect-all winocr --collect-all winrt --add-data "backend;backend" --add-data "frontend\out;frontend\out" app_launcher.py
 if %ERRORLEVEL% neq 0 (
     echo [ERROR] Nabigo ang PyInstaller compilation!
     pause

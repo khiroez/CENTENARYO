@@ -1,10 +1,10 @@
 "use client";
 
 import React, { useState, useEffect } from 'react';
-import { 
-  Search, CheckCircle, XCircle, AlertTriangle, FileText, ChevronRight, 
+import {
+  Search, CheckCircle, XCircle, AlertTriangle, FileText, ChevronRight,
   Eye, Calendar, User, CheckSquare, RefreshCcw, Image as ImageIcon, X,
-  ShieldCheck, RotateCcw, AlertCircle, Sparkles, UserCheck, Phone, Users
+  ShieldCheck, RotateCcw, AlertCircle, Sparkles, UserCheck, Phone, Users, Zap
 } from 'lucide-react';
 import { useAuth } from "@/context/AuthContext";
 import { useNotifications } from "@/context/NotificationContext";
@@ -20,7 +20,8 @@ export default function ReviewQueuePage() {
   const [queue, setQueue] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
-  
+  const [isBatchApproving, setIsBatchApproving] = useState(false);
+
   // Review Modal State
   const [selectedSenior, setSelectedSenior] = useState<any | null>(null);
   const [activeTab, setActiveTab] = useState<'psa' | 'osca' | 'rep'>('psa');
@@ -99,23 +100,26 @@ export default function ReviewQueuePage() {
     setActiveTab('psa');
     setRemarks('');
 
-    // Pre-fill checklist items based on automated pre-screening analysis
+    // Pre-fill checklist items based on deep automated verification
     const autoChecks = senior.auto_check_results || {};
-    const ocrMatch = autoChecks.ocr_psa?.name_found ?? false;
-    const dobMatch = autoChecks.ocr_psa?.dob_found ?? false;
+    const psaCheck = autoChecks.psa_check || {};
+    const psaQr = autoChecks.psa_qr || {};
+    const ocrMatch = psaCheck.name_match ?? (psaQr.name_match || (autoChecks.ocr_psa?.name_found ?? false));
+    const dobMatch = psaCheck.dob_match ?? (psaQr.dob_match || (autoChecks.ocr_psa?.dob_found ?? false));
     const faceMatch = autoChecks.face_match?.status === 'PASS';
     const hashUnique = autoChecks.hash_check?.status !== 'FLAGGED';
+    const isPsaAuth = psaCheck.is_authentic_psa ?? Boolean(hashUnique);
 
     setChecklist({
       name_match: Boolean(ocrMatch),
       dob_match: Boolean(dobMatch),
       photo_match: Boolean(faceMatch),
-      document_authentic: Boolean(hashUnique),
+      document_authentic: Boolean(isPsaAuth && hashUnique),
     });
 
-    // Auto-extract and cache isolated biometric face crops via OpenCV if not already saved
-    if ((!autoChecks.photo_face_crop || !autoChecks.osca_face_crop) && (senior.picture_2x2_file || senior.primary_id_file)) {
-      authFetch(`${process.env.NEXT_PUBLIC_API_URL}/seniors/${senior.id}/extract-face-crops/`, {
+    // Automatically run complete deep document verification if not yet done
+    if (!autoChecks.psa_check && (senior.psa_cert_file || senior.primary_id_file)) {
+      authFetch(`${process.env.NEXT_PUBLIC_API_URL}/seniors/${senior.id}/verify-documents/`, {
         method: 'POST',
       }).then(async (res) => {
         if (res.ok) {
@@ -123,7 +127,7 @@ export default function ReviewQueuePage() {
           setSelectedSenior((current: any) => current && current.id === updatedSenior.id ? updatedSenior : current);
           setQueue((prevQueue: any[]) => prevQueue.map(item => item.id === updatedSenior.id ? updatedSenior : item));
         }
-      }).catch(err => console.warn("Auto-extract face crops notice:", err));
+      }).catch(err => console.warn("Auto-verify documents notice:", err));
     }
   };
 
@@ -164,7 +168,7 @@ export default function ReviewQueuePage() {
       if (res.ok) {
         const result = await res.json();
         showModal("success", "Review Submitted", result.message);
-        
+
         // Close modals
         setIsRejectModalOpen(false);
         setIsReturnModalOpen(false);
@@ -201,7 +205,7 @@ export default function ReviewQueuePage() {
     }
   };
 
-  const filteredQueue = queue.filter(s => 
+  const filteredQueue = queue.filter(s =>
     `${s.first_name} ${s.last_name} ${s.osca_id} ${s.barangay}`.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
@@ -217,6 +221,43 @@ export default function ReviewQueuePage() {
     );
   }
 
+  const preVerifiedCount = queue.filter(s => {
+    const checks = s.auto_check_results || {};
+    if (checks.can_auto_approve) return true;
+    const psaOk = checks.psa_check?.status === 'PASS';
+    const idOk = checks.id_check?.status === 'PASS';
+    const faceOk = checks.face_match?.status === 'PASS';
+    const hashOk = checks.hash_check?.status === 'PASS';
+    return psaOk && idOk && faceOk && hashOk;
+  }).length;
+
+  const handleBatchApprove = async () => {
+    setIsBatchApproving(true);
+    try {
+      const res = await authFetch(`${process.env.NEXT_PUBLIC_API_URL}/seniors/batch-approve-verified/`, {
+        method: 'POST'
+      });
+      if (res.ok) {
+        const data = await res.json();
+        showModal("success", "Batch Approval Successful", data.message || `Approved ${data.approved_count} seniors.`);
+        addNotification({
+          type: 'DOCUMENT',
+          title: 'Batch Auto-Approval',
+          description: `${data.approved_count} fully verified seniors were automatically approved.`,
+          link: '/seniors'
+        });
+        fetchQueue();
+      } else {
+        const err = await res.json();
+        showModal("error", "Batch Approval Failed", err.detail || "Unable to batch approve records.");
+      }
+    } catch (e: any) {
+      showModal("error", "Network Error", e.message || "Failed to contact server.");
+    } finally {
+      setIsBatchApproving(false);
+    }
+  };
+
   return (
     <div className="p-8 pb-20 max-w-7xl mx-auto min-h-screen pt-24">
       {/* Header */}
@@ -230,6 +271,16 @@ export default function ReviewQueuePage() {
             Assisted automated pre-screening & four-eyes administrative verification under R.A. 11982.
           </p>
         </div>
+        {preVerifiedCount > 0 && (
+          <button
+            onClick={handleBatchApprove}
+            disabled={isBatchApproving}
+            className="flex items-center gap-2.5 px-6 py-3.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white rounded-2xl font-black text-sm shadow-xl shadow-emerald-500/25 transition-all hover:scale-[1.02] active:scale-[0.98]"
+          >
+            <Zap size={18} className="animate-pulse" />
+            {isBatchApproving ? "Processing Batch..." : `⚡ Batch Approve Pre-Verified (${preVerifiedCount})`}
+          </button>
+        )}
       </div>
 
       {/* Filter Bar */}
@@ -244,8 +295,8 @@ export default function ReviewQueuePage() {
             className="w-full pl-12 pr-4 py-3 bg-slate-50 border-none rounded-2xl font-bold text-sm text-slate-800 outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all"
           />
         </div>
-        <button 
-          onClick={fetchQueue} 
+        <button
+          onClick={fetchQueue}
           className="flex items-center gap-2 px-5 py-3 bg-slate-50 hover:bg-slate-100 text-slate-600 rounded-2xl font-bold text-sm transition-all border border-slate-200"
         >
           <RefreshCcw size={18} /> Refresh Queue ({filteredQueue.length})
@@ -272,27 +323,26 @@ export default function ReviewQueuePage() {
             const isReturned = senior.registration_status === 'RETURNED';
 
             return (
-              <div 
-                key={senior.id} 
+              <div
+                key={senior.id}
                 className="bg-white rounded-[32px] p-6 shadow-sm border border-slate-100 hover:shadow-md transition-all group flex flex-col justify-between"
               >
                 <div>
                   <div className="flex justify-between items-start mb-4">
                     <div className="w-14 h-14 bg-indigo-50 rounded-2xl flex items-center justify-center text-indigo-600 font-black text-lg overflow-hidden border border-indigo-100">
                       {senior.picture_2x2_file ? (
-                        <img 
-                          src={getCleanFileUrl(senior.picture_2x2_file)} 
-                          alt="Senior" 
-                          className="w-full h-full object-cover" 
+                        <img
+                          src={getCleanFileUrl(senior.picture_2x2_file)}
+                          alt="Senior"
+                          className="w-full h-full object-cover"
                         />
                       ) : (
                         `${senior.first_name[0]}${senior.last_name[0]}`
                       )}
                     </div>
                     <div className="flex flex-col items-end gap-1.5">
-                      <div className={`px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5 ${
-                        isReturned ? 'bg-amber-50 text-amber-600' : 'bg-indigo-50 text-indigo-600'
-                      }`}>
+                      <div className={`px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5 ${isReturned ? 'bg-amber-50 text-amber-600' : 'bg-indigo-50 text-indigo-600'
+                        }`}>
                         <AlertTriangle size={12} /> {senior.registration_status.replace('_', ' ')}
                       </div>
                       {hasDuplicate && (
@@ -302,7 +352,7 @@ export default function ReviewQueuePage() {
                       )}
                     </div>
                   </div>
-                  
+
                   <h3 className="text-lg font-black text-slate-800 truncate">
                     {senior.first_name} {senior.middle_name ? `${senior.middle_name[0]}. ` : ''}{senior.last_name}
                   </h3>
@@ -312,10 +362,15 @@ export default function ReviewQueuePage() {
 
                   {/* Pre-Screening Badges */}
                   <div className="mt-4 flex flex-wrap gap-1.5">
+                    {autoChecks.can_auto_approve || autoChecks.overall_verdict === 'PASS' ? (
+                      <span className="px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider bg-emerald-100 text-emerald-800 border border-emerald-200 flex items-center gap-1">
+                        ⭐ 100% Pre-Verified
+                      </span>
+                    ) : null}
+
                     {faceScore !== undefined ? (
-                      <span className={`px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider flex items-center gap-1 ${
-                        faceScore >= 70 ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' : (faceScore >= 50 ? 'bg-amber-50 text-amber-700 border border-amber-100' : 'bg-rose-50 text-rose-700 border border-rose-100')
-                      }`}>
+                      <span className={`px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider flex items-center gap-1 ${faceScore >= 70 ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' : (faceScore >= 50 ? 'bg-amber-50 text-amber-700 border border-amber-100' : 'bg-rose-50 text-rose-700 border border-rose-100')
+                        }`}>
                         🎯 Face: {faceScore}%
                       </span>
                     ) : (
@@ -324,9 +379,13 @@ export default function ReviewQueuePage() {
                       </span>
                     )}
 
-                    {autoChecks.ocr_psa?.name_found ? (
+                    {autoChecks.psa_check?.status === 'PASS' || autoChecks.ocr_psa?.name_found ? (
                       <span className="px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider bg-emerald-50 text-emerald-700 border border-emerald-100">
-                        ✓ PSA OCR
+                        ✓ PSA: Name & DOB
+                      </span>
+                    ) : autoChecks.psa_check?.status === 'REJECTED' ? (
+                      <span className="px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider bg-rose-50 text-rose-700 border border-rose-100">
+                        ⚠️ Invalid PSA
                       </span>
                     ) : null}
 
@@ -336,7 +395,7 @@ export default function ReviewQueuePage() {
                       </span>
                     ) : null}
                   </div>
-                  
+
                   <div className="mt-4 space-y-2">
                     <div className="flex items-center justify-between text-xs font-bold bg-slate-50 p-2.5 rounded-xl">
                       <span className="text-slate-400">Barangay</span>
@@ -349,7 +408,7 @@ export default function ReviewQueuePage() {
                   </div>
                 </div>
 
-                <button 
+                <button
                   onClick={() => handleOpenReview(senior)}
                   className="mt-6 w-full py-3.5 bg-slate-900 hover:bg-indigo-600 text-white rounded-2xl font-black text-sm transition-all flex items-center justify-center gap-2 shadow-sm"
                 >
@@ -377,11 +436,10 @@ export default function ReviewQueuePage() {
 
             <div className="space-y-3 max-h-[300px] overflow-y-auto pr-1">
               {COMMON_RETURN_REASONS.map((reason) => (
-                <label 
-                  key={reason} 
-                  className={`flex items-start gap-3 p-3.5 rounded-2xl border-2 cursor-pointer transition-all ${
-                    selectedReturnReason === reason ? 'border-amber-500 bg-amber-50/50' : 'border-slate-100 bg-white hover:border-slate-200'
-                  }`}
+                <label
+                  key={reason}
+                  className={`flex items-start gap-3 p-3.5 rounded-2xl border-2 cursor-pointer transition-all ${selectedReturnReason === reason ? 'border-amber-500 bg-amber-50/50' : 'border-slate-100 bg-white hover:border-slate-200'
+                    }`}
                 >
                   <input
                     type="radio"
@@ -398,10 +456,9 @@ export default function ReviewQueuePage() {
                 </label>
               ))}
 
-              <label 
-                className={`flex flex-col gap-3 p-3.5 rounded-2xl border-2 cursor-pointer transition-all ${
-                  selectedReturnReason === 'Others' ? 'border-amber-500 bg-amber-50/50' : 'border-slate-100 bg-white hover:border-slate-200'
-                }`}
+              <label
+                className={`flex flex-col gap-3 p-3.5 rounded-2xl border-2 cursor-pointer transition-all ${selectedReturnReason === 'Others' ? 'border-amber-500 bg-amber-50/50' : 'border-slate-100 bg-white hover:border-slate-200'
+                  }`}
               >
                 <div className="flex items-start gap-3">
                   <input
@@ -473,11 +530,10 @@ export default function ReviewQueuePage() {
 
             <div className="space-y-3 max-h-[300px] overflow-y-auto pr-1">
               {COMMON_REJECTION_REASONS.map((reason) => (
-                <label 
-                  key={reason} 
-                  className={`flex items-start gap-3 p-3.5 rounded-2xl border-2 cursor-pointer transition-all ${
-                    selectedReason === reason ? 'border-rose-500 bg-rose-50' : 'border-slate-100 bg-white hover:border-slate-200'
-                  }`}
+                <label
+                  key={reason}
+                  className={`flex items-start gap-3 p-3.5 rounded-2xl border-2 cursor-pointer transition-all ${selectedReason === reason ? 'border-rose-500 bg-rose-50' : 'border-slate-100 bg-white hover:border-slate-200'
+                    }`}
                 >
                   <input
                     type="radio"
@@ -494,10 +550,9 @@ export default function ReviewQueuePage() {
                 </label>
               ))}
 
-              <label 
-                className={`flex flex-col gap-3 p-3.5 rounded-2xl border-2 cursor-pointer transition-all ${
-                  selectedReason === 'Others' ? 'border-rose-500 bg-rose-50' : 'border-slate-100 bg-white hover:border-slate-200'
-                }`}
+              <label
+                className={`flex flex-col gap-3 p-3.5 rounded-2xl border-2 cursor-pointer transition-all ${selectedReason === 'Others' ? 'border-rose-500 bg-rose-50' : 'border-slate-100 bg-white hover:border-slate-200'
+                  }`}
               >
                 <div className="flex items-start gap-3">
                   <input
@@ -557,7 +612,7 @@ export default function ReviewQueuePage() {
       {selectedSenior && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[150] flex items-center justify-center p-4">
           <div className="bg-white rounded-[36px] w-full max-w-7xl h-[92vh] flex flex-col overflow-hidden shadow-2xl animate-in zoom-in-95 duration-200 border border-slate-100">
-            
+
             {/* Modal Header */}
             <div className="px-8 py-5 border-b border-slate-100 flex justify-between items-center bg-slate-50 shrink-0">
               <div className="flex items-center gap-4">
@@ -577,8 +632,8 @@ export default function ReviewQueuePage() {
               </div>
 
               <div className="flex items-center gap-3">
-                <button 
-                  onClick={handleCloseReview} 
+                <button
+                  onClick={handleCloseReview}
                   className="w-10 h-10 bg-white border border-slate-200 rounded-xl flex items-center justify-center text-slate-400 hover:text-rose-500 hover:border-rose-200 transition-all shadow-sm"
                 >
                   <X size={20} />
@@ -588,10 +643,10 @@ export default function ReviewQueuePage() {
 
             {/* Modal Body: DUAL SPLIT-VIEW */}
             <div className="flex flex-col lg:flex-row flex-grow overflow-hidden">
-              
+
               {/* LEFT COLUMN: Dossier, Photo, Auto-Scorecard, Checklist */}
               <div className="w-full lg:w-5/12 bg-white p-6 lg:p-7 border-r border-slate-100 overflow-y-auto flex flex-col gap-6">
-                
+
                 {/* 1. Side-by-Side Biometric Face Comparison Card (OSCA ID vs 2x2 Photo) */}
                 <div className="bg-gradient-to-br from-indigo-900/5 via-slate-50 to-indigo-50/30 p-5 rounded-3xl border border-indigo-100/80 shadow-sm space-y-4">
                   <div className="flex items-center justify-between">
@@ -601,13 +656,12 @@ export default function ReviewQueuePage() {
                         Biometric Face Inspection & Cross-Match
                       </span>
                     </div>
-                    <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${
-                      (selectedSenior.auto_check_results?.face_match?.similarity_pct || 0) >= 70
+                    <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${(selectedSenior.auto_check_results?.face_match?.similarity_pct || 0) >= 70
                         ? 'bg-emerald-100 text-emerald-800'
                         : ((selectedSenior.auto_check_results?.face_match?.similarity_pct || 0) >= 50
-                            ? 'bg-amber-100 text-amber-800'
-                            : 'bg-rose-100 text-rose-800')
-                    }`}>
+                          ? 'bg-amber-100 text-amber-800'
+                          : 'bg-rose-100 text-rose-800')
+                      }`}>
                       {selectedSenior.auto_check_results?.face_match?.similarity_pct
                         ? `${selectedSenior.auto_check_results.face_match.similarity_pct}% Match`
                         : 'Manual Inspection'}
@@ -620,16 +674,16 @@ export default function ReviewQueuePage() {
                     <div className="col-span-5 flex flex-col items-center gap-1.5 p-2.5 bg-white rounded-2xl border border-slate-200/80 shadow-sm">
                       <div className="relative w-20 h-20 rounded-xl overflow-hidden bg-slate-100 border-2 border-indigo-200 flex items-center justify-center">
                         {selectedSenior.auto_check_results?.osca_face_crop ? (
-                          <img 
-                            src={selectedSenior.auto_check_results.osca_face_crop} 
-                            alt="OSCA ID Face" 
-                            className="w-full h-full object-cover" 
+                          <img
+                            src={selectedSenior.auto_check_results.osca_face_crop}
+                            alt="OSCA ID Face"
+                            className="w-full h-full object-cover"
                           />
                         ) : selectedSenior.primary_id_file ? (
-                          <img 
-                            src={getCleanFileUrl(selectedSenior.primary_id_file)} 
-                            alt="OSCA ID" 
-                            className="w-full h-full object-cover" 
+                          <img
+                            src={getCleanFileUrl(selectedSenior.primary_id_file)}
+                            alt="OSCA ID"
+                            className="w-full h-full object-cover"
                           />
                         ) : (
                           <User size={28} className="text-slate-300" />
@@ -645,13 +699,12 @@ export default function ReviewQueuePage() {
 
                     {/* Center Connector Badge */}
                     <div className="col-span-1 flex flex-col items-center justify-center text-center">
-                      <div className={`w-8 h-8 rounded-full flex items-center justify-center font-black text-xs shadow-sm ${
-                        (selectedSenior.auto_check_results?.face_match?.similarity_pct || 0) >= 70
+                      <div className={`w-8 h-8 rounded-full flex items-center justify-center font-black text-xs shadow-sm ${(selectedSenior.auto_check_results?.face_match?.similarity_pct || 0) >= 70
                           ? 'bg-emerald-500 text-white shadow-emerald-200'
                           : ((selectedSenior.auto_check_results?.face_match?.similarity_pct || 0) >= 50
-                              ? 'bg-amber-500 text-white shadow-amber-200'
-                              : 'bg-rose-500 text-white shadow-rose-200')
-                      }`}>
+                            ? 'bg-amber-500 text-white shadow-amber-200'
+                            : 'bg-rose-500 text-white shadow-rose-200')
+                        }`}>
                         ⇄
                       </div>
                     </div>
@@ -660,16 +713,16 @@ export default function ReviewQueuePage() {
                     <div className="col-span-5 flex flex-col items-center gap-1.5 p-2.5 bg-white rounded-2xl border border-slate-200/80 shadow-sm">
                       <div className="relative w-20 h-20 rounded-xl overflow-hidden bg-slate-100 border-2 border-indigo-200 flex items-center justify-center">
                         {selectedSenior.auto_check_results?.photo_face_crop ? (
-                          <img 
-                            src={selectedSenior.auto_check_results.photo_face_crop} 
-                            alt="2x2 Face" 
-                            className="w-full h-full object-cover" 
+                          <img
+                            src={selectedSenior.auto_check_results.photo_face_crop}
+                            alt="2x2 Face"
+                            className="w-full h-full object-cover"
                           />
                         ) : selectedSenior.picture_2x2_file ? (
-                          <img 
-                            src={getCleanFileUrl(selectedSenior.picture_2x2_file)} 
-                            alt="2x2 Photo" 
-                            className="w-full h-full object-cover" 
+                          <img
+                            src={getCleanFileUrl(selectedSenior.picture_2x2_file)}
+                            alt="2x2 Photo"
+                            className="w-full h-full object-cover"
                           />
                         ) : (
                           <User size={28} className="text-slate-300" />
@@ -688,7 +741,7 @@ export default function ReviewQueuePage() {
                   <div className="p-2.5 bg-white/80 rounded-xl border border-indigo-100 text-[11px] text-slate-600 font-medium flex items-center gap-2">
                     <CheckCircle size={14} className="text-indigo-600 shrink-0" />
                     <span>
-                      {selectedSenior.auto_check_results?.face_match?.message || 
+                      {selectedSenior.auto_check_results?.face_match?.message ||
                         "OpenCV multi-stage cascade detector isolated facial biometrics for side-by-side administrative audit."}
                     </span>
                   </div>
@@ -715,12 +768,39 @@ export default function ReviewQueuePage() {
                           </div>
                         </div>
                       </div>
-                      <span className={`px-2.5 py-1 rounded-xl text-[10px] font-black uppercase tracking-widest ${
-                        selectedSenior.auto_check_results?.ocr_psa?.status === 'PASS' 
-                          ? 'bg-emerald-100 text-emerald-800' 
+                      <span className={`px-2.5 py-1 rounded-xl text-[10px] font-black uppercase tracking-widest ${selectedSenior.auto_check_results?.ocr_psa?.status === 'PASS'
+                          ? 'bg-emerald-100 text-emerald-800'
                           : 'bg-amber-100 text-amber-800'
-                      }`}>
+                        }`}>
                         {selectedSenior.auto_check_results?.ocr_psa?.status === 'PASS' ? 'Passed' : 'Review'}
+                      </span>
+                    </div>
+
+                    {/* PSA QR Code Cross-Check */}
+                    <div className="p-3 bg-slate-50 border border-slate-100 rounded-2xl flex items-center justify-between">
+                      <div className="flex items-center gap-2.5">
+                        <span className="text-base">🔳</span>
+                        <div>
+                          <div className="text-[10px] font-black uppercase tracking-wider text-slate-700">PSA QR Code Verification</div>
+                          <div className="text-[11px] font-medium text-slate-500">
+                            {selectedSenior.auto_check_results?.psa_qr?.message || "No PSA QR scan recorded for this application"}
+                          </div>
+                          {selectedSenior.auto_check_results?.psa_qr?.qr_detected && (
+                            <div className="text-[10px] font-semibold text-slate-400 mt-0.5">
+                              QR: {selectedSenior.auto_check_results.psa_qr.extracted_name || '—'} • {selectedSenior.auto_check_results.psa_qr.extracted_dob || '—'}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      <span className={`px-2.5 py-1 rounded-xl text-[10px] font-black uppercase tracking-widest ${selectedSenior.auto_check_results?.psa_qr?.status === 'PASS'
+                          ? 'bg-emerald-100 text-emerald-800'
+                          : selectedSenior.auto_check_results?.psa_qr?.status === 'FLAGGED'
+                            ? 'bg-rose-100 text-rose-800'
+                            : 'bg-amber-100 text-amber-800'
+                        }`}>
+                        {selectedSenior.auto_check_results?.psa_qr?.status === 'PASS'
+                          ? 'Matched'
+                          : selectedSenior.auto_check_results?.psa_qr?.status === 'FLAGGED' ? 'Mismatch' : 'Review'}
                       </span>
                     </div>
 
@@ -731,17 +811,16 @@ export default function ReviewQueuePage() {
                         <div>
                           <div className="text-[10px] font-black uppercase tracking-wider text-slate-700">SHA-256 Deduplication Check</div>
                           <div className="text-[11px] font-medium text-slate-500">
-                            {selectedSenior.auto_check_results?.duplicate_detected?.length 
-                              ? "Warning: Duplicate document found" 
+                            {selectedSenior.auto_check_results?.duplicate_detected?.length
+                              ? "Warning: Duplicate document found"
                               : "Unique document files verified in registry"}
                           </div>
                         </div>
                       </div>
-                      <span className={`px-2.5 py-1 rounded-xl text-[10px] font-black uppercase tracking-widest ${
-                        selectedSenior.auto_check_results?.duplicate_detected?.length 
-                          ? 'bg-rose-100 text-rose-800' 
+                      <span className={`px-2.5 py-1 rounded-xl text-[10px] font-black uppercase tracking-widest ${selectedSenior.auto_check_results?.duplicate_detected?.length
+                          ? 'bg-rose-100 text-rose-800'
                           : 'bg-emerald-100 text-emerald-800'
-                      }`}>
+                        }`}>
                         {selectedSenior.auto_check_results?.duplicate_detected?.length ? 'Collision' : 'Unique'}
                       </span>
                     </div>
@@ -761,11 +840,11 @@ export default function ReviewQueuePage() {
 
                   <div className="space-y-2 bg-slate-50 p-4 rounded-3xl border border-slate-100">
                     <label className="flex items-center gap-3 cursor-pointer select-none p-1">
-                      <input 
-                        type="checkbox" 
-                        checked={checklist.name_match} 
+                      <input
+                        type="checkbox"
+                        checked={checklist.name_match}
                         onChange={() => toggleChecklist('name_match')}
-                        className="w-4 h-4 accent-indigo-600 rounded cursor-pointer" 
+                        className="w-4 h-4 accent-indigo-600 rounded cursor-pointer"
                       />
                       <span className="text-xs font-bold text-slate-700">
                         Senior Full Name matches form and civil registry
@@ -773,11 +852,11 @@ export default function ReviewQueuePage() {
                     </label>
 
                     <label className="flex items-center gap-3 cursor-pointer select-none p-1">
-                      <input 
-                        type="checkbox" 
-                        checked={checklist.dob_match} 
+                      <input
+                        type="checkbox"
+                        checked={checklist.dob_match}
                         onChange={() => toggleChecklist('dob_match')}
-                        className="w-4 h-4 accent-indigo-600 rounded cursor-pointer" 
+                        className="w-4 h-4 accent-indigo-600 rounded cursor-pointer"
                       />
                       <span className="text-xs font-bold text-slate-700">
                         Birthdate confirms senior is 78+ eligible milestone
@@ -785,11 +864,11 @@ export default function ReviewQueuePage() {
                     </label>
 
                     <label className="flex items-center gap-3 cursor-pointer select-none p-1">
-                      <input 
-                        type="checkbox" 
-                        checked={checklist.photo_match} 
+                      <input
+                        type="checkbox"
+                        checked={checklist.photo_match}
                         onChange={() => toggleChecklist('photo_match')}
-                        className="w-4 h-4 accent-indigo-600 rounded cursor-pointer" 
+                        className="w-4 h-4 accent-indigo-600 rounded cursor-pointer"
                       />
                       <span className="text-xs font-bold text-slate-700">
                         2x2 Photo verified to match OSCA ID Card portrait
@@ -797,11 +876,11 @@ export default function ReviewQueuePage() {
                     </label>
 
                     <label className="flex items-center gap-3 cursor-pointer select-none p-1">
-                      <input 
-                        type="checkbox" 
-                        checked={checklist.document_authentic} 
+                      <input
+                        type="checkbox"
+                        checked={checklist.document_authentic}
                         onChange={() => toggleChecklist('document_authentic')}
-                        className="w-4 h-4 accent-indigo-600 rounded cursor-pointer" 
+                        className="w-4 h-4 accent-indigo-600 rounded cursor-pointer"
                       />
                       <span className="text-xs font-bold text-slate-700">
                         Documents authenticated without signs of alteration
@@ -815,7 +894,7 @@ export default function ReviewQueuePage() {
                   <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400">
                     Administrative Remarks
                   </h3>
-                  <textarea 
+                  <textarea
                     value={remarks}
                     onChange={(e) => setRemarks(e.target.value)}
                     placeholder="Add certification notes, audit remarks, or defect observations..."
@@ -827,31 +906,28 @@ export default function ReviewQueuePage() {
 
               {/* RIGHT COLUMN: High-Resolution Document Viewer */}
               <div className="w-full lg:w-7/12 bg-slate-100 flex flex-col p-6 overflow-hidden">
-                
+
                 {/* Tabs */}
                 <div className="flex gap-2 mb-4 p-1.5 bg-slate-200/70 rounded-2xl w-fit">
-                  <button 
+                  <button
                     onClick={() => setActiveTab('psa')}
-                    className={`px-5 py-2.5 rounded-xl text-xs font-black transition-all ${
-                      activeTab === 'psa' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-600 hover:text-slate-800'
-                    }`}
+                    className={`px-5 py-2.5 rounded-xl text-xs font-black transition-all ${activeTab === 'psa' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-600 hover:text-slate-800'
+                      }`}
                   >
                     PSA Birth Certificate
                   </button>
-                  <button 
+                  <button
                     onClick={() => setActiveTab('osca')}
-                    className={`px-5 py-2.5 rounded-xl text-xs font-black transition-all ${
-                      activeTab === 'osca' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-600 hover:text-slate-800'
-                    }`}
+                    className={`px-5 py-2.5 rounded-xl text-xs font-black transition-all ${activeTab === 'osca' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-600 hover:text-slate-800'
+                      }`}
                   >
                     OSCA ID Card
                   </button>
                   {selectedSenior.annex_a_data?.reps?.length > 0 && selectedSenior.annex_a_data?.reps[0]?.name && (
-                    <button 
+                    <button
                       onClick={() => setActiveTab('rep')}
-                      className={`px-5 py-2.5 rounded-xl text-xs font-black transition-all ${
-                        activeTab === 'rep' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-600 hover:text-slate-800'
-                      }`}
+                      className={`px-5 py-2.5 rounded-xl text-xs font-black transition-all ${activeTab === 'rep' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-600 hover:text-slate-800'
+                        }`}
                     >
                       Proxy / Representative
                     </button>
@@ -899,7 +975,7 @@ export default function ReviewQueuePage() {
                   ) : (() => {
                     const rawUrl = activeTab === 'psa' ? selectedSenior.psa_cert_file : selectedSenior.primary_id_file;
                     const url = getCleanFileUrl(rawUrl);
-                    
+
                     if (!url) {
                       return (
                         <div className="text-slate-400 font-bold flex flex-col items-center gap-3">
@@ -913,15 +989,15 @@ export default function ReviewQueuePage() {
                     if (isImage) {
                       return (
                         <div className="flex flex-col items-center justify-center w-full h-full p-6 gap-2">
-                          <img 
-                            src={url} 
-                            alt="Document Preview" 
-                            className="max-w-full max-h-[88%] object-contain rounded-xl shadow-sm" 
+                          <img
+                            src={url}
+                            alt="Document Preview"
+                            className="max-w-full max-h-[88%] object-contain rounded-xl shadow-sm"
                           />
-                          <a 
-                            href={url} 
-                            target="_blank" 
-                            rel="noreferrer" 
+                          <a
+                            href={url}
+                            target="_blank"
+                            rel="noreferrer"
                             className="text-indigo-600 hover:text-indigo-800 text-xs font-black mt-2 underline"
                           >
                             🔗 Open High-Res Image in New Tab
@@ -956,7 +1032,7 @@ export default function ReviewQueuePage() {
               </div>
 
               <div className="flex items-center gap-3">
-                <button 
+                <button
                   onClick={() => setIsRejectModalOpen(true)}
                   disabled={isSubmitting}
                   className="px-5 py-3 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-2xl font-black text-xs uppercase tracking-wider transition-all flex items-center gap-2 disabled:opacity-50"
@@ -964,7 +1040,7 @@ export default function ReviewQueuePage() {
                   <XCircle size={16} /> Disqualify & Reject
                 </button>
 
-                <button 
+                <button
                   onClick={() => setIsReturnModalOpen(true)}
                   disabled={isSubmitting}
                   className="px-5 py-3 bg-amber-50 hover:bg-amber-100 text-amber-700 rounded-2xl font-black text-xs uppercase tracking-wider transition-all flex items-center gap-2 disabled:opacity-50"
@@ -972,14 +1048,13 @@ export default function ReviewQueuePage() {
                   <RotateCcw size={16} /> Return for Correction
                 </button>
 
-                <button 
+                <button
                   onClick={() => submitReview('APPROVE')}
                   disabled={isSubmitting || !isChecklistComplete}
-                  className={`px-8 py-3 rounded-2xl font-black text-xs uppercase tracking-widest transition-all flex items-center gap-2 shadow-lg ${
-                    !isChecklistComplete 
+                  className={`px-8 py-3 rounded-2xl font-black text-xs uppercase tracking-widest transition-all flex items-center gap-2 shadow-lg ${!isChecklistComplete
                       ? 'bg-slate-200 text-slate-400 shadow-none cursor-not-allowed'
                       : 'bg-emerald-500 hover:bg-emerald-600 text-white shadow-emerald-500/30'
-                  }`}
+                    }`}
                 >
                   <CheckCircle size={16} /> {isSubmitting ? 'Approving...' : 'Approve & Register'}
                 </button>
