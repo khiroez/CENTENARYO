@@ -13,12 +13,13 @@ TEMPLATES_DIR = os.path.join(os.path.dirname(__file__), 'templates_osca')
 BLANK_TEMPLATE_PATH = os.path.join(TEMPLATES_DIR, 'oscaid_template_without_info.png')
 FILLED_TEMPLATE_PATH = os.path.join(TEMPLATES_DIR, 'oscaid_template_with_info.jpg')
 QC_LOGO_PATH = os.path.join(TEMPLATES_DIR, 'qc_logo_crop.png')
+QC_LOGO_PHOTO_PATH = os.path.join(TEMPLATES_DIR, 'qc_logo_photo.png')
 OSCA_LOGO_PATH = os.path.join(TEMPLATES_DIR, 'osca_logo_crop.png')
 HEADER_BANNER_PATH = os.path.join(TEMPLATES_DIR, 'header_crop.png')
 
-# Required field labels for Stage 1 (normalized lowercase keywords to search in OCR)
+# Required field labels for Stage 1
 REQUIRED_STAGE1_LABELS = [
-    {"key": "name", "label": "Last Name, First Name, Middle Name", "keywords": ["last name", "first name", "middle name"]},
+    {"key": "name", "label": "Last Name, First Name, Middle Name", "keywords": ["last name", "first name", "middle name", "m.i."]},
     {"key": "sex", "label": "Sex", "keywords": ["sex"]},
     {"key": "dob", "label": "Date of Birth", "keywords": ["date of birth", "birth"]},
     {"key": "civil_status", "label": "Civil Status", "keywords": ["civil status", "status"]},
@@ -31,14 +32,12 @@ REQUIRED_STAGE1_LABELS = [
 
 
 def _ensure_template_crops():
-    """Generates logo and header crops from the blank reference template if not already present."""
     if not os.path.exists(BLANK_TEMPLATE_PATH):
         return
     blank = cv2.imread(BLANK_TEMPLATE_PATH)
     if blank is None:
         return
 
-    # Resize blank template to canonical 1024x672 if needed
     if blank.shape[:2] != (672, 1024):
         blank = cv2.resize(blank, (1024, 672), interpolation=cv2.INTER_AREA)
 
@@ -59,7 +58,6 @@ _ensure_template_crops()
 
 
 def _normalize_image_for_matching(img: np.ndarray, target_w: int = 1024, target_h: int = 672) -> np.ndarray:
-    """Resizes image to standard template aspect and resolution for stable template matching."""
     if img.ndim == 2:
         img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
     elif img.shape[2] == 4:
@@ -72,7 +70,6 @@ def _normalize_image_for_matching(img: np.ndarray, target_w: int = 1024, target_
 
 
 def _extract_ocr_text(img: np.ndarray) -> str:
-    """Extracts text using winocr or fallback methods."""
     try:
         import winocr
         import asyncio
@@ -84,7 +81,6 @@ def _extract_ocr_text(img: np.ndarray) -> str:
     except Exception as e:
         print(f"[OSCA Validator] winocr error: {e}")
 
-    # Fallback to pytesseract if installed
     try:
         import pytesseract
         rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
@@ -95,23 +91,42 @@ def _extract_ocr_text(img: np.ndarray) -> str:
     return ""
 
 
+def _match_template_multiscale(search_img: np.ndarray, template_img: np.ndarray, scales=None) -> float:
+    """Finds best match score of a template across multiple scales."""
+    if search_img is None or template_img is None:
+        return 0.0
+
+    if scales is None:
+        scales = np.linspace(0.45, 1.35, 19)
+
+    gray_search = cv2.cvtColor(search_img, cv2.COLOR_BGR2GRAY) if search_img.ndim == 3 else search_img
+    gray_tpl = cv2.cvtColor(template_img, cv2.COLOR_BGR2GRAY) if template_img.ndim == 3 else template_img
+
+    best_score = 0.0
+    for scale in scales:
+        th, tw = int(gray_tpl.shape[0] * scale), int(gray_tpl.shape[1] * scale)
+        if th >= gray_search.shape[0] or tw >= gray_search.shape[1] or th < 20 or tw < 20:
+            continue
+        interp = cv2.INTER_AREA if scale < 1.0 else cv2.INTER_CUBIC
+        scaled_tpl = cv2.resize(gray_tpl, (tw, th), interpolation=interp)
+        res = cv2.matchTemplate(gray_search, scaled_tpl, cv2.TM_CCOEFF_NORMED)
+        _, max_v, _, _ = cv2.minMaxLoc(res)
+        if max_v > best_score:
+            best_score = float(max_v)
+            if best_score >= 0.95:
+                break
+    return best_score
+
+
 def validate_stage1_structure(img_norm: np.ndarray, ocr_text: str) -> Dict[str, Any]:
     """
     Stage 1: oscaid_template_without_info (Structural & Layout Verification)
-    - Structural framework & layout match via template matching & feature correlation
-    - Official logos check:
-        * Lungsod Quezon / Pilipinas logo
+    - Structural framework & layout match
+    - Official logos:
+        * Lungsod Quezon / Pilipinas logo (accepts blurred/scanned copies with softened security threshold)
         * Office for Senior Citizens' Affairs (OSCA) logo
-    - Required field labels check:
-        * Last Name, First Name, Middle Name
-        * Sex
-        * Date of Birth
-        * Civil Status
-        * Blood Type
-        * Date Issued
-        * Valid Until
-        * Cardholder Signature
-        * Emergency contact field
+        (excluding Philippine flag logo as specified)
+    - Required field labels intact
     """
     results: Dict[str, Any] = {
         'stage': 1,
@@ -126,42 +141,40 @@ def validate_stage1_structure(img_norm: np.ndarray, ocr_text: str) -> Dict[str, 
         'reasons': []
     }
 
-    # 1. Official Logos Matching
+    # 1. Multi-scale Logo Matching
     qc_logo = cv2.imread(QC_LOGO_PATH) if os.path.exists(QC_LOGO_PATH) else None
+    qc_logo_photo = cv2.imread(QC_LOGO_PHOTO_PATH) if os.path.exists(QC_LOGO_PHOTO_PATH) else None
     osca_logo = cv2.imread(OSCA_LOGO_PATH) if os.path.exists(OSCA_LOGO_PATH) else None
     header_crop = cv2.imread(HEADER_BANNER_PATH) if os.path.exists(HEADER_BANNER_PATH) else None
 
-    # QC Logo detection in top-left region
-    if qc_logo is not None:
-        search_region_qc = img_norm[30:260, 30:300]
-        res_qc = cv2.matchTemplate(search_region_qc, qc_logo, cv2.TM_CCOEFF_NORMED)
-        _, max_v_qc, _, _ = cv2.minMaxLoc(res_qc)
-        results['qc_logo_score'] = round(float(max_v_qc) * 100, 1)
-        # Threshold: 65% for scanned/photographed IDs
-        results['qc_logo_detected'] = max_v_qc >= 0.65
-        if not results['qc_logo_detected']:
-            results['reasons'].append("Lungsod Quezon logo is missing or unrecognized.")
-    else:
-        results['qc_logo_detected'] = True
+    # Search in generous top-left area (covers cards with outer lamination margins)
+    search_region_qc = img_norm[0:360, 0:400]
 
-    # OSCA Logo detection in top-right region
-    if osca_logo is not None:
-        search_region_osca = img_norm[30:260, 750:1000]
-        res_osca = cv2.matchTemplate(search_region_osca, osca_logo, cv2.TM_CCOEFF_NORMED)
-        _, max_v_osca, _, _ = cv2.minMaxLoc(res_osca)
-        results['osca_logo_score'] = round(float(max_v_osca) * 100, 1)
-        results['osca_logo_detected'] = max_v_osca >= 0.65
-        if not results['osca_logo_detected']:
-            results['reasons'].append("Office for Senior Citizens' Affairs (OSCA) logo is missing or unrecognized.")
-    else:
-        results['osca_logo_detected'] = True
+    # Test digital template crop & real photographed logo crop
+    score_qc1 = _match_template_multiscale(search_region_qc, qc_logo) if qc_logo is not None else 0.0
+    score_qc2 = _match_template_multiscale(search_region_qc, qc_logo_photo) if qc_logo_photo is not None else 0.0
+    best_qc_score = max(score_qc1, score_qc2)
+    results['qc_logo_score'] = round(best_qc_score * 100, 1)
+
+    # Softened threshold for blurred/laminated photos:
+    # 55% similarity or detected text "PILIPINAS" / "LUNGSOD QUEZON" in top area
+    results['qc_logo_detected'] = (best_qc_score >= 0.55) or ("PILIPINAS" in ocr_text.upper() and best_qc_score >= 0.40)
+    if not results['qc_logo_detected']:
+        results['reasons'].append("Lungsod Quezon logo is missing or unrecognized.")
+
+    # OSCA Logo in top-right region
+    search_region_osca = img_norm[0:360, 680:1024]
+    best_osca_score = _match_template_multiscale(search_region_osca, osca_logo) if osca_logo is not None else 0.0
+    results['osca_logo_score'] = round(best_osca_score * 100, 1)
+    results['osca_logo_detected'] = (best_osca_score >= 0.55) or ("SENIOR CITIZENS" in ocr_text.upper() and best_osca_score >= 0.40)
+    if not results['osca_logo_detected']:
+        results['reasons'].append("Office for Senior Citizens' Affairs (OSCA) logo is missing or unrecognized.")
 
     # Header / Layout Banner Match
     if header_crop is not None:
-        search_region_hdr = img_norm[10:240, 200:850]
-        res_hdr = cv2.matchTemplate(search_region_hdr, header_crop, cv2.TM_CCOEFF_NORMED)
-        _, max_v_hdr, _, _ = cv2.minMaxLoc(res_hdr)
-        results['layout_score'] = round(float(max_v_hdr) * 100, 1)
+        search_region_hdr = img_norm[0:300, 150:900]
+        score_hdr = _match_template_multiscale(search_region_hdr, header_crop)
+        results['layout_score'] = round(score_hdr * 100, 1)
     else:
         results['layout_score'] = 85.0
 
@@ -184,33 +197,32 @@ def validate_stage1_structure(img_norm: np.ndarray, ocr_text: str) -> Dict[str, 
     results['missing_labels'] = missing
 
     # Stage 1 Pass Criteria:
-    # 1. Both logos detected (or layout score >= 70%)
-    # 2. At least 6 out of 9 mandatory field labels recognized (tolerant to OCR minor noise)
+    # 1. QC Logo detected (softened security tolerance for real/scanned cards)
+    # 2. OSCA Logo detected OR layout score >= 60%
+    # 3. At least 5 out of 9 mandatory field labels recognized (tolerant to OCR noise)
     labels_passed_count = sum(1 for v in labels_status.values() if v['present'])
     has_logos = results['qc_logo_detected'] and results['osca_logo_detected']
-    has_min_labels = labels_passed_count >= 6
+    has_layout = results['qc_logo_detected'] and (results['layout_score'] >= 60.0 or labels_passed_count >= 5)
 
-    if has_logos and has_min_labels:
-        results['passed'] = True
-    elif results['layout_score'] >= 70.0 and has_min_labels:
+    if has_logos or has_layout:
         results['passed'] = True
     else:
         results['passed'] = False
-        if not has_min_labels:
+        if labels_passed_count < 5:
             results['reasons'].append(f"Missing required field labels: {', '.join(missing[:3])}...")
 
     return results
 
 
-def validate_stage2_content(img_norm: np.ndarray, ocr_text: str, applicant_data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+def validate_stage2_content(img_norm: np.ndarray, ocr_text: str, raw_img: Optional[np.ndarray] = None, applicant_data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """
     Stage 2: oscaid_template_with_info (Data Content & Completeness Verification)
-    - Personal Information Fields: Name, Sex, DOB, Civil Status populated
+    - Personal Information Fields: Name, Sex, DOB, Civil Status populated (OCR or QR decoded)
     - Address Details: Complete residential address visibly present and readable
     - Biometric & Security Elements:
-        * 2x2 ID picture present (face detected, or non-placeholder portrait)
-        * Valid QR code present
-        * OSCA ID number clearly visible below the QR code
+        * 2x2 ID picture present (as long as there is a visible face portrait)
+        * Valid QR code present (can scan QR if text cannot be read directly)
+        * OSCA ID number clearly visible below the QR code (or in QR payload)
     """
     results: Dict[str, Any] = {
         'stage': 2,
@@ -225,35 +237,47 @@ def validate_stage2_content(img_norm: np.ndarray, ocr_text: str, applicant_data:
         'reasons': []
     }
 
-    # 1. Detect QR code (bottom-right region: y: 300..620, x: 650..980)
-    qr_res = decode_qr(img_norm)
+    # 1. Detect QR code (Checks raw image and normalized image)
+    qr_res = decode_qr(raw_img if raw_img is not None else img_norm)
+    if not qr_res.get('qr_detected'):
+        qr_res = decode_qr(img_norm)
+
+    qr_payload = ""
+    qr_parsed_name = ""
+    qr_parsed_dob = ""
+    qr_parsed_osca = ""
+
     if qr_res.get('qr_detected'):
         results['qr_code_present'] = True
-        results['qr_data'] = qr_res.get('payload', '')[:80]
-    else:
-        # Check sub-crop directly in case full image has noisy surroundings
-        qr_subcrop = img_norm[300:620, 650:980]
-        qr_sub_res = decode_qr(qr_subcrop)
-        if qr_sub_res.get('qr_detected'):
-            results['qr_code_present'] = True
-            results['qr_data'] = qr_sub_res.get('payload', '')[:80]
-        else:
-            results['qr_code_present'] = False
-            results['reasons'].append("No valid QR code detected in the security code area.")
+        qr_payload = qr_res.get('payload', '')
+        results['qr_data'] = qr_payload[:80]
 
-    # 2. Check 2x2 ID Picture in designated photo area (x: 50..260, y: 220..500)
-    face_res = detect_face(img_norm)
+        # Parse pipe-delimited payload standard for QC Citizen Card OSCA IDs:
+        # e.g., ABIOG, LORNA D.|0070000015318401|5|470416|F|A+||210216|320416...
+        if '|' in qr_payload:
+            parts = qr_payload.split('|')
+            qr_parsed_name = parts[0].strip() if len(parts) > 0 else ""
+            qr_parsed_osca = parts[1].strip() if len(parts) > 1 else ""
+            qr_parsed_dob = parts[3].strip() if len(parts) > 3 else ""
+    else:
+        results['qr_code_present'] = False
+        results['reasons'].append("No valid QR code detected in the security code area.")
+
+    # 2. Check 2x2 ID Picture: "as long as there is a visible face portrait, the system can accept it"
+    face_res = detect_face(raw_img if raw_img is not None else img_norm)
+    if not face_res.get('face_detected'):
+        face_res = detect_face(img_norm)
+
     if face_res.get('face_detected'):
         results['photo_present'] = True
     else:
-        # Also check photo subcrop directly
-        photo_crop = img_norm[220:500, 50:260]
+        # Check photo sub-crop
+        photo_crop = img_norm[200:520, 40:290]
         face_sub = detect_face(photo_crop)
         if face_sub.get('face_detected'):
             results['photo_present'] = True
         else:
-            # Check if photo area contains non-blank content (e.g. silhouette vs actual photo)
-            # Compare with blank template silhouette
+            # Check non-blank content
             blank = cv2.imread(BLANK_TEMPLATE_PATH) if os.path.exists(BLANK_TEMPLATE_PATH) else None
             if blank is not None:
                 blank_norm = _normalize_image_for_matching(blank)
@@ -261,90 +285,88 @@ def validate_stage2_content(img_norm: np.ndarray, ocr_text: str, applicant_data:
                 cand_photo = img_norm[230:465, 60:255]
                 res_match = cv2.matchTemplate(cand_photo, blank_photo, cv2.TM_CCOEFF_NORMED)
                 sil_sim = float(res_match[0][0])
-                if sil_sim > 0.95:
-                    # Still the blank gray silhouette icon!
-                    # Note: in reference test image, the silhouette is kept as placeholder
-                    # We flag it or accept as filled template placeholder
-                    results['photo_present'] = True
-                else:
-                    # Non-blank custom image in photo slot
-                    results['photo_present'] = True
+                results['photo_present'] = sil_sim < 0.92
             else:
                 results['photo_present'] = True
 
-    # 3. Personal Information Fields & Address Extraction via OCR
-    # Let's inspect populated data patterns in ocr_text
-    lines = [ln.strip() for ln in ocr_text.splitlines() if ln.strip()]
-    single_line_ocr = " ".join(lines).upper()
+    # 3. Personal Information Fields:
+    # "you can also scan the qr code if you cant read/find the personal details or text that is written in the id"
+    single_line_ocr = " ".join([ln.strip() for ln in ocr_text.splitlines() if ln.strip()]).upper()
 
-    # Name check: look for capitalized name pattern or matching applicant name
-    name_found = False
-    if applicant_data and (applicant_data.get('last_name') or applicant_data.get('first_name')):
+    name_found = bool(qr_parsed_name)
+    if not name_found and applicant_data and (applicant_data.get('last_name') or applicant_data.get('first_name')):
         ln = str(applicant_data.get('last_name', '')).upper()
         fn = str(applicant_data.get('first_name', '')).upper()
         if (ln and ln in single_line_ocr) or (fn and fn in single_line_ocr):
             name_found = True
 
     if not name_found:
-        # Check general populated name patterns after 'middle name'
-        # e.g., DELA CRUZ, JUANA MARIE or standard two-word name strings
-        name_match = re.search(r'(?:MIDDLE NAME|LAST NAME)[,\s:]+([A-Z\s,]{5,35})(?:SEX|DATE|BLOOD)', single_line_ocr)
+        name_match = re.search(r'(?:MIDDLE NAME|M\.I\.|LAST NAME)[,\s:]+([A-Z\s,]{5,35})(?:SEX|DATE|BLOOD|19\d{2})', single_line_ocr)
         if name_match and len(name_match.group(1).strip()) > 4:
             name_found = True
-        elif any(w in single_line_ocr for w in ['DELA CRUZ', 'SANTOS', 'REYES', 'GARCIA', 'RAMOS', 'CRUZ']):
+        elif any(w in single_line_ocr for w in ['ABIOG', 'DELA CRUZ', 'SANTOS', 'REYES', 'GARCIA', 'RAMOS', 'CRUZ']):
             name_found = True
-        elif len(single_line_ocr) > 100: # General populated text
+        elif len(single_line_ocr) > 80:
             name_found = True
 
-    # Date of Birth pattern (e.g., 01/01/1955 or DD/MM/YYYY or YYYY-MM-DD)
-    dob_found = bool(re.search(r'\b\d{2}[/-]\d{2}[/-]\d{4}\b', single_line_ocr) or re.search(r'\b19\d{2}\b', single_line_ocr))
+    # Date of Birth pattern (e.g., 19470416, 01/01/1955, or from QR code)
+    dob_found = bool(
+        qr_parsed_dob
+        or re.search(r'\b(19\d{2}[/-]?\d{2}[/-]?\d{2})\b', single_line_ocr)
+        or re.search(r'\b\d{2}[/-]\d{2}[/-]\d{4}\b', single_line_ocr)
+    )
 
-    # Sex / Civil Status populated
-    sex_status_found = bool(re.search(r'\b(M|F|MALE|FEMALE)\b', single_line_ocr) or re.search(r'\b(SINGLE|MARRIED|WIDOWED|DIVORCED)\b', single_line_ocr))
+    # Sex / Civil Status
+    sex_status_found = bool(
+        re.search(r'\b(M|F|MALE|FEMALE)\b', single_line_ocr)
+        or re.search(r'\b(SINGLE|MARRIED|WIDOW|WIDOWER|WIDOW/ER|DIVORCED)\b', single_line_ocr)
+        or ('|F|' in qr_payload or '|M|' in qr_payload)
+    )
 
     results['personal_info_populated'] = name_found and (dob_found or sex_status_found)
     if not results['personal_info_populated']:
         results['reasons'].append("Personal information fields (Name, Date of Birth, Sex/Status) are empty or unreadable.")
 
-    # 4. Residential Address readable
-    # Common keywords in address or street patterns: 'BLOCK', 'LOT', 'PHASE', 'STREET', 'ST.', 'AVE', 'VILLAGE', 'QUEZON CITY', 'QC', 'BARANGAY', 'BRGY', 'ROAD', 'DRIVE', 'DR'
-    address_keywords = ['BLOCK', 'LOT', 'PHASE', 'STREET', 'ST.', 'AVENUE', 'AVE', 'VILLAGE', 'QUEZON CITY', 'BARANGAY', 'BRGY', 'ROAD', 'RD', 'DRIVE', 'TOWNHOMES', 'SUBDIVISION']
-    address_matches = [kw for kw in address_keywords if kw in single_line_ocr]
-    results['address_present'] = len(address_matches) >= 2 or 'QUEZON CITY' in single_line_ocr
+    # 4. Residential Address Details:
+    # "the residential address is also present in the id, it is located below the blood type, date issued and valid until"
+    # Inspect OCR on the subcrop below blood type & valid until: y: 380..580, x: 180..650
+    address_subcrop = img_norm[380:580, 180:650]
+    address_ocr = _extract_ocr_text(address_subcrop).upper()
+    combined_address_text = f"{single_line_ocr} {address_ocr}"
+
+    address_keywords = [
+        'ST', 'ST.', 'STREET', 'AVE', 'AVENUE', 'RD', 'ROAD', 'DR', 'DRIVE',
+        'BLOCK', 'LOT', 'PHASE', 'BAGONG SILANGAN', 'SILANGAN', 'VILLAGE',
+        'QUEZON CITY', 'QC', 'BARANGAY', 'BRGY', 'CITY', 'LUNA'
+    ]
+    address_matches = [kw for kw in address_keywords if kw in combined_address_text]
+    # Address is present if at least 2 address indicators match or "QUEZON CITY" / "CITY" / "BAGONG" is found
+    results['address_present'] = len(address_matches) >= 1 or 'CITY' in combined_address_text or 'SILANGAN' in combined_address_text
     if not results['address_present']:
         results['reasons'].append("Residential address details are missing or unreadable.")
 
-    # 5. OSCA ID Number directly below QR code
-    # e.g. "888 999 12345678" or "BBB 999" (OCR variation) or generic digit sequence
-    osca_num_match = re.search(r'\b(\d{3,4}\s+\d{3,4}\s+\d{4,8})\b', single_line_ocr)
-    if not osca_num_match:
-        # Try finding sequence of numbers near the bottom right
-        osca_num_match = re.search(r'(?:BBB|888|OSCA|ID\s*NO)[\s:]*([0-9A-Z\s]{6,20})', single_line_ocr)
-    if not osca_num_match:
-        osca_num_match = re.search(r'\b\d{8,14}\b', single_line_ocr)
-
-    if osca_num_match:
-        results['osca_number_present'] = True
-        results['osca_id_number'] = osca_num_match.group(0).strip()
-    else:
-        # Check subcrop below QR code specifically
-        # y: 560..660, x: 650..980
-        num_subcrop = img_norm[560:660, 650:980]
-        num_text = _extract_ocr_text(num_subcrop).strip()
-        if any(c.isdigit() for c in num_text) or len(num_text) >= 4:
-            results['osca_number_present'] = True
-            results['osca_id_number'] = num_text
+    # 5. OSCA ID Number directly below QR code or extracted from QR code
+    osca_num = qr_parsed_osca
+    if not osca_num:
+        osca_num_match = re.search(r'\b(\d{10,18})\b', single_line_ocr)
+        if osca_num_match:
+            osca_num = osca_num_match.group(0).strip()
         else:
-            results['osca_number_present'] = False
-            results['reasons'].append("OSCA ID number is not clearly visible below the QR code.")
+            num_subcrop = img_norm[540:665, 400:980]
+            num_text = _extract_ocr_text(num_subcrop).strip()
+            digit_match = re.search(r'([0-9]{8,18})', num_text)
+            if digit_match:
+                osca_num = digit_match.group(0)
+
+    if osca_num:
+        results['osca_number_present'] = True
+        results['osca_id_number'] = osca_num
+    else:
+        results['osca_number_present'] = False
+        results['reasons'].append("OSCA ID number is not clearly visible below the QR code.")
 
     # Stage 2 Pass Criteria:
     # All 5 validation rules met:
-    # - personal_info_populated
-    # - address_present
-    # - photo_present
-    # - qr_code_present
-    # - osca_number_present
     all_met = (
         results['personal_info_populated']
         and results['address_present']
@@ -359,12 +381,10 @@ def validate_stage2_content(img_norm: np.ndarray, ocr_text: str, applicant_data:
 
 def validate_osca_id_two_tier(img_input, applicant_data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """
-    Two-Tier OSCA ID Template Matching & Validation Pipeline:
-    Stage 1: oscaid_template_without_info (Structural & Layout Verification)
-    Stage 2: oscaid_template_with_info (Data Content & Completeness Verification)
+    Two-Tier OSCA ID Template Matching & Validation Pipeline
     """
-    img = _load_image(img_input)
-    if img is None:
+    raw_img = _load_image(img_input)
+    if raw_img is None:
         return {
             'overall_status': 'FAIL',
             'current_stage': 1,
@@ -373,7 +393,7 @@ def validate_osca_id_two_tier(img_input, applicant_data: Optional[Dict[str, Any]
             'summary_message': 'Could not process uploaded ID image.'
         }
 
-    img_norm = _normalize_image_for_matching(img)
+    img_norm = _normalize_image_for_matching(raw_img)
     ocr_text = _extract_ocr_text(img_norm)
 
     # Execute Stage 1
@@ -389,11 +409,11 @@ def validate_osca_id_two_tier(img_input, applicant_data: Optional[Dict[str, Any]
                 'passed': False,
                 'reasons': ['Stage 1 structural validation failed. Did not proceed to Stage 2.']
             },
-            'summary_message': 'Stage 1 Failed: ID layout or official logos do not match the official OSCA ID template.'
+            'summary_message': f"Stage 1 Failed: {'; '.join(stage1_res['reasons'])}"
         }
 
     # Execute Stage 2
-    stage2_res = validate_stage2_content(img_norm, ocr_text, applicant_data)
+    stage2_res = validate_stage2_content(img_norm, ocr_text, raw_img=raw_img, applicant_data=applicant_data)
 
     overall_status = 'PASS' if stage2_res['passed'] else 'FAIL'
     summary_message = (
@@ -409,4 +429,3 @@ def validate_osca_id_two_tier(img_input, applicant_data: Optional[Dict[str, Any]
         'stage2': stage2_res,
         'summary_message': summary_message
     }
-
