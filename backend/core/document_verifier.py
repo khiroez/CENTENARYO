@@ -175,12 +175,13 @@ def _extract_text_and_image_from_file(file_input) -> Tuple[str, Optional[Image.I
         except Exception as e:
             print(f"[DocVerifier] Image load error: {e}")
 
-    # 3. If image was rendered or loaded and Windows OCR is available, run WinOCR
+    # 3. If image was rendered or loaded and Windows OCR is available, run thread-safe WinOCR
     if pil_image is not None and HAS_WINOCR:
         try:
-            ocr_res = asyncio.run(winocr.recognize_pil(pil_image, lang='en-US'))
-            if ocr_res and hasattr(ocr_res, 'text') and ocr_res.text:
-                extracted_text += " " + ocr_res.text
+            from .osca_validator import safe_winocr_recognize_pil
+            ocr_text = safe_winocr_recognize_pil(pil_image)
+            if ocr_text:
+                extracted_text += " " + ocr_text
         except Exception as e:
             print(f"[DocVerifier] WinOCR error: {e}")
 
