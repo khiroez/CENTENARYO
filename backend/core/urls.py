@@ -25,6 +25,7 @@ urlpatterns = [
     path('verify-face/', views.verify_face, name='verify-face'),
     path('compare-faces/', views.compare_faces, name='compare-faces'),
     path('scan-psa-qr/', views.scan_psa_qr, name='scan-psa-qr'),
+    path('validate-osca-id/', views.validate_osca_id_view, name='validate-osca-id'),
     path('budget-forecast/', views.budget_forecast, name='budget-forecast'),
     path('', include(router.urls)),
 ]

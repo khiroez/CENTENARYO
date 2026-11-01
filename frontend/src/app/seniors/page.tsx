@@ -102,6 +102,33 @@ export default function SeniorRegistryPage() {
       isBinarySeal?: boolean;
       bytesLen?: number;
     };
+    oscaValidation?: {
+      overall_status: 'PASS' | 'FAIL';
+      current_stage: number;
+      summary_message: string;
+      stage1: {
+        passed: boolean;
+        layout_score: number;
+        qc_logo_detected: boolean;
+        qc_logo_score: number;
+        osca_logo_detected: boolean;
+        osca_logo_score: number;
+        labels_check: Record<string, { label: string; present: boolean }>;
+        missing_labels: string[];
+        reasons: string[];
+      };
+      stage2: {
+        passed: boolean;
+        personal_info_populated: boolean;
+        address_present: boolean;
+        photo_present: boolean;
+        qr_code_present: boolean;
+        qr_data?: string | null;
+        osca_number_present: boolean;
+        osca_id_number?: string | null;
+        reasons: string[];
+      };
+    };
   }
   const [verificationState, setVerificationState] = useState<VerificationState | null>(null);
   const faceDescriptorsRef = useRef<{ photo2x2: Float32Array | number[] | null; oscaId: Float32Array | number[] | null }>({
@@ -1199,6 +1226,7 @@ export default function SeniorRegistryPage() {
         let faceConfidence: number | undefined = undefined;
         let detectedFaceCropUrl: string | undefined = undefined;
         let psaQrResult: VerificationState['psaQr'] = undefined;
+        let oscaValidationRes: VerificationState['oscaValidation'] = undefined;
 
         // 1. PSA QR Code
         if (field === 'psa_cert_file') {
@@ -1293,6 +1321,7 @@ export default function SeniorRegistryPage() {
           detectedType = 'OSCA ID Card';
           let oscaCanvasOrImg: HTMLCanvasElement | HTMLImageElement | null = null;
 
+
           if (isPdf) {
             try {
               const { numPages, canvas, text } = await parsePdfPageAndText(buffer);
@@ -1303,13 +1332,6 @@ export default function SeniorRegistryPage() {
                 previewUrl = canvas.toDataURL('image/jpeg', 0.88);
                 imageDimensions = `${canvas.width} × ${canvas.height} px (Page 1)`;
                 oscaCanvasOrImg = canvas;
-                const oscaSerial = formData.osca_id_serial?.trim();
-                const textFound = oscaSerial ? text.includes(oscaSerial) : true;
-                setAutoCheckResults((prev: any) => ({
-                  ...prev,
-                  osca_hash: fileHash,
-                  ocr_osca: { status: 'PASS', serial_match: textFound }
-                }));
               }
             } catch (err) {
               console.error("OSCA PDF error:", err);
@@ -1324,11 +1346,6 @@ export default function SeniorRegistryPage() {
               await new Promise(r => { img.onload = r; img.onerror = r; });
               imageDimensions = `${img.naturalWidth || img.width} × ${img.naturalHeight || img.height} px`;
               oscaCanvasOrImg = img;
-              setAutoCheckResults((prev: any) => ({
-                ...prev,
-                osca_hash: fileHash,
-                ocr_osca: { status: 'PASS' }
-              }));
             } catch (err) {
               console.error("OSCA Image error:", err);
               finalStatus = 'FAIL';
@@ -1339,8 +1356,52 @@ export default function SeniorRegistryPage() {
             errorMessage = 'Rejected: Must be a PDF or Image (JPG/PNG).';
           }
 
-          // Extract face from OSCA ID if valid
+          // Two-Tier OSCA ID Validation (Stage 1: Structural & Stage 2: Data Content)
           if (finalStatus === 'PASS' && oscaCanvasOrImg) {
+            try {
+              let imgBase64: string | undefined = undefined;
+              if (oscaCanvasOrImg instanceof HTMLCanvasElement) {
+                imgBase64 = oscaCanvasOrImg.toDataURL('image/jpeg', 0.9);
+              } else {
+                const c = document.createElement('canvas');
+                c.width = oscaCanvasOrImg.naturalWidth || oscaCanvasOrImg.width;
+                c.height = oscaCanvasOrImg.naturalHeight || oscaCanvasOrImg.height;
+                const ctx = c.getContext('2d');
+                if (ctx) {
+                  ctx.drawImage(oscaCanvasOrImg, 0, 0);
+                  imgBase64 = c.toDataURL('image/jpeg', 0.9);
+                }
+              }
+
+              const oscaFormData = new FormData();
+              if (imgBase64) {
+                oscaFormData.append('image_base64', imgBase64);
+              } else {
+                oscaFormData.append('file', file);
+              }
+              oscaFormData.append('first_name', formData.given_name || '');
+              oscaFormData.append('last_name', formData.last_name || '');
+              oscaFormData.append('middle_name', formData.middle_name || '');
+              oscaFormData.append('date_of_birth', formData.date_of_birth || '');
+              oscaFormData.append('osca_id', formData.osca_id_serial || '');
+
+              const valRes = await authFetch('/api/validate-osca-id/', {
+                method: 'POST',
+                body: oscaFormData,
+              });
+
+              if (valRes.ok) {
+                oscaValidationRes = await valRes.json();
+                if (oscaValidationRes && oscaValidationRes.overall_status !== 'PASS') {
+                  finalStatus = 'FAIL';
+                  errorMessage = oscaValidationRes.summary_message || 'OSCA ID verification failed.';
+                }
+              }
+            } catch (vErr) {
+              console.warn("Server-side OSCA validation notice:", vErr);
+            }
+
+            // Extract face from OSCA ID
             const faceDetails = await extractFaceDetails(oscaCanvasOrImg, file);
             if (faceDetails) {
               faceDetected = true;
@@ -1354,6 +1415,9 @@ export default function SeniorRegistryPage() {
                 matchNote = `Face portrait isolated (${faceDetails.confidence}% confidence). Biometric match with 2x2 photo: ${comp.similarity}%.`;
                 setAutoCheckResults((prev: any) => ({
                   ...prev,
+                  osca_hash: fileHash,
+                  osca_validation: oscaValidationRes,
+                  ocr_osca: { status: oscaValidationRes?.overall_status || 'PASS' },
                   face_match: {
                     status: comp.isMatch ? 'PASS' : (comp.similarity >= 50 ? 'NEEDS_REVIEW' : 'FLAGGED'),
                     similarity_pct: comp.similarity,
@@ -1362,13 +1426,22 @@ export default function SeniorRegistryPage() {
                   }
                 }));
               } else {
-                matchNote = `Face portrait isolated from OSCA ID (${faceDetails.confidence}% confidence). Upload 2x2 photo for automated comparison.`;
+                matchNote = oscaValidationRes?.summary_message || `Face portrait isolated from OSCA ID (${faceDetails.confidence}% confidence). Upload 2x2 photo for automated comparison.`;
+                setAutoCheckResults((prev: any) => ({
+                  ...prev,
+                  osca_hash: fileHash,
+                  osca_validation: oscaValidationRes,
+                  ocr_osca: { status: oscaValidationRes?.overall_status || 'PASS' }
+                }));
               }
             } else {
               faceDetected = false;
-              matchNote = 'OSCA ID uploaded. Face landmark not clearly detected; flagged for manual comparison.';
+              matchNote = oscaValidationRes?.summary_message || 'OSCA ID uploaded. Face landmark not clearly detected; flagged for manual comparison.';
               setAutoCheckResults((prev: any) => ({
                 ...prev,
+                osca_hash: fileHash,
+                osca_validation: oscaValidationRes,
+                ocr_osca: { status: oscaValidationRes?.overall_status || 'PASS' },
                 face_match: {
                   status: 'NEEDS_REVIEW',
                   message: 'OSCA ID face requires manual admin review.'
@@ -1455,7 +1528,8 @@ export default function SeniorRegistryPage() {
           detectedFaceCropUrl,
           fileSizeStr: fileSizeStr || prev.fileSizeStr,
           imageDimensions,
-          psaQr: psaQrResult
+          psaQr: psaQrResult,
+          oscaValidation: oscaValidationRes
         } : null);
       };
 
@@ -2670,6 +2744,131 @@ export default function SeniorRegistryPage() {
                           <p className="text-[10px] text-slate-500 font-medium">
                             Comparing 68-point facial descriptor against 2x2 portrait photo.
                           </p>
+                        </div>
+                      )}
+
+                                            {/* Two-Tier OSCA ID Validation Card */}
+                      {verificationState.fieldName === 'primary_id_file' && verificationState.oscaValidation && (
+                        <div className="space-y-3">
+                          <h5 className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                            Two-Tier OSCA ID Validation
+                          </h5>
+
+                          {/* Stage 1: Structural & Layout Verification */}
+                          <div className={`p-4 rounded-2xl border transition-all ${
+                            verificationState.oscaValidation.stage1.passed
+                              ? 'bg-emerald-50/70 border-emerald-200'
+                              : 'bg-rose-50/70 border-rose-200'
+                          }`}>
+                            <div className="flex items-center justify-between pb-2 mb-2 border-b border-slate-200/50">
+                              <div className="flex items-center gap-2">
+                                <span className={`px-2 py-0.5 rounded-lg text-[9px] font-black uppercase tracking-wider ${
+                                  verificationState.oscaValidation.stage1.passed ? 'bg-emerald-600 text-white' : 'bg-rose-600 text-white'
+                                }`}>
+                                  Stage 1
+                                </span>
+                                <span className="font-black text-xs text-slate-800">
+                                  Structural &amp; Layout Verification
+                                </span>
+                              </div>
+                              <span className={`text-[10px] font-black uppercase flex items-center gap-1 ${
+                                verificationState.oscaValidation.stage1.passed ? 'text-emerald-700' : 'text-rose-700'
+                              }`}>
+                                {verificationState.oscaValidation.stage1.passed ? <CheckCircle2 size={13} /> : <X size={13} />}
+                                {verificationState.oscaValidation.stage1.passed ? 'PASSED' : 'FAILED'}
+                              </span>
+                            </div>
+
+                            <div className="space-y-1.5 text-[11px]">
+                              <div className="flex items-center justify-between">
+                                <span className="text-slate-600">QC / Pilipinas Logo:</span>
+                                <span className={`font-bold ${verificationState.oscaValidation.stage1.qc_logo_detected ? 'text-emerald-600' : 'text-rose-600'}`}>
+                                  {verificationState.oscaValidation.stage1.qc_logo_detected ? `Detected (${verificationState.oscaValidation.stage1.qc_logo_score}%)` : 'Missing'}
+                                </span>
+                              </div>
+                              <div className="flex items-center justify-between">
+                                <span className="text-slate-600">OSCA Official Seal:</span>
+                                <span className={`font-bold ${verificationState.oscaValidation.stage1.osca_logo_detected ? 'text-emerald-600' : 'text-rose-600'}`}>
+                                  {verificationState.oscaValidation.stage1.osca_logo_detected ? `Detected (${verificationState.oscaValidation.stage1.osca_logo_score}%)` : 'Missing'}
+                                </span>
+                              </div>
+                              <div className="flex items-center justify-between">
+                                <span className="text-slate-600">Card Header Layout Score:</span>
+                                <span className="font-bold text-slate-800">
+                                  {verificationState.oscaValidation.stage1.layout_score}%
+                                </span>
+                              </div>
+                              <div className="flex items-center justify-between">
+                                <span className="text-slate-600">Required Field Labels:</span>
+                                <span className={`font-bold ${
+                                  verificationState.oscaValidation.stage1.missing_labels.length === 0 ? 'text-emerald-600' : 'text-amber-600'
+                                }`}>
+                                  {verificationState.oscaValidation.stage1.missing_labels.length === 0
+                                    ? 'All 9 Labels Intact'
+                                    : `${9 - verificationState.oscaValidation.stage1.missing_labels.length}/9 Verified`}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Stage 2: Data Content & Completeness Verification */}
+                          <div className={`p-4 rounded-2xl border transition-all ${
+                            verificationState.oscaValidation.stage2.passed
+                              ? 'bg-emerald-50/70 border-emerald-200'
+                              : (verificationState.oscaValidation.current_stage === 1 ? 'bg-slate-50 border-slate-200 opacity-60' : 'bg-rose-50/70 border-rose-200')
+                          }`}>
+                            <div className="flex items-center justify-between pb-2 mb-2 border-b border-slate-200/50">
+                              <div className="flex items-center gap-2">
+                                <span className={`px-2 py-0.5 rounded-lg text-[9px] font-black uppercase tracking-wider ${
+                                  verificationState.oscaValidation.stage2.passed ? 'bg-emerald-600 text-white' : 'bg-rose-600 text-white'
+                                }`}>
+                                  Stage 2
+                                </span>
+                                <span className="font-black text-xs text-slate-800">
+                                  Data Content &amp; Completeness Verification
+                                </span>
+                              </div>
+                              <span className={`text-[10px] font-black uppercase flex items-center gap-1 ${
+                                verificationState.oscaValidation.stage2.passed ? 'text-emerald-700' : 'text-rose-700'
+                              }`}>
+                                {verificationState.oscaValidation.stage2.passed ? <CheckCircle2 size={13} /> : <X size={13} />}
+                                {verificationState.oscaValidation.stage2.passed ? 'PASSED' : (verificationState.oscaValidation.current_stage === 1 ? 'BLOCKED' : 'FAILED')}
+                              </span>
+                            </div>
+
+                            <div className="space-y-1.5 text-[11px]">
+                              <div className="flex items-center justify-between">
+                                <span className="text-slate-600">Personal Info Fields:</span>
+                                <span className={`font-bold ${verificationState.oscaValidation.stage2.personal_info_populated ? 'text-emerald-600' : 'text-rose-600'}`}>
+                                  {verificationState.oscaValidation.stage2.personal_info_populated ? 'Populated' : 'Empty / Missing'}
+                                </span>
+                              </div>
+                              <div className="flex items-center justify-between">
+                                <span className="text-slate-600">Residential Address:</span>
+                                <span className={`font-bold ${verificationState.oscaValidation.stage2.address_present ? 'text-emerald-600' : 'text-rose-600'}`}>
+                                  {verificationState.oscaValidation.stage2.address_present ? 'Readable' : 'Missing'}
+                                </span>
+                              </div>
+                              <div className="flex items-center justify-between">
+                                <span className="text-slate-600">2x2 ID Photo:</span>
+                                <span className={`font-bold ${verificationState.oscaValidation.stage2.photo_present ? 'text-emerald-600' : 'text-rose-600'}`}>
+                                  {verificationState.oscaValidation.stage2.photo_present ? 'Present' : 'Missing'}
+                                </span>
+                              </div>
+                              <div className="flex items-center justify-between">
+                                <span className="text-slate-600">Security QR Code:</span>
+                                <span className={`font-bold ${verificationState.oscaValidation.stage2.qr_code_present ? 'text-emerald-600' : 'text-rose-600'}`}>
+                                  {verificationState.oscaValidation.stage2.qr_code_present ? 'Valid' : 'Not Detected'}
+                                </span>
+                              </div>
+                              <div className="flex items-center justify-between">
+                                <span className="text-slate-600">OSCA ID Number:</span>
+                                <span className={`font-bold ${verificationState.oscaValidation.stage2.osca_number_present ? 'text-emerald-600' : 'text-rose-600'}`}>
+                                  {verificationState.oscaValidation.stage2.osca_number_present ? (verificationState.oscaValidation.stage2.osca_id_number || 'Visible') : 'Missing'}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
                         </div>
                       )}
 

@@ -358,11 +358,22 @@ def verify_id_document(file_input, first_name: str, last_name: str, osca_id: str
     face_res = detect_face(file_input)
     face_found = face_res.get('face_detected', False)
 
+    # Two-Tier OSCA ID validation check
+    osca_tier_res = {}
+    try:
+        from .osca_validator import validate_osca_id_two_tier
+        osca_tier_res = validate_osca_id_two_tier(file_input, applicant_data={'first_name': first_name, 'last_name': last_name, 'osca_id': osca_id})
+    except Exception as e:
+        print(f"[DocVerifier] OSCA two-tier validation notice: {e}")
+
     # Name check on ID if text was extracted
     token_score = fuzz.token_set_ratio(f"{first_name} {last_name}".upper(), upper_text) if upper_text else 0
     name_matched = token_score >= 65 or (last_name.upper() in upper_text)
 
-    if not face_found and not has_id_keyword and not text:
+    is_two_tier_pass = osca_tier_res.get('overall_status') == 'PASS'
+    is_stage1_pass = osca_tier_res.get('stage1', {}).get('passed', False)
+
+    if not face_found and not has_id_keyword and not text and not is_stage1_pass:
         return {
             'status': 'REJECTED',
             'is_authentic_id': False,
@@ -370,10 +381,14 @@ def verify_id_document(file_input, first_name: str, last_name: str, osca_id: str
             'name_match': False,
             'message': 'Walang nakitang mukha o impormasyon sa in-upload na ID.',
             'crop_data_url': None,
-            'features': None
+            'features': None,
+            'osca_validation': osca_tier_res
         }
 
-    if face_found and (has_id_keyword or name_matched or serial_matched):
+    if is_two_tier_pass:
+        status = 'PASS'
+        message = 'OSCA ID Two-Tier Verification Passed: Template layout at kumpletong impormasyon ay napatunayan.'
+    elif face_found and (has_id_keyword or name_matched or serial_matched):
         status = 'PASS'
         message = 'Opisyal na ID Card at litrato ng mukha ay matagumpay na nakilala.'
     elif face_found:
@@ -381,17 +396,18 @@ def verify_id_document(file_input, first_name: str, last_name: str, osca_id: str
         message = 'Naihiwalay ang litrato ng mukha mula sa ID card.'
     else:
         status = 'NEEDS_REVIEW'
-        message = 'Kailangang suriin: Hindi malinaw ang litrato ng mukha sa ID.'
+        message = osca_tier_res.get('summary_message') or 'Kailangang suriin: Hindi malinaw ang litrato ng mukha o layout sa ID.'
 
     return {
         'status': status,
-        'is_authentic_id': has_id_keyword or serial_matched,
+        'is_authentic_id': has_id_keyword or serial_matched or is_stage1_pass,
         'face_detected': face_found,
         'face_confidence': face_res.get('confidence', 0),
         'crop_data_url': face_res.get('crop_data_url'),
         'features': face_res.get('features'),
         'name_match': name_matched,
         'serial_match': serial_matched,
+        'osca_validation': osca_tier_res,
         'message': message,
         'extracted_sample': upper_text[:200]
     }

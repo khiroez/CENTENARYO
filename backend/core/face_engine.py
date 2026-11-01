@@ -41,6 +41,9 @@ def _load_image(img_input) -> Optional[np.ndarray]:
             nparr = np.frombuffer(img_input, np.uint8)
             return cv2.imdecode(nparr, cv2.IMREAD_COLOR)
 
+        elif isinstance(img_input, np.ndarray):
+            return img_input
+
         elif isinstance(img_input, str):
             if img_input.startswith('data:image') and ';base64,' in img_input:
                 encoded = img_input.split(';base64,')[1]

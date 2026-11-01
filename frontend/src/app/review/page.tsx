@@ -804,6 +804,36 @@ export default function ReviewQueuePage() {
                       </span>
                     </div>
 
+                                        {/* OSCA ID Two-Tier Validation Check */}
+                    <div className="p-3 bg-slate-50 border border-slate-100 rounded-2xl flex items-center justify-between">
+                      <div className="flex items-center gap-2.5">
+                        <span className="text-base">🪪</span>
+                        <div>
+                          <div className="text-[10px] font-black uppercase tracking-wider text-slate-700">OSCA ID Two-Tier Verification</div>
+                          <div className="text-[11px] font-medium text-slate-500">
+                            {selectedSenior.auto_check_results?.osca_validation?.summary_message ||
+                             (selectedSenior.auto_check_results?.ocr_osca?.status === 'PASS'
+                               ? "Template layout and personal information fields verified"
+                               : "Pending two-tier template matching and data completeness audit")}
+                          </div>
+                          {selectedSenior.auto_check_results?.osca_validation && (
+                            <div className="text-[10px] font-semibold text-slate-400 mt-0.5">
+                              Stage 1 (Layout): {selectedSenior.auto_check_results.osca_validation.stage1?.passed ? 'Passed' : 'Failed'} • Stage 2 (Data): {selectedSenior.auto_check_results.osca_validation.stage2?.passed ? 'Passed' : 'Incomplete'}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      <span className={`px-2.5 py-1 rounded-xl text-[10px] font-black uppercase tracking-widest ${
+                        (selectedSenior.auto_check_results?.osca_validation?.overall_status === 'PASS' || selectedSenior.auto_check_results?.ocr_osca?.status === 'PASS')
+                          ? 'bg-emerald-100 text-emerald-800'
+                          : (selectedSenior.auto_check_results?.osca_validation?.overall_status === 'FAIL' ? 'bg-rose-100 text-rose-800' : 'bg-amber-100 text-amber-800')
+                      }`}>
+                        {(selectedSenior.auto_check_results?.osca_validation?.overall_status === 'PASS' || selectedSenior.auto_check_results?.ocr_osca?.status === 'PASS')
+                          ? 'Passed'
+                          : (selectedSenior.auto_check_results?.osca_validation?.overall_status === 'FAIL' ? 'Failed' : 'Review')}
+                      </span>
+                    </div>
+
                     {/* Hash Uniqueness */}
                     <div className="p-3 bg-slate-50 border border-slate-100 rounded-2xl flex items-center justify-between">
                       <div className="flex items-center gap-2.5">

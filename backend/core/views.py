@@ -1537,3 +1537,45 @@ def scan_psa_qr(request):
     return Response(qr_res, status=status.HTTP_200_OK)
 
 
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def validate_osca_id_view(request):
+    """
+    Two-Tier OSCA ID Template Matching & Validation:
+    Stage 1: Structural & Layout Verification against oscaid_template_without_info
+    Stage 2: Data Content & Completeness Verification against oscaid_template_with_info
+    """
+    from .osca_validator import validate_osca_id_two_tier
+
+    img_input = None
+    if 'file' in request.FILES:
+        img_input = request.FILES['file']
+    elif 'image_base64' in request.data:
+        img_input = request.data.get('image_base64')
+    elif 'file' in request.data and isinstance(request.data['file'], str):
+        img_input = request.data.get('file')
+
+    if not img_input:
+        return Response(
+            {
+                'overall_status': 'FAIL',
+                'current_stage': 1,
+                'stage1': {'passed': False, 'reasons': ['No file or image_base64 provided.']},
+                'stage2': {'passed': False, 'reasons': []},
+                'summary_message': 'No image file or image_base64 provided.'
+            },
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    applicant_data = {
+        'first_name': request.data.get('first_name', ''),
+        'last_name': request.data.get('last_name', ''),
+        'middle_name': request.data.get('middle_name', ''),
+        'date_of_birth': request.data.get('date_of_birth', ''),
+        'osca_id': request.data.get('osca_id', ''),
+    }
+
+    results = validate_osca_id_two_tier(img_input, applicant_data=applicant_data)
+    return Response(results, status=status.HTTP_200_OK)
