@@ -409,3 +409,4 @@ def validate_osca_id_two_tier(img_input, applicant_data: Optional[Dict[str, Any]
         'stage2': stage2_res,
         'summary_message': summary_message
     }
+

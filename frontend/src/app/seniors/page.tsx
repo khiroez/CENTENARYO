@@ -1385,7 +1385,8 @@ export default function SeniorRegistryPage() {
               oscaFormData.append('date_of_birth', formData.date_of_birth || '');
               oscaFormData.append('osca_id', formData.osca_id_serial || '');
 
-              const valRes = await authFetch('/api/validate-osca-id/', {
+              const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api';
+              const valRes = await fetch(`${apiBase}/validate-osca-id/`, {
                 method: 'POST',
                 body: oscaFormData,
               });
@@ -1412,7 +1413,11 @@ export default function SeniorRegistryPage() {
               if (faceDescriptorsRef.current.photo2x2) {
                 const comp = compareFaceDescriptors(faceDetails.descriptor, faceDescriptorsRef.current.photo2x2);
                 faceMatchScore = comp.similarity;
-                matchNote = `Face portrait isolated (${faceDetails.confidence}% confidence). Biometric match with 2x2 photo: ${comp.similarity}%.`;
+                if (finalStatus === 'FAIL') {
+                  matchNote = errorMessage || oscaValidationRes?.summary_message || 'OSCA ID structural verification failed.';
+                } else {
+                  matchNote = `Face portrait isolated (${faceDetails.confidence}% confidence). Biometric match with 2x2 photo: ${comp.similarity}%.`;
+                }
                 setAutoCheckResults((prev: any) => ({
                   ...prev,
                   osca_hash: fileHash,
@@ -1426,7 +1431,11 @@ export default function SeniorRegistryPage() {
                   }
                 }));
               } else {
-                matchNote = oscaValidationRes?.summary_message || `Face portrait isolated from OSCA ID (${faceDetails.confidence}% confidence). Upload 2x2 photo for automated comparison.`;
+                if (finalStatus === 'FAIL') {
+                  matchNote = errorMessage || oscaValidationRes?.summary_message || 'OSCA ID structural verification failed.';
+                } else {
+                  matchNote = oscaValidationRes?.summary_message || `Face portrait isolated from OSCA ID (${faceDetails.confidence}% confidence). Upload 2x2 photo for automated comparison.`;
+                }
                 setAutoCheckResults((prev: any) => ({
                   ...prev,
                   osca_hash: fileHash,
