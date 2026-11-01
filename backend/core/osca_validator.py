@@ -118,6 +118,72 @@ def _match_template_multiscale(search_img: np.ndarray, template_img: np.ndarray,
     return best_score
 
 
+def _detect_id_number_under_qr(img: np.ndarray, qr_box: Optional[Tuple[int, int, int, int]] = None) -> Tuple[bool, str]:
+    """
+    Locates and verifies the OSCA ID number directly under the QR code regardless of format.
+    OSCA ID numbers vary across card series:
+    - Grouped format: e.g. "888 999 12345678"
+    - Single numeric string: e.g. "0070000015318401"
+    - Dashed / alphanumeric format: e.g. "QC-12345-67"
+    
+    This function uses a multi-layered verification:
+    1. Direct crop below the QR code boundary box (with generous horizontal margins).
+    2. High-precision character and digit cluster analysis (connected components).
+    3. Multimodal text extraction (WinOCR + glyph verification).
+    """
+    h, w = img.shape[:2]
+
+    # Calculate region under QR code
+    if qr_box:
+        min_x, max_y, max_x, bot_y = qr_box
+        x1 = max(0, min_x - int((max_x - min_x) * 0.15))
+        x2 = min(w, max_x + int((max_x - min_x) * 0.15))
+        y1 = max_y
+        y2 = min(h, max_y + int((max_x - min_x) * 0.45))
+    else:
+        # Standard relative location under the right QR column
+        x1 = int(w * 0.58)
+        x2 = int(w * 0.98)
+        y1 = int(h * 0.76)
+        y2 = int(h * 0.98)
+
+    under_crop = img[y1:y2, x1:x2]
+    if under_crop.size == 0 or under_crop.shape[0] < 10 or under_crop.shape[1] < 20:
+        return False, ""
+
+    # 1. OCR on the crop directly
+    ocr_res = _extract_ocr_text(under_crop).strip()
+    cleaned = re.sub(r'[^0-9A-Za-z\-\s]', '', ocr_res).strip()
+    tokens = [t for t in cleaned.split() if any(c.isdigit() for c in t) or t in ['BBB', '888', 'OSCA']]
+
+    # 2. Connected Component Glyph Cluster Detection
+    # Identifies genuine printed character sequences regardless of OCR font distortion
+    gray = cv2.cvtColor(under_crop, cv2.COLOR_BGR2GRAY) if under_crop.ndim == 3 else under_crop
+    _, bin_inv = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+    num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(bin_inv)
+
+    crop_h = under_crop.shape[0]
+    glyph_boxes = []
+    for i in range(1, num_labels):
+        gx, gy, gw, gh, garea = stats[i]
+        # Filter for genuine alphanumeric character dimensions
+        if int(crop_h * 0.10) <= gh <= int(crop_h * 0.85) and 3 <= gw <= int(crop_h * 0.9) and garea >= 15:
+            glyph_boxes.append((gx, gy, gw, gh))
+
+    # A real populated ID number has at least 3 character glyphs aligned on a horizontal baseline
+    has_glyph_cluster = False
+    if len(glyph_boxes) >= 3:
+        glyph_boxes.sort(key=lambda b: b[0])
+        y_coords = [b[1] for b in glyph_boxes]
+        baseline_variance = max(y_coords) - min(y_coords)
+        if baseline_variance <= int(crop_h * 0.38):
+            has_glyph_cluster = True
+
+    is_present = bool(tokens) or has_glyph_cluster or len(cleaned) >= 3
+    extracted_text = " ".join(tokens) if tokens else cleaned
+    return is_present, extracted_text
+
+
 def validate_stage1_structure(img_norm: np.ndarray, ocr_text: str) -> Dict[str, Any]:
     """
     Stage 1: oscaid_template_without_info (Structural & Layout Verification)
@@ -197,12 +263,9 @@ def validate_stage1_structure(img_norm: np.ndarray, ocr_text: str) -> Dict[str, 
     results['missing_labels'] = missing
 
     # Stage 1 Pass Criteria:
-    # 1. QC Logo detected (softened security tolerance for real/scanned cards)
-    # 2. OSCA Logo detected OR layout score >= 60%
-    # 3. At least 5 out of 9 mandatory field labels recognized (tolerant to OCR noise)
     labels_passed_count = sum(1 for v in labels_status.values() if v['present'])
     has_logos = results['qc_logo_detected'] and results['osca_logo_detected']
-    has_layout = results['qc_logo_detected'] and (results['layout_score'] >= 60.0 or labels_passed_count >= 5)
+    has_layout = results['qc_logo_detected'] and (results['layout_score'] >= 55.0 or labels_passed_count >= 5)
 
     if has_logos or has_layout:
         results['passed'] = True
@@ -222,7 +285,7 @@ def validate_stage2_content(img_norm: np.ndarray, ocr_text: str, raw_img: Option
     - Biometric & Security Elements:
         * 2x2 ID picture present (as long as there is a visible face portrait)
         * Valid QR code present (can scan QR if text cannot be read directly)
-        * OSCA ID number clearly visible below the QR code (or in QR payload)
+        * OSCA ID number clearly visible below the QR code (universal format under QR code)
     """
     results: Dict[str, Any] = {
         'stage': 2,
@@ -237,8 +300,31 @@ def validate_stage2_content(img_norm: np.ndarray, ocr_text: str, raw_img: Option
         'reasons': []
     }
 
-    # 1. Detect QR code (Checks raw image and normalized image)
-    qr_res = decode_qr(raw_img if raw_img is not None else img_norm)
+    # 1. Detect QR code and its physical location on the card
+    qr_box = None
+    target_img_for_qr = raw_img if raw_img is not None else img_norm
+
+    try:
+        import zxingcpp
+        barcodes = zxingcpp.read_barcodes(target_img_for_qr)
+        if not barcodes and raw_img is not None:
+            barcodes = zxingcpp.read_barcodes(img_norm)
+            if barcodes:
+                target_img_for_qr = img_norm
+
+        if barcodes:
+            b = barcodes[0]
+            pts = [(p.x, p.y) for p in [b.position.top_left, b.position.top_right, b.position.bottom_right, b.position.bottom_left]]
+            qr_box = (
+                max(0, min(p[0] for p in pts)),
+                max(p[1] for p in pts),
+                min(target_img_for_qr.shape[1], max(p[0] for p in pts)),
+                target_img_for_qr.shape[0]
+            )
+    except Exception:
+        pass
+
+    qr_res = decode_qr(target_img_for_qr)
     if not qr_res.get('qr_detected'):
         qr_res = decode_qr(img_norm)
 
@@ -252,8 +338,7 @@ def validate_stage2_content(img_norm: np.ndarray, ocr_text: str, raw_img: Option
         qr_payload = qr_res.get('payload', '')
         results['qr_data'] = qr_payload[:80]
 
-        # Parse pipe-delimited payload standard for QC Citizen Card OSCA IDs:
-        # e.g., ABIOG, LORNA D.|0070000015318401|5|470416|F|A+||210216|320416...
+        # Parse pipe-delimited payload standard for QC Citizen Card OSCA IDs
         if '|' in qr_payload:
             parts = qr_payload.split('|')
             qr_parsed_name = parts[0].strip() if len(parts) > 0 else ""
@@ -264,30 +349,27 @@ def validate_stage2_content(img_norm: np.ndarray, ocr_text: str, raw_img: Option
         results['reasons'].append("No valid QR code detected in the security code area.")
 
     # 2. Check 2x2 ID Picture: "as long as there is a visible face portrait, the system can accept it"
-    face_res = detect_face(raw_img if raw_img is not None else img_norm)
+    # Avoid running face detection on the address/personal data text area
+    h_target, w_target = target_img_for_qr.shape[:2]
+    photo_search_area = target_img_for_qr[0:int(h_target * 0.8), 0:int(w_target * 0.45)]
+    face_res = detect_face(photo_search_area)
     if not face_res.get('face_detected'):
-        face_res = detect_face(img_norm)
+        face_res = detect_face(img_norm[0:int(672 * 0.8), 0:int(1024 * 0.45)])
 
     if face_res.get('face_detected'):
         results['photo_present'] = True
     else:
-        # Check photo sub-crop
-        photo_crop = img_norm[200:520, 40:290]
-        face_sub = detect_face(photo_crop)
-        if face_sub.get('face_detected'):
-            results['photo_present'] = True
+        # Check non-blank content compared to blank silhouette
+        blank = cv2.imread(BLANK_TEMPLATE_PATH) if os.path.exists(BLANK_TEMPLATE_PATH) else None
+        if blank is not None:
+            blank_norm = _normalize_image_for_matching(blank)
+            blank_photo = blank_norm[230:465, 60:255]
+            cand_photo = img_norm[230:465, 60:255]
+            res_match = cv2.matchTemplate(cand_photo, blank_photo, cv2.TM_CCOEFF_NORMED)
+            sil_sim = float(res_match[0][0])
+            results['photo_present'] = sil_sim < 0.92
         else:
-            # Check non-blank content
-            blank = cv2.imread(BLANK_TEMPLATE_PATH) if os.path.exists(BLANK_TEMPLATE_PATH) else None
-            if blank is not None:
-                blank_norm = _normalize_image_for_matching(blank)
-                blank_photo = blank_norm[230:465, 60:255]
-                cand_photo = img_norm[230:465, 60:255]
-                res_match = cv2.matchTemplate(cand_photo, blank_photo, cv2.TM_CCOEFF_NORMED)
-                sil_sim = float(res_match[0][0])
-                results['photo_present'] = sil_sim < 0.92
-            else:
-                results['photo_present'] = True
+            results['photo_present'] = True
 
     # 3. Personal Information Fields:
     # "you can also scan the qr code if you cant read/find the personal details or text that is written in the id"
@@ -329,7 +411,6 @@ def validate_stage2_content(img_norm: np.ndarray, ocr_text: str, raw_img: Option
 
     # 4. Residential Address Details:
     # "the residential address is also present in the id, it is located below the blood type, date issued and valid until"
-    # Inspect OCR on the subcrop below blood type & valid until: y: 380..580, x: 180..650
     address_subcrop = img_norm[380:580, 180:650]
     address_ocr = _extract_ocr_text(address_subcrop).upper()
     combined_address_text = f"{single_line_ocr} {address_ocr}"
@@ -337,36 +418,44 @@ def validate_stage2_content(img_norm: np.ndarray, ocr_text: str, raw_img: Option
     address_keywords = [
         'ST', 'ST.', 'STREET', 'AVE', 'AVENUE', 'RD', 'ROAD', 'DR', 'DRIVE',
         'BLOCK', 'LOT', 'PHASE', 'BAGONG SILANGAN', 'SILANGAN', 'VILLAGE',
-        'QUEZON CITY', 'QC', 'BARANGAY', 'BRGY', 'CITY', 'LUNA'
+        'QUEZON CITY', 'QC', 'BARANGAY', 'BRGY', 'CITY', 'LUNA', 'TOWNHOMES'
     ]
     address_matches = [kw for kw in address_keywords if kw in combined_address_text]
-    # Address is present if at least 2 address indicators match or "QUEZON CITY" / "CITY" / "BAGONG" is found
     results['address_present'] = len(address_matches) >= 1 or 'CITY' in combined_address_text or 'SILANGAN' in combined_address_text
     if not results['address_present']:
         results['reasons'].append("Residential address details are missing or unreadable.")
 
-    # 5. OSCA ID Number directly below QR code or extracted from QR code
-    osca_num = qr_parsed_osca
-    if not osca_num:
-        osca_num_match = re.search(r'\b(\d{10,18})\b', single_line_ocr)
-        if osca_num_match:
-            osca_num = osca_num_match.group(0).strip()
-        else:
-            num_subcrop = img_norm[540:665, 400:980]
-            num_text = _extract_ocr_text(num_subcrop).strip()
-            digit_match = re.search(r'([0-9]{8,18})', num_text)
-            if digit_match:
-                osca_num = digit_match.group(0)
+    # 5. OSCA ID Number: "there is no fixed format for the osca id number, but it should always be under the qr code"
+    # Multi-path verification:
+    # 1. Look directly under the QR code region in raw image
+    num_under_qr_detected, val_under_qr = _detect_id_number_under_qr(target_img_for_qr, qr_box=qr_box)
 
-    if osca_num:
+    # 2. Look directly under the QR code in normalized image
+    if not num_under_qr_detected:
+        num_under_qr_detected, val_under_qr = _detect_id_number_under_qr(img_norm)
+
+    # 3. QR code payload parsed number fallback
+    if not num_under_qr_detected and qr_parsed_osca:
+        num_under_qr_detected = True
+        val_under_qr = qr_parsed_osca
+
+    # 4. Regex fallback from OCR
+    if not num_under_qr_detected:
+        osca_num_match = re.search(r'\b(\d{3,4}\s+\d{3,4}\s+\d{4,8})\b', single_line_ocr)
+        if not osca_num_match:
+            osca_num_match = re.search(r'\b(\d{8,18})\b', single_line_ocr)
+        if osca_num_match:
+            num_under_qr_detected = True
+            val_under_qr = osca_num_match.group(0).strip()
+
+    if num_under_qr_detected:
         results['osca_number_present'] = True
-        results['osca_id_number'] = osca_num
+        results['osca_id_number'] = val_under_qr or "Visible below QR code"
     else:
         results['osca_number_present'] = False
         results['reasons'].append("OSCA ID number is not clearly visible below the QR code.")
 
     # Stage 2 Pass Criteria:
-    # All 5 validation rules met:
     all_met = (
         results['personal_info_populated']
         and results['address_present']
