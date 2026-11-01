@@ -25,6 +25,147 @@ const getDistrictForBarangay = (barangay: string): string => {
   return '';
 };
 
+// --- Hoisted Stateless Helpers (prevents re-allocation on component renders) ---
+const MONTH_LOOKUP = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+
+const computeSha256 = async (buffer: ArrayBuffer): Promise<string> => {
+  try {
+    const hashBuffer = await crypto.subtle.digest('SHA-256', buffer);
+    return Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
+  } catch {
+    return '';
+  }
+};
+
+const normalizeName = (s: string) =>
+  (s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z\s]/g, ' ').replace(/\s+/g, ' ').trim();
+
+const normalizeSexCode = (s: string | null | undefined): string => {
+  const v = (s || '').trim().toUpperCase();
+  if (v === 'M' || v === 'MALE') return 'M';
+  if (v === 'F' || v === 'FEMALE') return 'F';
+  return '';
+};
+
+const formatSexDisplay = (s: string | null | undefined): string => {
+  const code = normalizeSexCode(s);
+  if (code === 'M') return 'MALE (M)';
+  if (code === 'F') return 'FEMALE (F)';
+  return (s || '').trim() || '—';
+};
+
+const normalizeCivilStatus = (s: string | null | undefined): string => {
+  const v = (s || '').trim().toUpperCase();
+  if (!v) return '';
+  if (v.includes('WIDOW')) return 'WIDOWED';
+  if (v.includes('SINGLE')) return 'SINGLE';
+  if (v.includes('MARR')) return 'MARRIED';
+  if (v.includes('SEPAR')) return 'SEPARATED';
+  if (v.includes('DIVOR')) return 'DIVORCED';
+  return v;
+};
+
+const toIso = (y: number, m: number, d: number): string | null => {
+  if (!y || m < 1 || m > 12 || d < 1 || d > 31) return null;
+  return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+};
+
+const findDatesInText = (raw: string): string[] => {
+  const text = (raw || '').toUpperCase();
+  const found: string[] = [];
+  const push = (v: string | null) => { if (v && !found.includes(v)) found.push(v); };
+  let m: RegExpExecArray | null;
+
+  const ymd = /\b(\d{4})[-\/.](\d{1,2})[-\/.](\d{1,2})\b/g;
+  while ((m = ymd.exec(text))) push(toIso(+m[1], +m[2], +m[3]));
+
+  const mdy = /\b(\d{1,2})[-\/.](\d{1,2})[-\/.](\d{4})\b/g;
+  while ((m = mdy.exec(text))) {
+    const a = +m[1], b = +m[2];
+    push(a > 12 ? toIso(+m[3], b, a) : toIso(+m[3], a, b));
+  }
+
+  const compact = /\b(\d{4})(\d{2})(\d{2})\b/g;
+  while ((m = compact.exec(text))) push(toIso(+m[1], +m[2], +m[3]));
+
+  const monthIdx = (name: string) => MONTH_LOOKUP.indexOf(name.slice(0, 3)) + 1;
+  const mdyWords = /\b([A-Z]{3,9})\.?\s+(\d{1,2}),?\s+(\d{4})\b/g;
+  while ((m = mdyWords.exec(text))) { const mo = monthIdx(m[1]); if (mo) push(toIso(+m[3], mo, +m[2])); }
+
+  const dmyWords = /\b(\d{1,2})\s+([A-Z]{3,9})\.?,?\s+(\d{4})\b/g;
+  while ((m = dmyWords.exec(text))) { const mo = monthIdx(m[2]); if (mo) push(toIso(+m[3], mo, +m[1])); }
+
+  return found;
+};
+
+const parsePsaQrPayload = (payload: string) => {
+  const fields: Record<string, string> = {};
+  const add = (k: string, v: any) => {
+    if (v === undefined || v === null || !String(v).trim()) return;
+    fields[k.toLowerCase().replace(/[^a-z]/g, '')] = String(v).trim();
+  };
+
+  let isJson = false;
+  try {
+    const obj = JSON.parse(payload);
+    if (obj && typeof obj === 'object') {
+      isJson = true;
+      const walk = (o: any) => Object.entries(o).forEach(([k, v]) => (v && typeof v === 'object') ? walk(v) : add(k, v));
+      walk(obj);
+    }
+  } catch { /* not JSON */ }
+
+  if (!isJson) {
+    try { new URL(payload).searchParams.forEach((v, k) => add(k, v)); } catch { /* not a URL */ }
+    payload.split(/[\r\n|;]+/).forEach(seg => {
+      const kv = seg.match(/^\s*([A-Za-z][A-Za-z _.\-]{1,40}?)\s*[:=]\s*(.+)$/);
+      if (kv) add(kv[1], kv[2]);
+    });
+  }
+
+  const ownerKeys = Object.keys(fields).filter(k => !/father|mother|parent|spouse|informant|registrar|officer|attendant/.test(k));
+  const find = (...patterns: RegExp[]) => {
+    for (const p of patterns) {
+      const key = ownerKeys.find(k => p.test(k));
+      if (key) return fields[key];
+    }
+    return undefined;
+  };
+
+  return {
+    lastName: find(/^(last|sur|family)name$/, /^(lname|surname|apelyido)$/, /last|surname/),
+    firstName: find(/^(first|given)names?$/, /^(fname|given)$/, /first|given/),
+    middleName: find(/^middlename$/, /^mname$/, /middle/),
+    fullName: find(/^(full)?name$/, /^(child|owner|registrant|document)s?(full)?name$/, /name/),
+    dob: find(/^(dateofbirth|birthdate|dob|bdate|birthday)$/, /birth|dob/),
+  };
+};
+
+type OscaFieldKey = 'name' | 'osca_id' | 'dob' | 'sex' | 'civil_status';
+type OscaExtractedField = {
+  value: string | null;
+  source: 'OCR' | 'QR' | null;
+  ocr_value: string | null;
+  qr_value: string | null;
+};
+type OscaExtractedFields = Record<OscaFieldKey, OscaExtractedField>;
+
+type OscaCrossComparison = {
+  status: 'PASS' | 'FLAGGED';
+  nameMatch: boolean;
+  oscaIdMatch: boolean;
+  dobMatch: boolean;
+  sexMatch: boolean;
+  civilStatusMatch: boolean;
+  extractedName: string | null;
+  extractedOscaId: string | null;
+  extractedDob: string | null;
+  extractedSex: string | null;
+  extractedCivilStatus: string | null;
+  sources: Record<OscaFieldKey, 'OCR' | 'QR' | null>;
+  message: string;
+};
+
 export default function SeniorRegistryPage() {
   const { isAdmin } = useAuth();
   const { addNotification } = useNotifications();
@@ -126,9 +267,11 @@ export default function SeniorRegistryPage() {
         qr_data?: string | null;
         osca_number_present: boolean;
         osca_id_number?: string | null;
+        extracted_fields?: OscaExtractedFields;
         reasons: string[];
       };
     };
+    oscaCrossCheck?: OscaCrossComparison;
   }
   const [verificationState, setVerificationState] = useState<VerificationState | null>(null);
   const faceDescriptorsRef = useRef<{ photo2x2: Float32Array | number[] | null; oscaId: Float32Array | number[] | null }>({
@@ -146,6 +289,22 @@ export default function SeniorRegistryPage() {
     extractedName?: string | null;
     extractedDob?: string | null;
   } | null>(null);
+  // Temporary storage for extracted OSCA ID fields (OCR primary + QR fallback)
+  const oscaCardRef = useRef<OscaExtractedFields | null>(null);
+  // Track created Object URLs so browser memory is released when switching/closing modals
+  const blobUrlsRef = useRef<string[]>([]);
+  const createTrackedBlobUrl = (blob: Blob): string => {
+    const url = URL.createObjectURL(blob);
+    blobUrlsRef.current.push(url);
+    return url;
+  };
+  const revokeBlobUrls = () => {
+    for (const url of blobUrlsRef.current) {
+      try { URL.revokeObjectURL(url); } catch { /* ignore */ }
+    }
+    blobUrlsRef.current = [];
+  };
+  useEffect(() => () => revokeBlobUrls(), []);
   const [pdfPreviewSrc, setPdfPreviewSrc] = useState<{ url?: string; file?: File | null; title: string } | null>(null);
 
   const openSuccess = (title: string, message: string) => showModal('success', title, message);
@@ -318,6 +477,8 @@ export default function SeniorRegistryPage() {
     // Strip deprecated fields (email, primary beneficiary) from legacy records
     const { email: _email, primary_ben_name: _pbn, primary_ben_rel: _pbr, ...annexData } = senior.annex_a_data || {};
     resetPsaQr();
+    resetOscaCard();
+    revokeBlobUrls();
     setFormData({
       ...initialFormState,
       ...annexData,
@@ -501,7 +662,7 @@ export default function SeniorRegistryPage() {
       delete (cleanAnnexData as any).primary_ben_name;
       delete (cleanAnnexData as any).primary_ben_rel;
 
-      // Re-run PSA QR cross-check against the FINAL Name / DOB values before submitting
+      // Re-run PSA QR & OSCA ID cross-checks against the FINAL form values before submitting
       const finalAutoChecks = { ...autoCheckResults };
       if (psaQrRef.current) {
         finalAutoChecks.psa_qr = buildPsaQrCheck(
@@ -515,6 +676,19 @@ export default function SeniorRegistryPage() {
             psaQrRef.current.extractedDob
           )
         );
+      }
+      if (oscaCardRef.current) {
+        const oscaCmp = compareOscaIdWithForm(oscaCardRef.current, formData);
+        finalAutoChecks.osca_cross_check = oscaCmp;
+        finalAutoChecks.ocr_osca = {
+          status: oscaCmp.status,
+          name_match: oscaCmp.nameMatch,
+          osca_id_match: oscaCmp.oscaIdMatch,
+          dob_match: oscaCmp.dobMatch,
+          sex_match: oscaCmp.sexMatch,
+          civil_status_match: oscaCmp.civilStatusMatch,
+          message: oscaCmp.message,
+        };
       }
 
       fd.append('annex_a_data', JSON.stringify(cleanAnnexData));
@@ -534,6 +708,7 @@ export default function SeniorRegistryPage() {
       if (res.ok) {
         const result = await res.json();
         setIsModalOpen(false);
+        revokeBlobUrls();
         setFormData(initialFormState);
         const wasReturned = !!returnedCorrectionInfo;
         setReturnedCorrectionInfo(null);
@@ -571,15 +746,6 @@ export default function SeniorRegistryPage() {
   };
 
   // Helper functions for Automated Face-API and OCR Verification
-  const computeSha256 = async (buffer: ArrayBuffer): Promise<string> => {
-    try {
-      const hashBuffer = await crypto.subtle.digest('SHA-256', buffer);
-      return Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
-    } catch {
-      return '';
-    }
-  };
-
   const getFaceApi = async () => {
     const faceapi = await import('@vladmandic/face-api');
     if (!faceapi.nets.tinyFaceDetector.isLoaded || !faceapi.nets.faceLandmark68TinyNet.isLoaded || !faceapi.nets.faceRecognitionNet.isLoaded) {
@@ -822,91 +988,7 @@ export default function SeniorRegistryPage() {
     return { distance, similarity, isMatch };
   };
 
-  // ---------------- PSA QR Code Verification Helpers ----------------
-  const MONTHS = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
-
-  const normalizeName = (s: string) =>
-    (s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z\s]/g, ' ').replace(/\s+/g, ' ').trim();
-
-  const toIso = (y: number, m: number, d: number): string | null => {
-    if (!y || m < 1 || m > 12 || d < 1 || d > 31) return null;
-    return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-  };
-
-  // Finds every date-like value in a string and converts each to YYYY-MM-DD
-  const findDatesInText = (raw: string): string[] => {
-    const text = (raw || '').toUpperCase();
-    const found: string[] = [];
-    const push = (v: string | null) => { if (v && !found.includes(v)) found.push(v); };
-    let m: RegExpExecArray | null;
-
-    const ymd = /\b(\d{4})[-\/.](\d{1,2})[-\/.](\d{1,2})\b/g;
-    while ((m = ymd.exec(text))) push(toIso(+m[1], +m[2], +m[3]));
-
-    const mdy = /\b(\d{1,2})[-\/.](\d{1,2})[-\/.](\d{4})\b/g; // PH convention MM/DD/YYYY; swap if first part > 12
-    while ((m = mdy.exec(text))) {
-      const a = +m[1], b = +m[2];
-      push(a > 12 ? toIso(+m[3], b, a) : toIso(+m[3], a, b));
-    }
-
-    const compact = /\b(\d{4})(\d{2})(\d{2})\b/g;
-    while ((m = compact.exec(text))) push(toIso(+m[1], +m[2], +m[3]));
-
-    const monthIdx = (name: string) => MONTHS.indexOf(name.slice(0, 3)) + 1;
-    const mdyWords = /\b([A-Z]{3,9})\.?\s+(\d{1,2}),?\s+(\d{4})\b/g;
-    while ((m = mdyWords.exec(text))) { const mo = monthIdx(m[1]); if (mo) push(toIso(+m[3], mo, +m[2])); }
-
-    const dmyWords = /\b(\d{1,2})\s+([A-Z]{3,9})\.?,?\s+(\d{4})\b/g;
-    while ((m = dmyWords.exec(text))) { const mo = monthIdx(m[2]); if (mo) push(toIso(+m[3], mo, +m[1])); }
-
-    return found;
-  };
-
-  // Tolerant parser: supports JSON, URL query strings, and "KEY: VALUE" / "KEY=VALUE" payloads
-  const parsePsaQrPayload = (payload: string) => {
-    const fields: Record<string, string> = {};
-    const add = (k: string, v: any) => {
-      if (v === undefined || v === null || !String(v).trim()) return;
-      fields[k.toLowerCase().replace(/[^a-z]/g, '')] = String(v).trim();
-    };
-
-    let isJson = false;
-    try {
-      const obj = JSON.parse(payload);
-      if (obj && typeof obj === 'object') {
-        isJson = true;
-        const walk = (o: any) => Object.entries(o).forEach(([k, v]) => (v && typeof v === 'object') ? walk(v) : add(k, v));
-        walk(obj);
-      }
-    } catch { /* not JSON */ }
-
-    if (!isJson) {
-      try { new URL(payload).searchParams.forEach((v, k) => add(k, v)); } catch { /* not a URL */ }
-      payload.split(/[\r\n|;]+/).forEach(seg => {
-        const kv = seg.match(/^\s*([A-Za-z][A-Za-z _.\-]{1,40}?)\s*[:=]\s*(.+)$/);
-        if (kv) add(kv[1], kv[2]);
-      });
-    }
-
-    // Ignore parent / registrar fields so we only read the document owner's details
-    const ownerKeys = Object.keys(fields).filter(k => !/father|mother|parent|spouse|informant|registrar|officer|attendant/.test(k));
-    const find = (...patterns: RegExp[]) => {
-      for (const p of patterns) {
-        const key = ownerKeys.find(k => p.test(k));
-        if (key) return fields[key];
-      }
-      return undefined;
-    };
-
-    return {
-      lastName: find(/^(last|sur|family)name$/, /^(lname|surname|apelyido)$/, /last|surname/),
-      firstName: find(/^(first|given)names?$/, /^(fname|given)$/, /first|given/),
-      middleName: find(/^middlename$/, /^mname$/, /middle/),
-      fullName: find(/^(full)?name$/, /^(child|owner|registrant|document)s?(full)?name$/, /name/),
-      dob: find(/^(dateofbirth|birthdate|dob|bdate|birthday)$/, /birth|dob/),
-    };
-  };
-
+  // ---------------- PSA QR & OSCA ID Cross-Verification Helpers ----------------
   type PsaQrComparison = {
     status: 'PASS' | 'FLAGGED';
     nameMatch: boolean;
@@ -1014,6 +1096,95 @@ export default function SeniorRegistryPage() {
     });
   };
 
+  // Cross-checks the 5 extracted OSCA ID fields (OCR primary, QR fallback) against the Application Form
+  const compareOscaIdWithForm = (
+    fields: OscaExtractedFields,
+    form: {
+      last_name: string;
+      given_name: string;
+      middle_name: string;
+      osca_id_number: string;
+      date_of_birth: string;
+      sex: string;
+      civil_status: string;
+    }
+  ): OscaCrossComparison => {
+    const extractedName = fields.name?.value || null;
+    const extractedOscaId = fields.osca_id?.value || null;
+    const extractedDob = fields.dob?.value || null;
+    const extractedSex = fields.sex?.value || null;
+    const extractedCivilStatus = fields.civil_status?.value || null;
+
+    // 1. Full Name (token-based comparison matching Last Name + Given Name)
+    const normFormGiven = normalizeName(form.given_name || '');
+    const normFormLast = normalizeName(form.last_name || '');
+    const normCardName = normalizeName(extractedName || '');
+
+    const givenTokens = normFormGiven.split(' ').filter(Boolean);
+    const lastTokens = normFormLast.split(' ').filter(Boolean);
+    const cardTokens = normCardName.split(' ').filter(Boolean);
+
+    const lastNameMatch = lastTokens.length > 0 && cardTokens.length > 0 && lastTokens.every(tok => cardTokens.includes(tok));
+    const givenNameMatch = givenTokens.length > 0 && cardTokens.length > 0 && givenTokens.some(tok => cardTokens.includes(tok));
+    const nameMatch = Boolean(lastNameMatch && givenNameMatch);
+
+    // 2. OSCA ID Number (14-digit comparison)
+    const formOsca = (form.osca_id_number || '').replace(/\D/g, '');
+    const cardOsca = (extractedOscaId || '').replace(/\D/g, '');
+    const oscaIdMatch = Boolean(formOsca && cardOsca && formOsca === cardOsca);
+
+    // 3. Date of Birth (ISO YYYY-MM-DD)
+    const formDob = (form.date_of_birth || '').trim();
+    const cardDob = (extractedDob || '').trim();
+    const dobMatch = Boolean(formDob && cardDob && formDob === cardDob);
+
+    // 4. Sex ('Male'/'Female' vs 'M'/'F')
+    const normFormSex = normalizeSexCode(form.sex);
+    const normCardSex = normalizeSexCode(extractedSex);
+    const sexMatch = Boolean(normFormSex && normCardSex && normFormSex === normCardSex);
+
+    // 5. Civil Status ('SINGLE', 'MARRIED', 'WIDOWED', 'SEPARATED', 'DIVORCED')
+    const normFormCs = normalizeCivilStatus(form.civil_status);
+    const normCardCs = normalizeCivilStatus(extractedCivilStatus);
+    const civilStatusMatch = Boolean(normFormCs && normCardCs && normFormCs === normCardCs);
+
+    const isMatch = Boolean(nameMatch && oscaIdMatch && dobMatch && sexMatch && civilStatusMatch);
+    const status: OscaCrossComparison['status'] = isMatch ? 'PASS' : 'FLAGGED';
+    const message = isMatch
+      ? 'Match: Application Form details match OSCA ID card.'
+      : 'Mismatch: Application Form details do not match OSCA ID card.';
+
+    return {
+      status,
+      nameMatch,
+      oscaIdMatch,
+      dobMatch,
+      sexMatch,
+      civilStatusMatch,
+      extractedName,
+      extractedOscaId,
+      extractedDob,
+      extractedSex,
+      extractedCivilStatus,
+      sources: {
+        name: fields.name?.source || null,
+        osca_id: fields.osca_id?.source || null,
+        dob: fields.dob?.source || null,
+        sex: fields.sex?.source || null,
+        civil_status: fields.civil_status?.source || null,
+      },
+      message,
+    };
+  };
+
+  const resetOscaCard = () => {
+    oscaCardRef.current = null;
+    setAutoCheckResults((prev: any) => {
+      const { osca_cross_check: _removed, ...rest } = prev || {};
+      return rest;
+    });
+  };
+
   // Whenever the applicant's Name or DOB is edited at the top of the form,
   // re-compare against the temporarily stored PSA QR payload (stored in psaQrRef.current)
   useEffect(() => {
@@ -1055,6 +1226,41 @@ export default function SeniorRegistryPage() {
       };
     });
   }, [formData.last_name, formData.given_name, formData.middle_name, formData.date_of_birth]);
+
+  // Whenever any of the 5 OSCA ID fields (Full Name, OSCA ID Number, Date of Birth, Sex, Civil Status)
+  // is edited in the Application Form, re-compare against the stored OSCA ID card extraction
+  useEffect(() => {
+    if (!oscaCardRef.current) return;
+    const oscaCmp = compareOscaIdWithForm(oscaCardRef.current, formData);
+    setAutoCheckResults((prev: any) => ({
+      ...prev,
+      osca_cross_check: oscaCmp,
+      ocr_osca: {
+        status: oscaCmp.status,
+        name_match: oscaCmp.nameMatch,
+        osca_id_match: oscaCmp.oscaIdMatch,
+        dob_match: oscaCmp.dobMatch,
+        sex_match: oscaCmp.sexMatch,
+        civil_status_match: oscaCmp.civilStatusMatch,
+        message: oscaCmp.message,
+      },
+    }));
+    setVerificationState(prev => {
+      if (!prev || prev.fieldName !== 'primary_id_file') return prev;
+      return {
+        ...prev,
+        oscaCrossCheck: oscaCmp,
+      };
+    });
+  }, [
+    formData.last_name,
+    formData.given_name,
+    formData.middle_name,
+    formData.osca_id_number,
+    formData.date_of_birth,
+    formData.sex,
+    formData.civil_status,
+  ]);
 
   // Decodes the PSA QR: server-side ZXing/OpenCV first, browser jsQR fallback
   const extractPsaQrPayload = async (
@@ -1163,7 +1369,7 @@ export default function SeniorRegistryPage() {
         : `${Math.round(file.size / 1024)} KB`;
 
       const isImgFile = file.type.startsWith('image/') || !!file.name.toUpperCase().match(/\.(JPG|JPEG|PNG|WEBP)$/);
-      const initialPreviewUrl = isImgFile ? URL.createObjectURL(file) : undefined;
+      const initialPreviewUrl = isImgFile ? createTrackedBlobUrl(file) : undefined;
 
       setVerificationState({
         isOpen: true,
@@ -1228,6 +1434,7 @@ export default function SeniorRegistryPage() {
         let detectedFaceCropUrl: string | undefined = undefined;
         let psaQrResult: VerificationState['psaQr'] = undefined;
         let oscaValidationRes: VerificationState['oscaValidation'] = undefined;
+        let oscaCrossCheckResult: VerificationState['oscaCrossCheck'] = undefined;
 
         // 1. PSA QR Code
         if (field === 'psa_cert_file') {
@@ -1236,7 +1443,7 @@ export default function SeniorRegistryPage() {
 
           if (isPdf) {
             try {
-              const { numPages, canvas, qrCanvas } = await parsePdfPageAndText(buffer, 3);
+              const { canvas, qrCanvas } = await parsePdfPageAndText(buffer, 3);
               previewUrl = canvas.toDataURL('image/jpeg', 0.88);
               imageDimensions = `${canvas.width} × ${canvas.height} px (Page 1)`;
               qrCanvasOrImg = qrCanvas || canvas;
@@ -1248,7 +1455,7 @@ export default function SeniorRegistryPage() {
           } else if (isImage) {
             try {
               const img = new Image();
-              previewUrl = URL.createObjectURL(file);
+              previewUrl = initialPreviewUrl || createTrackedBlobUrl(file);
               img.src = previewUrl;
               await new Promise(r => { img.onload = r; img.onerror = r; });
               imageDimensions = `${img.naturalWidth || img.width} × ${img.naturalHeight || img.height} px`;
@@ -1322,10 +1529,9 @@ export default function SeniorRegistryPage() {
           detectedType = 'OSCA ID Card';
           let oscaCanvasOrImg: HTMLCanvasElement | HTMLImageElement | null = null;
 
-
           if (isPdf) {
             try {
-              const { numPages, canvas, text } = await parsePdfPageAndText(buffer);
+              const { numPages, canvas } = await parsePdfPageAndText(buffer);
               if (numPages !== 1) {
                 finalStatus = 'FAIL';
                 errorMessage = `Rejected: PDF must be exactly 1 page. (Detected ${numPages} pages).`;
@@ -1342,7 +1548,7 @@ export default function SeniorRegistryPage() {
           } else if (isImage) {
             try {
               const img = new Image();
-              previewUrl = URL.createObjectURL(file);
+              previewUrl = initialPreviewUrl || createTrackedBlobUrl(file);
               img.src = previewUrl;
               await new Promise(r => { img.onload = r; img.onerror = r; });
               imageDimensions = `${img.naturalWidth || img.width} × ${img.naturalHeight || img.height} px`;
@@ -1357,27 +1563,14 @@ export default function SeniorRegistryPage() {
             errorMessage = 'Rejected: Must be a PDF or Image (JPG/PNG).';
           }
 
-          // Two-Tier OSCA ID Validation (Stage 1: Structural & Stage 2: Data Content)
+          // Two-Tier OSCA ID Validation (Stage 1: Structural & Stage 2: Data Content + 5-Field Extraction)
           if (finalStatus === 'PASS' && oscaCanvasOrImg) {
             try {
-              let imgBase64: string | undefined = undefined;
-              if (oscaCanvasOrImg instanceof HTMLCanvasElement) {
-                imgBase64 = oscaCanvasOrImg.toDataURL('image/jpeg', 0.9);
-              } else {
-                const c = document.createElement('canvas');
-                c.width = oscaCanvasOrImg.naturalWidth || oscaCanvasOrImg.width;
-                c.height = oscaCanvasOrImg.naturalHeight || oscaCanvasOrImg.height;
-                const ctx = c.getContext('2d');
-                if (ctx) {
-                  ctx.drawImage(oscaCanvasOrImg, 0, 0);
-                  imgBase64 = c.toDataURL('image/jpeg', 0.9);
-                }
-              }
-
               const oscaFormData = new FormData();
-              if (imgBase64) {
-                oscaFormData.append('image_base64', imgBase64);
+              if (oscaCanvasOrImg instanceof HTMLCanvasElement) {
+                oscaFormData.append('image_base64', oscaCanvasOrImg.toDataURL('image/jpeg', 0.9));
               } else {
+                // Directly append raw image File to avoid unnecessary offscreen canvas & base64 memory allocation
                 oscaFormData.append('file', file);
               }
               oscaFormData.append('first_name', formData.given_name || '');
@@ -1397,6 +1590,10 @@ export default function SeniorRegistryPage() {
                 if (oscaValidationRes && oscaValidationRes.overall_status !== 'PASS') {
                   finalStatus = 'FAIL';
                   errorMessage = oscaValidationRes.summary_message || 'OSCA ID verification failed.';
+                  oscaCardRef.current = null;
+                } else if (oscaValidationRes?.stage2?.extracted_fields) {
+                  oscaCardRef.current = oscaValidationRes.stage2.extracted_fields;
+                  oscaCrossCheckResult = compareOscaIdWithForm(oscaValidationRes.stage2.extracted_fields, formData);
                 }
               }
             } catch (vErr) {
@@ -1405,6 +1602,18 @@ export default function SeniorRegistryPage() {
 
             // Extract face from OSCA ID
             const faceDetails = await extractFaceDetails(oscaCanvasOrImg, file);
+            const ocrOscaSummary = oscaCrossCheckResult
+              ? {
+                  status: oscaCrossCheckResult.status,
+                  name_match: oscaCrossCheckResult.nameMatch,
+                  osca_id_match: oscaCrossCheckResult.oscaIdMatch,
+                  dob_match: oscaCrossCheckResult.dobMatch,
+                  sex_match: oscaCrossCheckResult.sexMatch,
+                  civil_status_match: oscaCrossCheckResult.civilStatusMatch,
+                  message: oscaCrossCheckResult.message,
+                }
+              : { status: oscaValidationRes?.overall_status || 'PASS' };
+
             if (faceDetails) {
               faceDetected = true;
               faceConfidence = faceDetails.confidence;
@@ -1416,6 +1625,8 @@ export default function SeniorRegistryPage() {
                 faceMatchScore = comp.similarity;
                 if (finalStatus === 'FAIL') {
                   matchNote = errorMessage || oscaValidationRes?.summary_message || 'OSCA ID structural verification failed.';
+                } else if (oscaCrossCheckResult && oscaCrossCheckResult.status === 'FLAGGED') {
+                  matchNote = oscaCrossCheckResult.message;
                 } else {
                   matchNote = `Face portrait isolated (${faceDetails.confidence}% confidence). Biometric match with 2x2 photo: ${comp.similarity}%.`;
                 }
@@ -1423,7 +1634,8 @@ export default function SeniorRegistryPage() {
                   ...prev,
                   osca_hash: fileHash,
                   osca_validation: oscaValidationRes,
-                  ocr_osca: { status: oscaValidationRes?.overall_status || 'PASS' },
+                  osca_cross_check: oscaCrossCheckResult,
+                  ocr_osca: ocrOscaSummary,
                   face_match: {
                     status: comp.isMatch ? 'PASS' : (comp.similarity >= 50 ? 'NEEDS_REVIEW' : 'FLAGGED'),
                     similarity_pct: comp.similarity,
@@ -1434,6 +1646,8 @@ export default function SeniorRegistryPage() {
               } else {
                 if (finalStatus === 'FAIL') {
                   matchNote = errorMessage || oscaValidationRes?.summary_message || 'OSCA ID structural verification failed.';
+                } else if (oscaCrossCheckResult && oscaCrossCheckResult.status === 'FLAGGED') {
+                  matchNote = oscaCrossCheckResult.message;
                 } else {
                   matchNote = oscaValidationRes?.summary_message || `Face portrait isolated from OSCA ID (${faceDetails.confidence}% confidence). Upload 2x2 photo for automated comparison.`;
                 }
@@ -1441,17 +1655,21 @@ export default function SeniorRegistryPage() {
                   ...prev,
                   osca_hash: fileHash,
                   osca_validation: oscaValidationRes,
-                  ocr_osca: { status: oscaValidationRes?.overall_status || 'PASS' }
+                  osca_cross_check: oscaCrossCheckResult,
+                  ocr_osca: ocrOscaSummary,
                 }));
               }
             } else {
               faceDetected = false;
-              matchNote = oscaValidationRes?.summary_message || 'OSCA ID uploaded. Face landmark not clearly detected; flagged for manual comparison.';
+              matchNote = (oscaCrossCheckResult && oscaCrossCheckResult.status === 'FLAGGED')
+                ? oscaCrossCheckResult.message
+                : (oscaValidationRes?.summary_message || 'OSCA ID uploaded. Face landmark not clearly detected; flagged for manual comparison.');
               setAutoCheckResults((prev: any) => ({
                 ...prev,
                 osca_hash: fileHash,
                 osca_validation: oscaValidationRes,
-                ocr_osca: { status: oscaValidationRes?.overall_status || 'PASS' },
+                osca_cross_check: oscaCrossCheckResult,
+                ocr_osca: ocrOscaSummary,
                 face_match: {
                   status: 'NEEDS_REVIEW',
                   message: 'OSCA ID face requires manual admin review.'
@@ -1470,7 +1688,7 @@ export default function SeniorRegistryPage() {
           } else {
             try {
               const img = new Image();
-              previewUrl = URL.createObjectURL(file);
+              previewUrl = initialPreviewUrl || createTrackedBlobUrl(file);
               img.src = previewUrl;
               await new Promise(r => { img.onload = r; img.onerror = r; });
               imageDimensions = `${img.naturalWidth || img.width} × ${img.naturalHeight || img.height} px`;
@@ -1539,7 +1757,8 @@ export default function SeniorRegistryPage() {
           fileSizeStr: fileSizeStr || prev.fileSizeStr,
           imageDimensions,
           psaQr: psaQrResult,
-          oscaValidation: oscaValidationRes
+          oscaValidation: oscaValidationRes,
+          oscaCrossCheck: oscaCrossCheckResult,
         } : null);
       };
 
@@ -1570,7 +1789,7 @@ export default function SeniorRegistryPage() {
             <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-indigo-600 transition-colors" size={18} />
             <input type="text" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} placeholder="Search Name or ID..." className="w-full pl-11 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:bg-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-all text-sm font-medium shadow-sm" />
           </form>
-          <button onClick={() => { setFormData(initialFormState); resetPsaQr(); setIsEditMode(false); setReturnedCorrectionInfo(null); setIsModalOpen(true); }} className="flex items-center justify-center gap-2 px-6 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl shadow-lg shadow-indigo-500/20 transition-all hover:-translate-y-0.5 whitespace-nowrap text-sm font-bold w-full md:w-auto">
+          <button onClick={() => { setFormData(initialFormState); resetPsaQr(); resetOscaCard(); revokeBlobUrls(); setIsEditMode(false); setReturnedCorrectionInfo(null); setIsModalOpen(true); }} className="flex items-center justify-center gap-2 px-6 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl shadow-lg shadow-indigo-500/20 transition-all hover:-translate-y-0.5 whitespace-nowrap text-sm font-bold w-full md:w-auto">
             <Plus size={18} />
             <span>New Record</span>
           </button>
@@ -1587,8 +1806,8 @@ export default function SeniorRegistryPage() {
             setCurrentPage(1);
           }}
           className={`px-3 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center gap-1.5 border shadow-sm ${registrationStatusFilter === 'RETURNED'
-              ? 'bg-amber-500 text-white border-amber-600 ring-2 ring-amber-300 shadow-amber-200'
-              : 'bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100'
+            ? 'bg-amber-500 text-white border-amber-600 ring-2 ring-amber-300 shadow-amber-200'
+            : 'bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100'
             }`}
           title="Filter to show records returned by admin for correction"
         >
@@ -1602,8 +1821,8 @@ export default function SeniorRegistryPage() {
           value={registrationStatusFilter}
           onChange={(e) => { setRegistrationStatusFilter(e.target.value); setCurrentPage(1); }}
           className={`px-4 py-2 bg-white border rounded-xl text-xs font-bold outline-none transition-all cursor-pointer ${registrationStatusFilter === 'RETURNED'
-              ? 'border-amber-400 bg-amber-50 text-amber-900 ring-2 ring-amber-400/20'
-              : 'border-slate-200 text-slate-600 focus:border-indigo-400'
+            ? 'border-amber-400 bg-amber-50 text-amber-900 ring-2 ring-amber-400/20'
+            : 'border-slate-200 text-slate-600 focus:border-indigo-400'
             }`}
         >
           <option value="all">ALL REG. STATUS</option>
@@ -1675,10 +1894,10 @@ export default function SeniorRegistryPage() {
                         </button>
                       ) : (
                         <span className={`px-2 py-0.5 rounded text-[8px] font-black border uppercase tracking-widest ${senior.registration_status === 'APPROVED' ? 'bg-emerald-50 text-emerald-600 border-emerald-200' :
-                            senior.registration_status === 'PENDING_REVIEW' ? 'bg-amber-50 text-amber-600 border-amber-200' :
-                              senior.registration_status === 'UNDER_REVIEW' ? 'bg-indigo-50 text-indigo-600 border-indigo-200' :
-                                senior.registration_status === 'REJECTED' ? 'bg-rose-50 text-rose-600 border-rose-200' :
-                                  'bg-slate-50 text-slate-600 border-slate-200'
+                          senior.registration_status === 'PENDING_REVIEW' ? 'bg-amber-50 text-amber-600 border-amber-200' :
+                            senior.registration_status === 'UNDER_REVIEW' ? 'bg-indigo-50 text-indigo-600 border-indigo-200' :
+                              senior.registration_status === 'REJECTED' ? 'bg-rose-50 text-rose-600 border-rose-200' :
+                                'bg-slate-50 text-slate-600 border-slate-200'
                           }`}>{senior.registration_status ? senior.registration_status.replace('_', ' ') : 'PENDING REVIEW'}</span>
                       )}
                     </div>
@@ -1788,8 +2007,8 @@ export default function SeniorRegistryPage() {
                         maxLength={14}
                         value={formData.osca_id_number}
                         onChange={(e) => setFormData({ ...formData, osca_id_number: handleNumberInput(e.target.value) })}
-                        className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold font-mono tracking-wider text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-all shadow-sm"
-                        placeholder="14-digit OSCA ID Number (e.g. 00700000153184)"
+                        className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold"
+                        placeholder="14-digit OSCA ID Number (e.g. 88899912345678)"
                       />
                     </div>
                     <div className="grid grid-cols-1 gap-4">
@@ -2234,8 +2453,8 @@ export default function SeniorRegistryPage() {
                   type="submit"
                   disabled={isSubmitting}
                   className={`flex items-center gap-2 px-8 py-4 text-white rounded-2xl font-black text-sm uppercase tracking-widest transition-all shadow-xl disabled:opacity-50 ${returnedCorrectionInfo
-                      ? 'bg-amber-600 hover:bg-amber-700 shadow-amber-200'
-                      : 'bg-indigo-600 hover:bg-indigo-700 shadow-indigo-200'
+                    ? 'bg-amber-600 hover:bg-amber-700 shadow-amber-200'
+                    : 'bg-indigo-600 hover:bg-indigo-700 shadow-indigo-200'
                     }`}
                 >
                   {isSubmitting ? 'Uploading...' : (isEditMode ? (returnedCorrectionInfo ? 'Resubmit for Verification' : 'Save Changes') : 'Complete Entry')}
@@ -2456,17 +2675,15 @@ export default function SeniorRegistryPage() {
                 <div className="space-y-6">
                   {/* Status Banner */}
                   {verificationState.fieldName === 'psa_cert_file' ? (
-                    <div className={`p-6 rounded-[24px] border flex items-center justify-between transition-all ${
-                      verificationState.status === 'FAIL' || verificationState.psaQr?.status === 'FLAGGED'
-                        ? 'bg-rose-50 border-rose-100 text-rose-800'
-                        : 'bg-emerald-50 border-emerald-100 text-emerald-800'
-                    }`}>
+                    <div className={`p-6 rounded-[24px] border flex items-center justify-between transition-all ${verificationState.status === 'FAIL' || verificationState.psaQr?.status === 'FLAGGED'
+                      ? 'bg-rose-50 border-rose-100 text-rose-800'
+                      : 'bg-emerald-50 border-emerald-100 text-emerald-800'
+                      }`}>
                       <div className="flex items-center gap-4">
-                        <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 ${
-                          verificationState.status === 'FAIL' || verificationState.psaQr?.status === 'FLAGGED'
-                            ? 'bg-rose-500 text-white'
-                            : 'bg-emerald-500 text-white'
-                        }`}>
+                        <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 ${verificationState.status === 'FAIL' || verificationState.psaQr?.status === 'FLAGGED'
+                          ? 'bg-rose-500 text-white'
+                          : 'bg-emerald-500 text-white'
+                          }`}>
                           {verificationState.status === 'FAIL' || verificationState.psaQr?.status === 'FLAGGED' ? (
                             <X size={24} />
                           ) : (
@@ -2483,25 +2700,25 @@ export default function SeniorRegistryPage() {
                             {verificationState.errorMessage
                               ? verificationState.errorMessage
                               : (verificationState.psaQr?.status === 'PASS'
-                                  ? 'Name and Date of Birth match the PSA QR code.'
-                                  : (verificationState.matchNote || 'Personal Information does not match PSA QR code details.'))}
+                                ? 'Name and Date of Birth match the PSA QR code.'
+                                : (verificationState.matchNote || 'Personal Information does not match PSA QR code details.'))}
                           </p>
                         </div>
                       </div>
                     </div>
                   ) : (
-                    <div className={`p-6 rounded-[24px] border flex items-center justify-between transition-all ${verificationState.status === 'FAIL'
-                        ? 'bg-rose-50 border-rose-100 text-rose-800'
-                        : (needsManualReview(verificationState)
-                          ? 'bg-amber-50/90 border-amber-200/80 text-amber-900'
-                          : 'bg-emerald-50 border-emerald-100 text-emerald-800')
+                    <div className={`p-6 rounded-[24px] border flex items-center justify-between transition-all ${verificationState.status === 'FAIL' || (verificationState.fieldName === 'primary_id_file' && verificationState.oscaCrossCheck?.status === 'FLAGGED')
+                      ? 'bg-rose-50 border-rose-100 text-rose-800'
+                      : (needsManualReview(verificationState)
+                        ? 'bg-amber-50/90 border-amber-200/80 text-amber-900'
+                        : 'bg-emerald-50 border-emerald-100 text-emerald-800')
                       }`}>
                       <div className="flex items-center gap-4">
-                        <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 ${verificationState.status === 'FAIL'
-                            ? 'bg-rose-500 text-white'
-                            : (needsManualReview(verificationState) ? 'bg-amber-500 text-white' : 'bg-emerald-500 text-white')
+                        <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 ${verificationState.status === 'FAIL' || (verificationState.fieldName === 'primary_id_file' && verificationState.oscaCrossCheck?.status === 'FLAGGED')
+                          ? 'bg-rose-500 text-white'
+                          : (needsManualReview(verificationState) ? 'bg-amber-500 text-white' : 'bg-emerald-500 text-white')
                           }`}>
-                          {verificationState.status === 'FAIL' ? (
+                          {verificationState.status === 'FAIL' || (verificationState.fieldName === 'primary_id_file' && verificationState.oscaCrossCheck?.status === 'FLAGGED') ? (
                             <X size={24} />
                           ) : (
                             needsManualReview(verificationState) ? <AlertCircle size={24} /> : <CheckSquare size={24} />
@@ -2511,14 +2728,20 @@ export default function SeniorRegistryPage() {
                           <h4 className="text-sm font-black uppercase tracking-wider">
                             {verificationState.status === 'FAIL'
                               ? 'Document Rejected'
-                              : (needsManualReview(verificationState)
-                                ? 'Format Verified • Queued for Manual Admin Review'
-                                : 'Format & Biometrics Pre-Check Verified')}
+                              : (verificationState.fieldName === 'primary_id_file' && verificationState.oscaCrossCheck?.status === 'FLAGGED'
+                                ? 'OSCA ID Data Mismatch'
+                                : (needsManualReview(verificationState)
+                                  ? 'Format Verified • Queued for Manual Admin Review'
+                                  : (verificationState.fieldName === 'primary_id_file' && verificationState.oscaCrossCheck?.status === 'PASS'
+                                    ? 'Format, Biometrics & OSCA ID Data Verified'
+                                    : 'Format & Biometrics Pre-Check Verified')))}
                           </h4>
                           <p className="text-xs font-bold opacity-80 mt-0.5 uppercase tracking-wider">
                             {verificationState.errorMessage
                               ? verificationState.errorMessage
-                              : (verificationState.matchNote || `Document meets required formatting standards.`)}
+                              : (verificationState.fieldName === 'primary_id_file' && verificationState.oscaCrossCheck
+                                ? verificationState.oscaCrossCheck.message
+                                : (verificationState.matchNote || `Document meets required formatting standards.`))}
                           </p>
                         </div>
                       </div>
@@ -2581,11 +2804,10 @@ export default function SeniorRegistryPage() {
                           <h5 className="text-[10px] font-black uppercase tracking-widest text-slate-400">
                             PSA QR Code Cross-Check
                           </h5>
-                          <div className={`p-4 rounded-3xl border space-y-3 shadow-sm ${
-                            verificationState.psaQr.status === 'PASS'
-                              ? 'bg-emerald-50/70 border-emerald-200/80'
-                              : 'bg-rose-50/70 border-rose-200/80'
-                          }`}>
+                          <div className={`p-4 rounded-3xl border space-y-3 shadow-sm ${verificationState.psaQr.status === 'PASS'
+                            ? 'bg-emerald-50/70 border-emerald-200/80'
+                            : 'bg-rose-50/70 border-rose-200/80'
+                            }`}>
                             <div className="flex items-center justify-between">
                               <div className="flex items-center gap-2 font-black text-xs uppercase tracking-wider text-slate-800">
                                 {verificationState.psaQr.detected
@@ -2593,11 +2815,10 @@ export default function SeniorRegistryPage() {
                                   : <AlertCircle size={16} className="text-rose-600 shrink-0" />}
                                 <span>{verificationState.psaQr.detected ? 'QR CODE DECODED' : 'QR CODE NOT READABLE'}</span>
                               </div>
-                              <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${
-                                verificationState.psaQr.status === 'PASS'
-                                  ? 'bg-emerald-100 text-emerald-700'
-                                  : 'bg-rose-100 text-rose-700'
-                              }`}>
+                              <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${verificationState.psaQr.status === 'PASS'
+                                ? 'bg-emerald-100 text-emerald-700'
+                                : 'bg-rose-100 text-rose-700'
+                                }`}>
                                 {verificationState.psaQr.status === 'PASS' ? 'MATCH' : 'MISMATCH'}
                               </span>
                             </div>
@@ -2736,8 +2957,8 @@ export default function SeniorRegistryPage() {
                               Automated Cross-Match
                             </div>
                             <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${verificationState.faceMatchScore >= 70
-                                ? 'bg-emerald-100 text-emerald-700'
-                                : (verificationState.faceMatchScore >= 50 ? 'bg-amber-100 text-amber-700' : 'bg-rose-100 text-rose-700')
+                              ? 'bg-emerald-100 text-emerald-700'
+                              : (verificationState.faceMatchScore >= 50 ? 'bg-amber-100 text-amber-700' : 'bg-rose-100 text-rose-700')
                               }`}>
                               {verificationState.faceMatchScore}% Match
                             </span>
@@ -2747,8 +2968,8 @@ export default function SeniorRegistryPage() {
                           <div className="w-full h-2 bg-indigo-100 rounded-full overflow-hidden">
                             <div
                               className={`h-full transition-all duration-700 rounded-full ${verificationState.faceMatchScore >= 70
-                                  ? 'bg-emerald-500'
-                                  : (verificationState.faceMatchScore >= 50 ? 'bg-amber-500' : 'bg-rose-500')
+                                ? 'bg-emerald-500'
+                                : (verificationState.faceMatchScore >= 50 ? 'bg-amber-500' : 'bg-rose-500')
                                 }`}
                               style={{ width: `${verificationState.faceMatchScore}%` }}
                             />
@@ -2760,7 +2981,7 @@ export default function SeniorRegistryPage() {
                         </div>
                       )}
 
-                                            {/* Two-Tier OSCA ID Validation Card */}
+                      {/* Two-Tier OSCA ID Validation Card */}
                       {verificationState.fieldName === 'primary_id_file' && verificationState.oscaValidation && (
                         <div className="space-y-3">
                           <h5 className="text-[10px] font-black uppercase tracking-widest text-slate-400">
@@ -2768,25 +2989,22 @@ export default function SeniorRegistryPage() {
                           </h5>
 
                           {/* Stage 1: Structural & Layout Verification */}
-                          <div className={`p-4 rounded-2xl border transition-all ${
-                            verificationState.oscaValidation.stage1.passed
-                              ? 'bg-emerald-50/70 border-emerald-200'
-                              : 'bg-rose-50/70 border-rose-200'
-                          }`}>
+                          <div className={`p-4 rounded-2xl border transition-all ${verificationState.oscaValidation.stage1.passed
+                            ? 'bg-emerald-50/70 border-emerald-200'
+                            : 'bg-rose-50/70 border-rose-200'
+                            }`}>
                             <div className="flex items-center justify-between pb-2 mb-2 border-b border-slate-200/50">
                               <div className="flex items-center gap-2">
-                                <span className={`px-2 py-0.5 rounded-lg text-[9px] font-black uppercase tracking-wider ${
-                                  verificationState.oscaValidation.stage1.passed ? 'bg-emerald-600 text-white' : 'bg-rose-600 text-white'
-                                }`}>
+                                <span className={`px-2 py-0.5 rounded-lg text-[9px] font-black uppercase tracking-wider ${verificationState.oscaValidation.stage1.passed ? 'bg-emerald-600 text-white' : 'bg-rose-600 text-white'
+                                  }`}>
                                   Stage 1
                                 </span>
                                 <span className="font-black text-xs text-slate-800">
                                   Structural &amp; Layout Verification
                                 </span>
                               </div>
-                              <span className={`text-[10px] font-black uppercase flex items-center gap-1 ${
-                                verificationState.oscaValidation.stage1.passed ? 'text-emerald-700' : 'text-rose-700'
-                              }`}>
+                              <span className={`text-[10px] font-black uppercase flex items-center gap-1 ${verificationState.oscaValidation.stage1.passed ? 'text-emerald-700' : 'text-rose-700'
+                                }`}>
                                 {verificationState.oscaValidation.stage1.passed ? <CheckCircle2 size={13} /> : <X size={13} />}
                                 {verificationState.oscaValidation.stage1.passed ? 'PASSED' : 'FAILED'}
                               </span>
@@ -2813,9 +3031,8 @@ export default function SeniorRegistryPage() {
                               </div>
                               <div className="flex items-center justify-between">
                                 <span className="text-slate-600">Required Field Labels:</span>
-                                <span className={`font-bold ${
-                                  verificationState.oscaValidation.stage1.missing_labels.length === 0 ? 'text-emerald-600' : 'text-amber-600'
-                                }`}>
+                                <span className={`font-bold ${verificationState.oscaValidation.stage1.missing_labels.length === 0 ? 'text-emerald-600' : 'text-amber-600'
+                                  }`}>
                                   {verificationState.oscaValidation.stage1.missing_labels.length === 0
                                     ? 'All 9 Labels Intact'
                                     : `${9 - verificationState.oscaValidation.stage1.missing_labels.length}/9 Verified`}
@@ -2825,25 +3042,22 @@ export default function SeniorRegistryPage() {
                           </div>
 
                           {/* Stage 2: Data Content & Completeness Verification */}
-                          <div className={`p-4 rounded-2xl border transition-all ${
-                            verificationState.oscaValidation.stage2.passed
-                              ? 'bg-emerald-50/70 border-emerald-200'
-                              : (verificationState.oscaValidation.current_stage === 1 ? 'bg-slate-50 border-slate-200 opacity-60' : 'bg-rose-50/70 border-rose-200')
-                          }`}>
+                          <div className={`p-4 rounded-2xl border transition-all ${verificationState.oscaValidation.stage2.passed
+                            ? 'bg-emerald-50/70 border-emerald-200'
+                            : (verificationState.oscaValidation.current_stage === 1 ? 'bg-slate-50 border-slate-200 opacity-60' : 'bg-rose-50/70 border-rose-200')
+                            }`}>
                             <div className="flex items-center justify-between pb-2 mb-2 border-b border-slate-200/50">
                               <div className="flex items-center gap-2">
-                                <span className={`px-2 py-0.5 rounded-lg text-[9px] font-black uppercase tracking-wider ${
-                                  verificationState.oscaValidation.stage2.passed ? 'bg-emerald-600 text-white' : 'bg-rose-600 text-white'
-                                }`}>
+                                <span className={`px-2 py-0.5 rounded-lg text-[9px] font-black uppercase tracking-wider ${verificationState.oscaValidation.stage2.passed ? 'bg-emerald-600 text-white' : 'bg-rose-600 text-white'
+                                  }`}>
                                   Stage 2
                                 </span>
                                 <span className="font-black text-xs text-slate-800">
                                   Data Content &amp; Completeness Verification
                                 </span>
                               </div>
-                              <span className={`text-[10px] font-black uppercase flex items-center gap-1 ${
-                                verificationState.oscaValidation.stage2.passed ? 'text-emerald-700' : 'text-rose-700'
-                              }`}>
+                              <span className={`text-[10px] font-black uppercase flex items-center gap-1 ${verificationState.oscaValidation.stage2.passed ? 'text-emerald-700' : 'text-rose-700'
+                                }`}>
                                 {verificationState.oscaValidation.stage2.passed ? <CheckCircle2 size={13} /> : <X size={13} />}
                                 {verificationState.oscaValidation.stage2.passed ? 'PASSED' : (verificationState.oscaValidation.current_stage === 1 ? 'BLOCKED' : 'FAILED')}
                               </span>
@@ -2880,6 +3094,121 @@ export default function SeniorRegistryPage() {
                                   {verificationState.oscaValidation.stage2.osca_number_present ? (verificationState.oscaValidation.stage2.osca_id_number || 'Visible') : 'Missing'}
                                 </span>
                               </div>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* OSCA ID vs. Application Form 5-Field Cross-Verification */}
+                      {verificationState.fieldName === 'primary_id_file' && verificationState.oscaCrossCheck && (
+                        <div className="space-y-2">
+                          <h5 className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                            OSCA ID vs. Application Form Cross-Check
+                          </h5>
+                          <div className={`p-4 rounded-3xl border space-y-3 shadow-sm ${verificationState.oscaCrossCheck.status === 'PASS'
+                            ? 'bg-emerald-50/70 border-emerald-200/80'
+                            : 'bg-rose-50/70 border-rose-200/80'
+                            }`}>
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2 font-black text-xs uppercase tracking-wider text-slate-800">
+                                {verificationState.oscaCrossCheck.status === 'PASS'
+                                  ? <CheckCircle2 size={16} className="text-emerald-600 shrink-0" />
+                                  : <AlertCircle size={16} className="text-rose-600 shrink-0" />}
+                                <span>5-FIELD IDENTITY VERIFICATION</span>
+                              </div>
+                              <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${verificationState.oscaCrossCheck.status === 'PASS'
+                                ? 'bg-emerald-100 text-emerald-700'
+                                : 'bg-rose-100 text-rose-700'
+                                }`}>
+                                {verificationState.oscaCrossCheck.status === 'PASS' ? 'ALL MATCH' : 'MISMATCH'}
+                              </span>
+                            </div>
+
+                            <div className="space-y-2 text-[11px]">
+                              {[
+                                {
+                                  label: '1. FULL NAME',
+                                  match: verificationState.oscaCrossCheck.nameMatch,
+                                  formVal: [formData.given_name, formData.middle_name, formData.last_name].filter(Boolean).join(' ') || '—',
+                                  cardVal: verificationState.oscaCrossCheck.extractedName || 'Not readable on ID',
+                                  source: verificationState.oscaCrossCheck.sources.name,
+                                },
+                                {
+                                  label: '2. OSCA ID NUMBER',
+                                  match: verificationState.oscaCrossCheck.oscaIdMatch,
+                                  formVal: formData.osca_id_number || '—',
+                                  cardVal: verificationState.oscaCrossCheck.extractedOscaId || 'Not readable on ID',
+                                  source: verificationState.oscaCrossCheck.sources.osca_id,
+                                },
+                                {
+                                  label: '3. DATE OF BIRTH',
+                                  match: verificationState.oscaCrossCheck.dobMatch,
+                                  formVal: formData.date_of_birth || '—',
+                                  cardVal: verificationState.oscaCrossCheck.extractedDob || 'Not readable on ID',
+                                  source: verificationState.oscaCrossCheck.sources.dob,
+                                },
+                                {
+                                  label: '4. SEX',
+                                  match: verificationState.oscaCrossCheck.sexMatch,
+                                  formVal: formatSexDisplay(formData.sex),
+                                  cardVal: verificationState.oscaCrossCheck.extractedSex
+                                    ? formatSexDisplay(verificationState.oscaCrossCheck.extractedSex)
+                                    : 'Not readable on ID',
+                                  source: verificationState.oscaCrossCheck.sources.sex,
+                                },
+                                {
+                                  label: '5. CIVIL STATUS',
+                                  match: verificationState.oscaCrossCheck.civilStatusMatch,
+                                  formVal: normalizeCivilStatus(formData.civil_status) || '—',
+                                  cardVal: verificationState.oscaCrossCheck.extractedCivilStatus || 'Not readable on ID',
+                                  source: verificationState.oscaCrossCheck.sources.civil_status,
+                                },
+                              ].map((row, idx) => (
+                                <div key={idx} className="p-3 bg-white rounded-2xl border border-slate-100/80 space-y-1.5 shadow-sm">
+                                  <div className="flex items-center justify-between gap-2">
+                                    <div className="flex items-center gap-1.5">
+                                      <span className="text-[9px] font-black uppercase tracking-wider text-slate-400">
+                                        {row.label}
+                                      </span>
+                                      {row.source && (
+                                        <span className={`px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-wider ${row.source === 'OCR'
+                                          ? 'bg-indigo-50 text-indigo-600 border border-indigo-100'
+                                          : 'bg-amber-50 text-amber-700 border border-amber-200'
+                                          }`}>
+                                          {row.source === 'OCR' ? 'OCR' : 'QR Fallback'}
+                                        </span>
+                                      )}
+                                    </div>
+                                    {row.match ? (
+                                      <span className="text-[10px] font-black uppercase text-emerald-600 flex items-center gap-1">
+                                        <CheckCircle2 size={12} /> MATCH
+                                      </span>
+                                    ) : (
+                                      <span className="text-[10px] font-black uppercase text-rose-600 flex items-center gap-1">
+                                        <X size={12} /> NO MATCH
+                                      </span>
+                                    )}
+                                  </div>
+                                  <div className="grid grid-cols-2 gap-3 pt-0.5">
+                                    <div>
+                                      <div className="text-[8px] font-bold text-slate-400 uppercase tracking-wider">FORM</div>
+                                      <div className="font-bold text-slate-800 break-words text-xs leading-tight uppercase">
+                                        {row.formVal}
+                                      </div>
+                                    </div>
+                                    <div>
+                                      <div className="text-[8px] font-bold text-slate-400 uppercase tracking-wider">OSCA ID</div>
+                                      <div className="font-bold text-slate-800 break-words text-xs leading-tight uppercase">
+                                        {row.cardVal}
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
+                              ))}
+
+                              <p className="text-[10px] text-slate-500 font-medium pt-1">
+                                Primary extraction via OSCA ID OCR &amp; OCR-A glyph classifier, with automatic QR code fallback when a field is unreadable. Re-validated automatically as form fields are edited.
+                              </p>
                             </div>
                           </div>
                         </div>
@@ -2936,6 +3265,7 @@ export default function SeniorRegistryPage() {
                 type="button"
                 onClick={() => {
                   if (verificationState.fieldName === 'psa_cert_file') resetPsaQr();
+                  if (verificationState.fieldName === 'primary_id_file') resetOscaCard();
                   setFormData(prev => ({ ...prev, [verificationState.fieldName]: null }));
                   setVerificationState(null);
                 }}
@@ -2951,8 +3281,8 @@ export default function SeniorRegistryPage() {
                   setVerificationState(null);
                 }}
                 className={`px-8 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${(verificationState.stage === 'scanning' || verificationState.status === 'FAIL')
-                    ? 'bg-slate-100 text-slate-400 cursor-not-allowed shadow-none'
-                    : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-lg shadow-indigo-100'
+                  ? 'bg-slate-100 text-slate-400 cursor-not-allowed shadow-none'
+                  : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-lg shadow-indigo-100'
                   }`}
               >
                 Accept for Review
