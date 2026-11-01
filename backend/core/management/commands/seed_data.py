@@ -156,9 +156,8 @@ class Command(BaseCommand):
                 except ValueError:
                     dob = today.replace(year=today.year - target_age, month=2, day=28) - timedelta(days=random.randint(0, 364))
                 
-                # Unique OSCA ID (15-digit serial)
-                serial_num = f"{i:015d}"
-                osca_id = f"OSCA-2026-{serial_num}"
+                # Unique OSCA ID (14-digit numeric ID)
+                osca_id = f"{i:014d}"
                 
                 # Civil status selection (Married, Widowed, Single, Separated, Divorced)
                 civil_status = random.choices(['SINGLE', 'MARRIED', 'WIDOWED', 'SEPARATED', 'DIVORCED'], weights=[10, 45, 33, 8, 4])[0]

@@ -176,7 +176,7 @@ export default function SeniorRegistryPage() {
   };
 
   const initialFormState = {
-    rrn: '', osca_id_year: '', osca_id_serial: '',
+    rrn: '', osca_id_number: '',
     last_name: '', given_name: '', middle_name: '',
     date_of_birth: '', age: '',
     perm_house: '', perm_street: '', perm_brgy: '', perm_city: '', perm_prov: '', perm_zip: '',
@@ -315,7 +315,6 @@ export default function SeniorRegistryPage() {
     } else {
       setReturnedCorrectionInfo(null);
     }
-    const oscaParts = senior.osca_id ? senior.osca_id.split('-') : ['', '', ''];
     // Strip deprecated fields (email, primary beneficiary) from legacy records
     const { email: _email, primary_ben_name: _pbn, primary_ben_rel: _pbr, ...annexData } = senior.annex_a_data || {};
     resetPsaQr();
@@ -327,8 +326,7 @@ export default function SeniorRegistryPage() {
       middle_name: senior.middle_name || '',
       date_of_birth: senior.date_of_birth,
       age: calculateAge(senior.date_of_birth),
-      osca_id_year: oscaParts[1] || '',
-      osca_id_serial: oscaParts[2] || '',
+      osca_id_number: senior.osca_id || '',
       res_brgy: senior.barangay,
       res_district: getDistrictForBarangay(senior.barangay || ''),
       status: senior.status || 'ACTIVE',
@@ -411,8 +409,12 @@ export default function SeniorRegistryPage() {
       return;
     }
 
-    if (!formData.osca_id_year || !formData.osca_id_serial) {
-      openWarning("OSCA ID Required", "Please complete the OSCA ID details.");
+    if (!formData.osca_id_number) {
+      openWarning("OSCA ID Required", "Please provide the 14-digit OSCA ID Number.");
+      return;
+    }
+    if (formData.osca_id_number.length !== 14) {
+      openWarning("Invalid OSCA ID Number", "The OSCA ID Number must be exactly 14 digits.");
       return;
     }
 
@@ -479,13 +481,12 @@ export default function SeniorRegistryPage() {
 
     setIsSubmitting(true);
     try {
-      const fullOscaId = `OSCA-${formData.osca_id_year}-${formData.osca_id_serial}`;
       const fd = new FormData();
       fd.append('first_name', formData.given_name);
       fd.append('last_name', formData.last_name);
       fd.append('middle_name', formData.middle_name);
       fd.append('date_of_birth', formData.date_of_birth);
-      fd.append('osca_id', fullOscaId);
+      fd.append('osca_id', formData.osca_id_number.trim());
       fd.append('barangay', formData.res_brgy);
       fd.append('status', formData.status);
       fd.append('is_active', (formData.status === 'ACTIVE').toString());
@@ -1383,7 +1384,7 @@ export default function SeniorRegistryPage() {
               oscaFormData.append('last_name', formData.last_name || '');
               oscaFormData.append('middle_name', formData.middle_name || '');
               oscaFormData.append('date_of_birth', formData.date_of_birth || '');
-              oscaFormData.append('osca_id', formData.osca_id_serial || '');
+              oscaFormData.append('osca_id', formData.osca_id_number || '');
 
               const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api';
               const valRes = await fetch(`${apiBase}/validate-osca-id/`, {
@@ -1776,17 +1777,20 @@ export default function SeniorRegistryPage() {
                         <div className="group relative">
                           <Info size={12} className="text-slate-300 cursor-help" />
                           <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-56 p-2 bg-slate-800 text-white text-[10px] rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-20 font-medium text-center shadow-xl">
-                            Format: Year Issued (YYYY) and the 8-digit Serial Number.
+                            Official 14-digit OSCA ID Number directly below the QR code.
                             <div className="absolute top-full left-1/2 -translate-x-1/2 border-8 border-transparent border-t-slate-800"></div>
                           </div>
                         </div>
                       </label>
-                      <div className="flex items-center gap-2">
-                        <span className="px-4 py-4 bg-slate-100 border border-slate-200 rounded-2xl text-slate-400 font-black text-sm">OSCA-</span>
-                        <input required type="text" maxLength={4} value={formData.osca_id_year} onChange={(e) => setFormData({ ...formData, osca_id_year: handleNumberInput(e.target.value) })} className="w-24 px-4 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold text-center" placeholder="YYYY" />
-                        <span className="text-slate-300 font-bold">-</span>
-                        <input required type="text" maxLength={15} value={formData.osca_id_serial} onChange={(e) => setFormData({ ...formData, osca_id_serial: handleNumberInput(e.target.value) })} className="flex-1 px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold" placeholder="SC ID NO." />
-                      </div>
+                      <input
+                        required
+                        type="text"
+                        maxLength={14}
+                        value={formData.osca_id_number}
+                        onChange={(e) => setFormData({ ...formData, osca_id_number: handleNumberInput(e.target.value) })}
+                        className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold font-mono tracking-wider text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-all shadow-sm"
+                        placeholder="14-digit OSCA ID Number (e.g. 00700000153184)"
+                      />
                     </div>
                     <div className="grid grid-cols-1 gap-4">
                       <div className="space-y-2">
