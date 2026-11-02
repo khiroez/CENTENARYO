@@ -63,6 +63,21 @@ class ReviewLogSerializer(serializers.ModelSerializer):
             return f"{obj.reviewer.first_name} {obj.reviewer.last_name}".strip() or obj.reviewer.username
         return 'System'
 
+class SeniorListSerializer(serializers.ModelSerializer):
+    """Lightweight serializer for the Senior Registry list table (omits nested disbursements/anomalies and base64 blobs)."""
+    review_logs = ReviewLogSerializer(many=True, read_only=True)
+    reviewer_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Senior
+        exclude = ['auto_check_results']
+
+    def get_reviewer_name(self, obj):
+        if obj.reviewed_by:
+            return f"{obj.reviewed_by.first_name} {obj.reviewed_by.last_name}".strip() or obj.reviewed_by.username
+        return None
+
+
 class SeniorSerializer(serializers.ModelSerializer):
     # Kasama ang related disbursements at anomalies kapag finetch ang Senior!
     disbursements = DisbursementSerializer(many=True, read_only=True)

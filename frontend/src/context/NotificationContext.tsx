@@ -1,7 +1,6 @@
 "use client";
 
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { AlertTriangle, Gift, FileWarning, CheckCircle, TrendingDown, ShieldAlert } from 'lucide-react';
 
 export type NotificationType = 'ML_FLAG' | 'MILESTONE' | 'DOCUMENT' | 'PAYROLL' | 'SECURITY' | 'BUDGET';
 

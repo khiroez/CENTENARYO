@@ -20,6 +20,13 @@ HEADER_BANNER_PATH = os.path.join(TEMPLATES_DIR, 'header_crop.png')
 OCRA_DIGITS_PATH = os.path.join(TEMPLATES_DIR, 'ocra_digits.npy')
 
 _OCRA_PROTOS: Optional[np.ndarray] = None
+_TEMPLATE_CACHE: Dict[str, Optional[np.ndarray]] = {}
+
+
+def _get_cached_template(path: str) -> Optional[np.ndarray]:
+    if path not in _TEMPLATE_CACHE:
+        _TEMPLATE_CACHE[path] = cv2.imread(path) if os.path.exists(path) else None
+    return _TEMPLATE_CACHE[path]
 
 # Required field labels for Stage 1
 REQUIRED_STAGE1_LABELS = [
@@ -90,65 +97,15 @@ def _normalize_image_for_matching(img: np.ndarray, target_w: int = 1024, target_
     return img
 
 
-from concurrent.futures import ThreadPoolExecutor
-
-# Dedicated single-thread executor for WinRT OCR so COM/WinRT objects (Language, OcrEngine, SoftwareBitmap)
-# are initialized, cached, used, and released on a single persistent OS thread and never cross threads.
-_WINOCR_EXECUTOR = ThreadPoolExecutor(max_workers=1, thread_name_prefix="winocr_com_thread")
-_WINOCR_STATE: Dict[str, Any] = {"lang": None, "engine": None}
-
-
-def _winocr_worker_task(rgba_bytes: bytes, width: int, height: int) -> str:
-    import asyncio
-    from winrt.windows.media.ocr import OcrEngine
-    from winrt.windows.globalization import Language
-    from winrt.windows.storage.streams import DataWriter
-    from winrt.windows.graphics.imaging import SoftwareBitmap, BitmapPixelFormat
-
-    if _WINOCR_STATE["engine"] is None:
-        lang_obj = Language("en-US")
-        _WINOCR_STATE["lang"] = lang_obj
-        _WINOCR_STATE["engine"] = OcrEngine.try_create_from_language(lang_obj)
-
-    engine = _WINOCR_STATE["engine"]
-    if engine is None:
-        return ""
-
-    writer = DataWriter()
-    writer.write_bytes(rgba_bytes)
-    buf = writer.detach_buffer()
-    sb = SoftwareBitmap.create_copy_from_buffer(buf, BitmapPixelFormat.RGBA8, width, height)
-
-    async def _run():
-        return await engine.recognize_async(sb)
-
-    res = asyncio.run(_run())
-    text = str(res.text) if (res and hasattr(res, "text") and res.text) else ""
-    del res, sb, buf, writer
-    return text
-
-
-def safe_winocr_recognize_pil(pil_img: Image.Image) -> str:
-    """Thread-safe WinRT OCR wrapper that prevents 0xC0000005 COM apartment crashes in Django."""
-    try:
-        if pil_img.mode != "RGBA":
-            pil_img = pil_img.convert("RGBA")
-        raw = pil_img.tobytes()
-        w, h = pil_img.width, pil_img.height
-        future = _WINOCR_EXECUTOR.submit(_winocr_worker_task, raw, w, h)
-        return future.result(timeout=10.0)
-    except Exception as e:
-        print(f"[WinOCR] Notice: {e}")
-        return ""
-
-
 def _extract_ocr_text(img: np.ndarray) -> str:
     try:
+        import winocr
+        import asyncio
         rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
         pil_img = Image.fromarray(rgb)
-        text = safe_winocr_recognize_pil(pil_img)
-        if text:
-            return text
+        res = asyncio.run(winocr.recognize_pil(pil_img, lang='en-US'))
+        if res and hasattr(res, 'text') and res.text:
+            return res.text
     except Exception as e:
         print(f"[OSCA Validator] winocr error: {e}")
 
@@ -249,15 +206,15 @@ def _detect_id_number_under_qr(img: np.ndarray, qr_box: Optional[Tuple[int, int,
         if len(decoded_chars) >= 6:
             proto_digits = "".join(decoded_chars)
 
-    # 2. WinOCR fallback on the crop
+    # Prefer the full OCR-A glyph sequence immediately when it reads a 10..18 digit ID (avoids extra WinOCR pass)
+    if 10 <= len(proto_digits) <= 18:
+        return True, proto_digits
+
+    # 2. WinOCR fallback on the crop only when glyph classifier did not find a full ID
     ocr_res = _extract_ocr_text(under_crop).strip()
     cleaned = re.sub(r'[^0-9A-Za-z\-\s]', '', ocr_res).strip()
     tokens = [t for t in cleaned.split() if any(c.isdigit() for c in t) or t in ['BBB', '888', 'OSCA']]
     ocr_text_val = " ".join(tokens) if tokens else cleaned
-
-    # Prefer the full OCR-A glyph sequence when it reads a 10..18 digit ID
-    if 10 <= len(proto_digits) <= 18:
-        return True, proto_digits
 
     is_present = bool(tokens) or has_glyph_cluster or len(cleaned) >= 3
     return is_present, proto_digits or ocr_text_val
@@ -280,10 +237,10 @@ def validate_stage1_structure(img_norm: np.ndarray, ocr_text: str) -> Dict[str, 
         'reasons': []
     }
 
-    qc_logo = cv2.imread(QC_LOGO_PATH) if os.path.exists(QC_LOGO_PATH) else None
-    qc_logo_photo = cv2.imread(QC_LOGO_PHOTO_PATH) if os.path.exists(QC_LOGO_PHOTO_PATH) else None
-    osca_logo = cv2.imread(OSCA_LOGO_PATH) if os.path.exists(OSCA_LOGO_PATH) else None
-    header_crop = cv2.imread(HEADER_BANNER_PATH) if os.path.exists(HEADER_BANNER_PATH) else None
+    qc_logo = _get_cached_template(QC_LOGO_PATH)
+    qc_logo_photo = _get_cached_template(QC_LOGO_PHOTO_PATH)
+    osca_logo = _get_cached_template(OSCA_LOGO_PATH)
+    header_crop = _get_cached_template(HEADER_BANNER_PATH)
 
     search_region_qc = img_norm[0:360, 0:400]
     score_qc1 = _match_template_multiscale(search_region_qc, qc_logo) if qc_logo is not None else 0.0
@@ -523,8 +480,9 @@ def validate_stage2_content(img_norm: np.ndarray, ocr_text: str, raw_img: Option
         'reasons': []
     }
 
-    # 1. Locate and decode the QR code
+    # 1. Locate and decode the QR code in a single pass
     qr_box = None
+    qr_payload = ''
     target_img = raw_img if raw_img is not None else img_norm
     try:
         import zxingcpp
@@ -538,14 +496,19 @@ def validate_stage2_content(img_norm: np.ndarray, ocr_text: str, raw_img: Option
             pts = [(p.x, p.y) for p in [b.position.top_left, b.position.top_right, b.position.bottom_right, b.position.bottom_left]]
             qr_box = (max(0, min(p[0] for p in pts)), max(p[1] for p in pts),
                       min(target_img.shape[1], max(p[0] for p in pts)), target_img.shape[0])
+            if b.text:
+                qr_payload = b.text
     except Exception:
         pass
 
-    qr_res = decode_qr(target_img)
-    if not qr_res.get('qr_detected'):
-        qr_res = decode_qr(img_norm)
-    qr_payload = qr_res.get('payload', '') if qr_res.get('qr_detected') else ''
-    results['qr_code_present'] = bool(qr_res.get('qr_detected'))
+    if not qr_payload:
+        qr_res = decode_qr(target_img)
+        if not qr_res.get('qr_detected'):
+            qr_res = decode_qr(img_norm)
+        if qr_res.get('qr_detected'):
+            qr_payload = qr_res.get('payload', '')
+
+    results['qr_code_present'] = bool(qr_payload or qr_box is not None)
     if results['qr_code_present']:
         results['qr_data'] = qr_payload[:80]
     else:
@@ -558,8 +521,14 @@ def validate_stage2_content(img_norm: np.ndarray, ocr_text: str, raw_img: Option
         face_res = detect_face(img_norm[0:int(672 * 0.8), 0:int(1024 * 0.45)])
     if face_res.get('face_detected'):
         results['photo_present'] = True
+        results['face_details'] = {
+            'face_detected': True,
+            'confidence': face_res.get('confidence', 96.0),
+            'crop_data_url': face_res.get('crop_data_url', ''),
+            'features': face_res.get('features', []),
+        }
     else:
-        blank = cv2.imread(BLANK_TEMPLATE_PATH) if os.path.exists(BLANK_TEMPLATE_PATH) else None
+        blank = _get_cached_template(BLANK_TEMPLATE_PATH)
         if blank is not None:
             blank_photo = _normalize_image_for_matching(blank)[230:465, 60:255]
             sil_sim = float(cv2.matchTemplate(img_norm[230:465, 60:255], blank_photo, cv2.TM_CCOEFF_NORMED)[0][0])
@@ -593,9 +562,12 @@ def validate_stage2_content(img_norm: np.ndarray, ocr_text: str, raw_img: Option
     if not results['personal_info_populated']:
         results['reasons'].append("Personal information fields (Name, Date of Birth, Sex/Status) are empty or unreadable.")
 
-    # 5. Residential address: OCR of the block below Blood Type / Date Issued / Valid Until
-    address_ocr = _extract_ocr_text(img_norm[380:580, 180:650]).upper()
-    results['address_present'] = bool(_ADDRESS_RE.search(f"{ocr_text.upper()} {address_ocr}"))
+    # 5. Residential address: check full-card OCR first; only run region crop OCR if needed
+    has_addr = bool(_ADDRESS_RE.search(ocr_text.upper()))
+    if not has_addr:
+        address_ocr = _extract_ocr_text(img_norm[380:580, 180:650]).upper()
+        has_addr = bool(_ADDRESS_RE.search(address_ocr))
+    results['address_present'] = has_addr
     if not results['address_present']:
         results['reasons'].append("Residential address details are missing or unreadable.")
 

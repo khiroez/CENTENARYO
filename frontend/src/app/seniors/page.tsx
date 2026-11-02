@@ -268,6 +268,12 @@ export default function SeniorRegistryPage() {
         osca_number_present: boolean;
         osca_id_number?: string | null;
         extracted_fields?: OscaExtractedFields;
+        face_details?: {
+          face_detected: boolean;
+          confidence: number;
+          crop_data_url: string;
+          features: number[];
+        };
         reasons: string[];
       };
     };
@@ -1600,8 +1606,16 @@ export default function SeniorRegistryPage() {
               console.warn("Server-side OSCA validation notice:", vErr);
             }
 
-            // Extract face from OSCA ID
-            const faceDetails = await extractFaceDetails(oscaCanvasOrImg, file);
+            // Reuse face details already isolated during Stage 2 validation if available (saves a duplicate HTTP round-trip)
+            const s2Face = oscaValidationRes?.stage2?.face_details;
+            const faceDetails: FaceDetailResult | null = (s2Face?.face_detected && s2Face.crop_data_url)
+              ? {
+                  descriptor: s2Face.features || [],
+                  features: s2Face.features || [],
+                  confidence: Math.round(s2Face.confidence || 96),
+                  cropDataUrl: s2Face.crop_data_url,
+                }
+              : await extractFaceDetails(oscaCanvasOrImg, file);
             const ocrOscaSummary = oscaCrossCheckResult
               ? {
                   status: oscaCrossCheckResult.status,

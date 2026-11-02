@@ -7,7 +7,7 @@ from rest_framework.response import Response
 from rest_framework.pagination import PageNumberPagination
 from .models import Senior, Disbursement, AuditLog, AnomalyFlag, UserProfile, ReviewLog
 from rest_framework_simplejwt.views import TokenObtainPairView
-from .serializers import SeniorSerializer, DisbursementSerializer, AuditLogSerializer, AnomalyFlagSerializer, ReviewLogSerializer
+from .serializers import SeniorSerializer, SeniorListSerializer, DisbursementSerializer, AuditLogSerializer, AnomalyFlagSerializer, ReviewLogSerializer
 
 class CustomTokenObtainPairView(TokenObtainPairView):
     """
@@ -213,6 +213,11 @@ class SeniorViewSet(viewsets.ModelViewSet):
     filter_backends = [filters.SearchFilter]
     search_fields = ['first_name', 'last_name', 'osca_id']
 
+    def get_serializer_class(self):
+        if self.action == 'list':
+            return SeniorListSerializer
+        return SeniorSerializer
+
     def create(self, request, *args, **kwargs):
         data = request.data.dict() if hasattr(request.data, 'dict') else request.data.copy()
         if 'annex_a_data' in data and isinstance(data['annex_a_data'], str):
@@ -341,7 +346,9 @@ class SeniorViewSet(viewsets.ModelViewSet):
         return Response(serializer.data)
 
     def get_queryset(self):
-        queryset = Senior.objects.all().order_by('last_name')
+        queryset = Senior.objects.select_related('reviewed_by').prefetch_related('review_logs__reviewer').order_by('last_name')
+        if self.action != 'list':
+            queryset = queryset.prefetch_related('disbursements__senior', 'anomalies__senior')
         
         # Age Filter
         age_filter = self.request.query_params.get('filter', 'all')
@@ -395,6 +402,8 @@ class SeniorViewSet(viewsets.ModelViewSet):
         """GET /api/seniors/review-queue/ — Returns all records pending review."""
         pending = Senior.objects.filter(
             registration_status__in=['PENDING_REVIEW', 'UNDER_REVIEW']
+        ).select_related('reviewed_by').prefetch_related(
+            'disbursements__senior', 'anomalies__senior', 'review_logs__reviewer'
         ).order_by('-created_at')
         serializer = self.get_serializer(pending, many=True)
         return Response(serializer.data)
@@ -707,7 +716,7 @@ class DisbursementViewSet(viewsets.ModelViewSet):
     search_fields = ['reference_number', 'senior__first_name', 'senior__last_name', 'senior__osca_id']
 
     def get_queryset(self):
-        queryset = Disbursement.objects.all().order_by('-created_at')
+        queryset = Disbursement.objects.select_related('senior').order_by('-created_at')
         status_filter = self.request.query_params.get('status', 'all')
         if status_filter != 'all':
             queryset = queryset.filter(status=status_filter.upper())
@@ -775,8 +784,18 @@ class DisbursementViewSet(viewsets.ModelViewSet):
         eligible_quarters = [f'Q{i}' for i in range(1, max_eligible_q_num + 1)]
 
         # COA Compliance: Only generate disbursements for seniors who are ACTIVE and officially APPROVED in the review queue
-        active_seniors = Senior.objects.filter(status='ACTIVE', registration_status='APPROVED')
-        created_count = 0
+        active_seniors = list(Senior.objects.filter(status='ACTIVE', registration_status='APPROVED').only(
+            'id', 'date_of_birth', 'is_indigent'
+        ))
+        existing_milestones = set(
+            Disbursement.objects.filter(year=year, disbursement_type='MILESTONE_GIFT')
+            .values_list('senior_id', 'amount')
+        )
+        existing_pensions = set(
+            Disbursement.objects.filter(year=year, disbursement_type='SOCIAL_PENSION')
+            .values_list('senior_id', 'quarter')
+        )
+        to_create = []
         
         for senior in active_seniors:
             # 1. Calculate age for milestone check
@@ -801,48 +820,36 @@ class DisbursementViewSet(viewsets.ModelViewSet):
                 is_milestone = True
             
             if is_milestone and (senior_quarter in eligible_quarters):
-                # Check if already generated for this milestone
-                exists = Disbursement.objects.filter(
-                    senior=senior, 
-                    disbursement_type='MILESTONE_GIFT',
-                    amount=amount,
-                    year=year
-                ).exists()
-                
-                if not exists:
-                    Disbursement.objects.create(
+                if (senior.id, amount) not in existing_milestones:
+                    existing_milestones.add((senior.id, amount))
+                    to_create.append(Disbursement(
                         senior=senior,
                         disbursement_type='MILESTONE_GIFT',
                         amount=amount,
-                        quarter=senior_quarter, # Dynamic based on birthday
+                        quarter=senior_quarter,
                         year=year,
                         status='PENDING',
                         reference_number=f"ECA-{year}-{senior.id}-{age}"
-                    )
-                    created_count += 1
+                    ))
 
             # 2. Social Pension (RA 11916) for Indigent Seniors
             if senior.is_indigent:
                 for q in eligible_quarters:
-                    # Check if already generated for this quarter and year
-                    exists_pension = Disbursement.objects.filter(
-                        senior=senior,
-                        disbursement_type='SOCIAL_PENSION',
-                        quarter=q,
-                        year=year
-                    ).exists()
-                    
-                    if not exists_pension:
-                        Disbursement.objects.create(
+                    if (senior.id, q) not in existing_pensions:
+                        existing_pensions.add((senior.id, q))
+                        to_create.append(Disbursement(
                             senior=senior,
                             disbursement_type='SOCIAL_PENSION',
-                            amount=3000.00, # 1,000 per month = 3,000 per quarter
+                            amount=3000.00,
                             quarter=q,
                             year=year,
                             status='PENDING',
                             reference_number=f"SP-{q}-{year}-{senior.id}"
-                        )
-                        created_count += 1
+                        ))
+
+        if to_create:
+            Disbursement.objects.bulk_create(to_create, batch_size=500)
+        created_count = len(to_create)
         
         return Response({
             'message': f'Payroll generated successfully. {created_count} new disbursements created.',
@@ -909,7 +916,7 @@ class AuditLogViewSet(viewsets.ReadOnlyModelViewSet):
     pagination_class = StandardResultsSetPagination
 
     def get_queryset(self):
-        queryset = AuditLog.objects.all().order_by('-created_at')
+        queryset = AuditLog.objects.select_related('user').order_by('-created_at')
         
         # 1. Action Filter (CREATE, UPDATE, DELETE, LOGIN, REVIEW, DECEASED, RESUBMIT)
         action_param = self.request.query_params.get('action', 'all')
