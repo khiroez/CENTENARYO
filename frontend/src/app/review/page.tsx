@@ -39,8 +39,8 @@ export default function ReviewQueuePage() {
   const [customReturnReason, setCustomReturnReason] = useState('');
 
   const COMMON_REJECTION_REASONS = [
-    "PSA Birth Certificate is invalid or illegible",
-    "OSCA ID Card is fraudulent or altered",
+    "PSA Birth Certificate has no valid QR code (only modern PSA copies with QR are accepted)",
+    "Uploaded ID is not an official Quezon City QCitizen Senior Citizen Card",
     "Biometric face comparison indicates a different individual (fraud risk)",
     "Document uploaded belongs to another person in registry",
     "Applicant does not meet the minimum age requirement (under 78)",
@@ -48,10 +48,10 @@ export default function ReviewQueuePage() {
   ];
 
   const COMMON_RETURN_REASONS = [
-    "Uploaded PSA Birth Certificate is blurry or low resolution",
-    "OSCA ID photo or serial number is truncated or poorly scanned",
+    "Uploaded PSA Birth Certificate is missing official QR code or is blurry/unreadable",
+    "QC QCitizen Card photo, layout, or 14-digit serial is truncated or poorly scanned",
     "2x2 Photo does not follow required plain white background",
-    "Spelling discrepancy in name/birthdate between form and document",
+    "Discrepancy in Given Name, Birthdate, or CRS Copy Number against PSA QR code",
     "Authorized representative authorization letter or ID requires resubmission",
   ];
 
@@ -960,14 +960,14 @@ export default function ReviewQueuePage() {
                     className={`px-5 py-2.5 rounded-xl text-xs font-black transition-all ${activeTab === 'psa' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-600 hover:text-slate-800'
                       }`}
                   >
-                    PSA Birth Certificate
+                    PSA Birth Certificate (QR)
                   </button>
                   <button
                     onClick={() => setActiveTab('osca')}
                     className={`px-5 py-2.5 rounded-xl text-xs font-black transition-all ${activeTab === 'osca' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-600 hover:text-slate-800'
                       }`}
                   >
-                    OSCA ID Card
+                    QC QCitizen Senior Card
                   </button>
                   {selectedSenior.annex_a_data?.reps?.length > 0 && selectedSenior.annex_a_data?.reps[0]?.name && (
                     <button

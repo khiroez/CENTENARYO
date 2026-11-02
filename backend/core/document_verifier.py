@@ -223,16 +223,8 @@ def verify_psa_document(
     if qr_res.get('qr_detected') and qr_res.get('payload'):
         upper_text = (upper_text + " " + qr_res['payload']).upper()
 
-    # Authenticity check: Must contain QR code or PSA / Civil Registry keywords
-    matched_keywords = [kw for kw in PSA_KEYWORDS if kw in upper_text]
-    is_authentic = (
-        qr_res.get('qr_detected', False)
-        or len(matched_keywords) >= 2
-        or "CERTIFICATE OF LIVE BIRTH" in upper_text
-        or "PHILIPPINE STATISTICS AUTHORITY" in upper_text
-    )
-
-    if not is_authentic and not upper_text:
+    # Strictly enforce: Only new PSA Birth Certificates with an official QR Code are accommodated
+    if not qr_res.get('qr_detected', False):
         return {
             'status': 'REJECTED',
             'verification_status': 'FAIL',
@@ -241,24 +233,12 @@ def verify_psa_document(
             'given_name_match': False,
             'dob_match': False,
             'crs_copy_number_match': False,
-            'message': 'Walang nakitang PSA QR code o mababasang dokumento sa in-upload na file.',
+            'message': 'Tinutugunan lamang ng sistema ang mga bagong PSA Birth Certificate na may opisyal na QR Code. Ang mga lumang bersyon (walang QR code) ay hindi tinatanggap.',
             'confidence': 0,
-            'extracted_sample': ''
-        }
-
-    if not is_authentic:
-        return {
-            'status': 'REJECTED',
-            'verification_status': 'FAIL',
-            'is_authentic_psa': False,
-            'name_match': False,
-            'given_name_match': False,
-            'dob_match': False,
-            'crs_copy_number_match': False,
-            'message': 'Ang in-upload na file ay hindi opisyal na PSA/NSO Birth Certificate o PSA QR Code.',
-            'confidence': 10,
             'extracted_sample': upper_text[:200]
         }
+
+    is_authentic = True
 
     # Step 2: Attribute Extraction (Given Name, Date of Birth, CRS Copy Number)
     ext_given = (qr_res.get('extracted_given_name') or "").strip().upper()
@@ -424,30 +404,28 @@ def verify_id_document(file_input, first_name: str, last_name: str, osca_id: str
     is_two_tier_pass = osca_tier_res.get('overall_status') == 'PASS'
     is_stage1_pass = osca_tier_res.get('stage1', {}).get('passed', False)
 
-    if not face_found and not has_id_keyword and not text and not is_stage1_pass:
+    # Strictly enforce: Only Quezon City QCitizen Senior Citizen Cards (RA 9994 / QC LGU template) are accommodated
+    if not is_stage1_pass:
         return {
             'status': 'REJECTED',
             'is_authentic_id': False,
-            'face_detected': False,
-            'name_match': False,
-            'message': 'Walang nakitang mukha o impormasyon sa in-upload na ID.',
-            'crop_data_url': None,
-            'features': None,
-            'osca_validation': osca_tier_res
+            'face_detected': face_found,
+            'face_confidence': face_res.get('confidence', 0),
+            'crop_data_url': face_res.get('crop_data_url'),
+            'features': face_res.get('features'),
+            'name_match': name_matched,
+            'serial_match': serial_matched,
+            'osca_validation': osca_tier_res,
+            'message': osca_tier_res.get('summary_message') or 'Tinutugunan lamang ng sistema ang opisyal na Quezon City QCitizen Senior Citizen Card. Hindi tinatanggap ang ibang ID o lumang format na walang QCitizen layout.',
+            'extracted_sample': upper_text[:200]
         }
 
     if is_two_tier_pass:
         status = 'PASS'
-        message = 'OSCA ID Two-Tier Verification Passed: Template layout at kumpletong impormasyon ay napatunayan.'
-    elif face_found and (has_id_keyword or name_matched or serial_matched):
-        status = 'PASS'
-        message = 'Opisyal na ID Card at litrato ng mukha ay matagumpay na nakilala.'
-    elif face_found:
-        status = 'PASS' # Still pass if face is clearly detected from ID photo
-        message = 'Naihiwalay ang litrato ng mukha mula sa ID card.'
+        message = 'QC QCitizen Senior Citizen Card Two-Tier Verification Passed: Template layout at kumpletong impormasyon ay napatunayan.'
     else:
         status = 'NEEDS_REVIEW'
-        message = osca_tier_res.get('summary_message') or 'Kailangang suriin: Hindi malinaw ang litrato ng mukha o layout sa ID.'
+        message = osca_tier_res.get('summary_message') or 'QC QCitizen Card Layout Verified: May ilang detalye na malabo o nangangailangan ng manual administrative review.'
 
     return {
         'status': status,

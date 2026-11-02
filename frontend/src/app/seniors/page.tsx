@@ -1613,24 +1613,24 @@ export default function SeniorRegistryPage() {
               psaQrRef.current = null;
               psaQrResult = { detected: false, status: 'FLAGGED' };
               finalStatus = 'FAIL';
-              errorMessage = 'Rejected: No readable PSA QR code detected. Please upload only the QR code of the PSA.';
-              matchNote = 'No QR code pattern detected in the uploaded file.';
+              errorMessage = 'Rejected: Only modern PSA Birth Certificates with an official QR code are accepted. Older versions without a QR code are not supported.';
+              matchNote = 'No official PSA QR code detected on the document. Older non-QR versions are not accommodated.';
               setAutoCheckResults((prev: any) => ({
                 ...prev,
                 psa_hash: fileHash,
                 psa_qr: {
                   status: 'FLAGGED',
                   qr_detected: false,
-                  message: 'No readable QR code found on PSA; please upload only the PSA QR code.'
+                  message: 'Only modern PSA Birth Certificates with an official QR code are accepted. Older certificates without a QR code are not supported.'
                 }
               }));
             }
           }
         }
 
-        // 2. Primary ID (OSCA ID)
+        // 2. Primary ID (QC QCitizen Senior Citizen Card)
         else if (field === 'primary_id_file') {
-          detectedType = 'OSCA ID Card';
+          detectedType = 'QC QCitizen Senior Card';
           let oscaCanvasOrImg: HTMLCanvasElement | HTMLImageElement | null = null;
 
           if (isPdf) {
@@ -1693,7 +1693,7 @@ export default function SeniorRegistryPage() {
                 oscaValidationRes = await valRes.json();
                 if (oscaValidationRes && oscaValidationRes.overall_status !== 'PASS') {
                   finalStatus = 'FAIL';
-                  errorMessage = oscaValidationRes.summary_message || 'OSCA ID verification failed.';
+                  errorMessage = oscaValidationRes.summary_message || 'Rejected: Only official Quezon City QCitizen Senior Citizen Cards are accommodated. Non-QC IDs or older formats are not accepted.';
                   oscaCardRef.current = null;
                 } else if (oscaValidationRes?.stage2?.extracted_fields) {
                   oscaCardRef.current = oscaValidationRes.stage2.extracted_fields;
@@ -2454,17 +2454,17 @@ export default function SeniorRegistryPage() {
                         </div>
                         <div>
                           <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-700 flex items-center gap-1.5 justify-center">
-                            PSA QR Code
+                            PSA Birth Certificate (With QR)
                             <div className="group relative">
                               <Info size={10} className="text-slate-300" />
-                              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 p-2 bg-slate-800 text-white text-[9px] rounded-lg opacity-0 group-hover:opacity-100 transition-opacity z-20 font-medium text-center">
-                                Upload the official QR code from the PSA Birth Certificate.
+                              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-52 p-2 bg-slate-800 text-white text-[9px] rounded-lg opacity-0 group-hover:opacity-100 transition-opacity z-20 font-medium text-center">
+                                Modern PSA Birth Certificate with official QR code. Older versions without QR code are not supported.
                               </div>
                             </div>
                           </h4>
                           <div className="flex flex-col items-center">
                             <p className="text-[9px] font-bold text-slate-400 mt-1 truncate max-w-[150px]">
-                              {formData.psa_cert_file ? formData.psa_cert_file.name : (formData.psa_cert_url ? getFileNameFromUrl(formData.psa_cert_url) : 'Upload QR Code (JPG, PNG, PDF)')}
+                              {formData.psa_cert_file ? formData.psa_cert_file.name : (formData.psa_cert_url ? getFileNameFromUrl(formData.psa_cert_url) : 'Upload PSA QR Code')}
                             </p>
                             {(formData.psa_cert_file || formData.psa_cert_url) && (
                               <button
@@ -2502,17 +2502,17 @@ export default function SeniorRegistryPage() {
                         </div>
                         <div>
                           <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-700 flex items-center gap-1.5 justify-center">
-                            OSCA ID
+                            QC QCitizen Senior Card
                             <div className="group relative">
                               <Info size={10} className="text-slate-300" />
-                              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-40 p-2 bg-slate-800 text-white text-[9px] rounded-lg opacity-0 group-hover:opacity-100 transition-opacity z-20 font-medium">
-                                Office for Senior Citizens Affairs ID card.
+                              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-52 p-2 bg-slate-800 text-white text-[9px] rounded-lg opacity-0 group-hover:opacity-100 transition-opacity z-20 font-medium text-center">
+                                Official Quezon City QCitizen Senior Citizen Card only. Older or non-QC IDs are not supported.
                               </div>
                             </div>
                           </h4>
                           <div className="flex flex-col items-center">
                             <p className="text-[9px] font-bold text-slate-400 mt-1 truncate max-w-[150px]">
-                              {formData.primary_id_file ? formData.primary_id_file.name : (formData.primary_id_url ? getFileNameFromUrl(formData.primary_id_url) : 'Upload PDF or Image')}
+                              {formData.primary_id_file ? formData.primary_id_file.name : (formData.primary_id_url ? getFileNameFromUrl(formData.primary_id_url) : 'Upload QCitizen Card')}
                             </p>
                             {(formData.primary_id_file || formData.primary_id_url) && (
                               <button
@@ -2520,7 +2520,7 @@ export default function SeniorRegistryPage() {
                                 onClick={() => setPdfPreviewSrc({
                                   url: formData.primary_id_file ? undefined : formData.primary_id_url,
                                   file: formData.primary_id_file || null,
-                                  title: 'OSCA ID'
+                                  title: 'QC QCitizen Senior Card'
                                 })}
                                 className="mt-2 px-3 py-1 bg-indigo-50 text-indigo-600 rounded-lg text-[9px] font-black uppercase tracking-widest hover:bg-indigo-100 transition-all relative z-20"
                               >
