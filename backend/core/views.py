@@ -636,7 +636,9 @@ class SeniorViewSet(viewsets.ModelViewSet):
             'last_name': senior.last_name,
             'middle_name': senior.middle_name,
             'date_of_birth': senior.date_of_birth,
-            'osca_id': senior.osca_id
+            'osca_id': senior.osca_id,
+            'crs_copy_number': (senior.annex_a_data or {}).get('crs_copy_number', ''),
+            'annex_a_data': senior.annex_a_data or {},
         }
         files = {
             'psa_cert_file': senior.psa_cert_file,
@@ -1512,7 +1514,7 @@ def scan_psa_qr(request):
     - 'image_base64': base64 data URL or raw base64 string
     Decodes the QR code and extracts document OCR text (if present) for cross-checking.
     """
-    from .qr_engine import decode_qr
+    from .qr_engine import decode_qr, extract_crs_copy_number_from_text
     from .document_verifier import _extract_text_and_image_from_file
 
     img_input = None
@@ -1538,6 +1540,11 @@ def scan_psa_qr(request):
         ocr_text = extracted or ""
     except Exception as e:
         print(f"[ScanPsaQr] OCR extraction notice: {e}")
+
+    if ocr_text and not qr_res.get('extracted_crs_copy_number'):
+        ocr_crs = extract_crs_copy_number_from_text(ocr_text)
+        if ocr_crs:
+            qr_res['extracted_crs_copy_number'] = ocr_crs
 
     qr_res['ocr_text'] = ocr_text
     qr_res['has_ocr_text'] = bool(ocr_text and len(ocr_text.strip()) > 15)

@@ -97,15 +97,65 @@ def _normalize_image_for_matching(img: np.ndarray, target_w: int = 1024, target_
     return img
 
 
+from concurrent.futures import ThreadPoolExecutor
+
+# Dedicated single-thread executor for WinRT OCR so COM/WinRT objects (Language, OcrEngine, SoftwareBitmap)
+# are initialized, cached, used, and released on a single persistent OS thread and never cross threads.
+_WINOCR_EXECUTOR = ThreadPoolExecutor(max_workers=1, thread_name_prefix="winocr_com_thread")
+_WINOCR_STATE: Dict[str, Any] = {"lang": None, "engine": None}
+
+
+def _winocr_worker_task(rgba_bytes: bytes, width: int, height: int) -> str:
+    import asyncio
+    from winrt.windows.media.ocr import OcrEngine
+    from winrt.windows.globalization import Language
+    from winrt.windows.storage.streams import DataWriter
+    from winrt.windows.graphics.imaging import SoftwareBitmap, BitmapPixelFormat
+
+    if _WINOCR_STATE["engine"] is None:
+        lang_obj = Language("en-US")
+        _WINOCR_STATE["lang"] = lang_obj
+        _WINOCR_STATE["engine"] = OcrEngine.try_create_from_language(lang_obj)
+
+    engine = _WINOCR_STATE["engine"]
+    if engine is None:
+        return ""
+
+    writer = DataWriter()
+    writer.write_bytes(rgba_bytes)
+    buf = writer.detach_buffer()
+    sb = SoftwareBitmap.create_copy_from_buffer(buf, BitmapPixelFormat.RGBA8, width, height)
+
+    async def _run():
+        return await engine.recognize_async(sb)
+
+    res = asyncio.run(_run())
+    text = str(res.text) if (res and hasattr(res, "text") and res.text) else ""
+    del res, sb, buf, writer
+    return text
+
+
+def safe_winocr_recognize_pil(pil_img: Image.Image) -> str:
+    """Thread-safe WinRT OCR wrapper that prevents 0xC0000005 COM apartment crashes in Django."""
+    try:
+        if pil_img.mode != "RGBA":
+            pil_img = pil_img.convert("RGBA")
+        raw = pil_img.tobytes()
+        w, h = pil_img.width, pil_img.height
+        future = _WINOCR_EXECUTOR.submit(_winocr_worker_task, raw, w, h)
+        return future.result(timeout=10.0)
+    except Exception as e:
+        print(f"[WinOCR] Notice: {e}")
+        return ""
+
+
 def _extract_ocr_text(img: np.ndarray) -> str:
     try:
-        import winocr
-        import asyncio
         rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
         pil_img = Image.fromarray(rgb)
-        res = asyncio.run(winocr.recognize_pil(pil_img, lang='en-US'))
-        if res and hasattr(res, 'text') and res.text:
-            return res.text
+        text = safe_winocr_recognize_pil(pil_img)
+        if text:
+            return text
     except Exception as e:
         print(f"[OSCA Validator] winocr error: {e}")
 

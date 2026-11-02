@@ -40,6 +40,18 @@ const computeSha256 = async (buffer: ArrayBuffer): Promise<string> => {
 const normalizeName = (s: string) =>
   (s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z\s]/g, ' ').replace(/\s+/g, ' ').trim();
 
+const normalizeCrsCopyNumber = (s: string | null | undefined): string =>
+  (s || '').trim().toUpperCase().replace(/\s+/g, '');
+
+const extractCrsCopyNumberFromText = (raw: string | null | undefined): string | null => {
+  const text = (raw || '').toUpperCase();
+  const m = text.match(/\b(\d{4,6}-[A-Z0-9]{2,3}-[A-Z0-9]{4,8}-\d{4,6}-[A-Z0-9]{4,6})\b/);
+  if (m) return m[1].trim();
+  const mKv = text.match(/(?:CRS\s*COPY\s*(?:NUMBER|NO\.?)|COPY\s*(?:NUMBER|NO\.?)|CRS\s*(?:NUMBER|NO\.?))\s*[:=\-#]?\s*([A-Z0-9][A-Z0-9\-]{6,34})/);
+  if (mKv) return mKv[1].trim();
+  return null;
+};
+
 const normalizeSexCode = (s: string | null | undefined): string => {
   const v = (s || '').trim().toUpperCase();
   if (v === 'M' || v === 'MALE') return 'M';
@@ -138,6 +150,10 @@ const parsePsaQrPayload = (payload: string) => {
     middleName: find(/^middlename$/, /^mname$/, /middle/),
     fullName: find(/^(full)?name$/, /^(child|owner|registrant|document)s?(full)?name$/, /name/),
     dob: find(/^(dateofbirth|birthdate|dob|bdate|birthday)$/, /birth|dob/),
+    crsCopyNumber:
+      find(/^(crscopy(number|no)?|copy(number|no)|crs(number|no))$/, /crscopy|copynumber|crsno/) ||
+      extractCrsCopyNumberFromText(payload) ||
+      undefined,
   };
 };
 
@@ -235,10 +251,14 @@ export default function SeniorRegistryPage() {
     psaQr?: {
       detected: boolean;
       status: 'PASS' | 'FLAGGED';
-      nameMatch?: boolean;
+      verificationStatus?: 'VERIFIED' | 'MISMATCH';
+      givenNameMatch?: boolean;
       dobMatch?: boolean;
+      crsCopyNumberMatch?: boolean;
+      extractedGivenName?: string | null;
       extractedName?: string | null;
       extractedDob?: string | null;
+      extractedCrsCopyNumber?: string | null;
       engine?: string;
       isBinarySeal?: boolean;
       bytesLen?: number;
@@ -292,8 +312,10 @@ export default function SeniorRegistryPage() {
     bytesLen?: number;
     ocrText?: string;
     hasOcrText?: boolean;
+    extractedGivenName?: string | null;
     extractedName?: string | null;
     extractedDob?: string | null;
+    extractedCrsCopyNumber?: string | null;
   } | null>(null);
   // Temporary storage for extracted OSCA ID fields (OCR primary + QR fallback)
   const oscaCardRef = useRef<OscaExtractedFields | null>(null);
@@ -341,7 +363,7 @@ export default function SeniorRegistryPage() {
   };
 
   const initialFormState = {
-    rrn: '', osca_id_number: '',
+    rrn: '', osca_id_number: '', crs_copy_number: '',
     last_name: '', given_name: '', middle_name: '',
     date_of_birth: '', age: '',
     perm_house: '', perm_street: '', perm_brgy: '', perm_city: '', perm_prov: '', perm_zip: '',
@@ -585,6 +607,11 @@ export default function SeniorRegistryPage() {
       return;
     }
 
+    if (!formData.crs_copy_number?.trim()) {
+      openWarning("CRS Copy Number Required", "Please provide the CRS Copy Number from the official PSA Birth Certificate.");
+      return;
+    }
+
     // Enforce documentary requirements are uploaded
     const hasPsa = !!(formData.psa_cert_file || formData.psa_cert_url);
     const hasPrimaryId = !!(formData.primary_id_file || formData.primary_id_url);
@@ -654,6 +681,7 @@ export default function SeniorRegistryPage() {
       fd.append('middle_name', formData.middle_name);
       fd.append('date_of_birth', formData.date_of_birth);
       fd.append('osca_id', formData.osca_id_number.trim());
+      fd.append('crs_copy_number', formData.crs_copy_number.trim());
       fd.append('barangay', formData.res_brgy);
       fd.append('status', formData.status);
       fd.append('is_active', (formData.status === 'ACTIVE').toString());
@@ -678,8 +706,10 @@ export default function SeniorRegistryPage() {
             formData,
             psaQrRef.current.isBinarySeal,
             psaQrRef.current.ocrText,
+            psaQrRef.current.extractedGivenName,
             psaQrRef.current.extractedName,
-            psaQrRef.current.extractedDob
+            psaQrRef.current.extractedDob,
+            psaQrRef.current.extractedCrsCopyNumber
           )
         );
       }
@@ -997,38 +1027,53 @@ export default function SeniorRegistryPage() {
   // ---------------- PSA QR & OSCA ID Cross-Verification Helpers ----------------
   type PsaQrComparison = {
     status: 'PASS' | 'FLAGGED';
-    nameMatch: boolean;
-    lastNameMatch: boolean;
+    verificationStatus: 'VERIFIED' | 'MISMATCH';
     givenNameMatch: boolean;
-    middleNameMatch: boolean | null;
     dobMatch: boolean;
+    crsCopyNumberMatch: boolean;
+    extractedGivenName: string | null;
     extractedName: string | null;
     extractedDob: string | null;
+    extractedCrsCopyNumber: string | null;
     message: string;
   };
 
-  // Cross-checks the scanned QR payload against the Document Owner's Name & Date of Birth
+  // Cross-checks the scanned PSA QR payload against the 3 invariant attributes:
+  // Given Name, Date of Birth, and CRS Copy Number (excludes Last Name & Middle Name)
   const comparePsaQrWithForm = (
     payload: string,
-    form: { last_name: string; given_name: string; middle_name: string; date_of_birth: string },
+    form: { given_name: string; date_of_birth: string; crs_copy_number: string },
     isBinarySeal: boolean = false,
     ocrText?: string,
+    qrExtractedGivenName?: string | null,
     qrExtractedName?: string | null,
-    qrExtractedDob?: string | null
+    qrExtractedDob?: string | null,
+    qrExtractedCrsCopyNumber?: string | null
   ): PsaQrComparison => {
-    // 1. Resolve QR Extracted Name & DOB
+    // 1. Resolve QR Extracted Given Name, DOB, and CRS Copy Number
+    let extractedGivenName: string | null = qrExtractedGivenName || null;
     let extractedName: string | null = qrExtractedName || null;
     let extractedDob: string | null = qrExtractedDob || null;
+    let extractedCrsCopyNumber: string | null = qrExtractedCrsCopyNumber || null;
 
-    if (!extractedName || !extractedDob) {
+    if (!extractedGivenName || !extractedDob || !extractedCrsCopyNumber) {
       const parsed = parsePsaQrPayload(payload);
+      if (!extractedGivenName && parsed.firstName) {
+        extractedGivenName = parsed.firstName.toUpperCase();
+      }
       if (!extractedName) {
         const parsedName = [parsed.firstName, parsed.middleName, parsed.lastName].filter(Boolean).join(' ') || parsed.fullName || null;
-        if (parsedName) extractedName = parsedName;
+        if (parsedName) extractedName = parsedName.toUpperCase();
+      }
+      if (!extractedGivenName && extractedName) {
+        extractedGivenName = extractedName.split(/\s+/)[0] || null;
       }
       if (!extractedDob) {
         const candidateDates = findDatesInText(parsed.dob || payload);
         if (candidateDates.length > 0) extractedDob = candidateDates[0];
+      }
+      if (!extractedCrsCopyNumber && parsed.crsCopyNumber) {
+        extractedCrsCopyNumber = parsed.crsCopyNumber.toUpperCase();
       }
     }
 
@@ -1036,60 +1081,89 @@ export default function SeniorRegistryPage() {
       const ocrDates = findDatesInText(ocrText);
       if (ocrDates.length > 0) extractedDob = ocrDates[0];
     }
+    if (!extractedCrsCopyNumber && ocrText) {
+      const ocrCrs = extractCrsCopyNumberFromText(ocrText);
+      if (ocrCrs) extractedCrsCopyNumber = ocrCrs;
+    }
 
-    // 2. Token-based cross-matching with Personal Information Form
+    // 2. Application Form Cross-Matching (Excludes Last Name & Middle Name for married female adaptation)
+    // (a) Given Name
     const normFormGiven = normalizeName(form.given_name || '');
-    const normFormLast = normalizeName(form.last_name || '');
-    const normQrName = normalizeName(extractedName || '');
-
+    const normQrGiven = normalizeName(extractedGivenName || '');
     const givenTokens = normFormGiven.split(' ').filter(Boolean);
-    const lastTokens = normFormLast.split(' ').filter(Boolean);
-    const qrTokens = normQrName.split(' ').filter(Boolean);
+    const qrGivenTokens = normQrGiven.split(' ').filter(Boolean);
+    const givenNameMatch = Boolean(
+      givenTokens.length > 0 &&
+      qrGivenTokens.length > 0 &&
+      (normFormGiven === normQrGiven || givenTokens.every(tok => qrGivenTokens.includes(tok)))
+    );
 
-    const lastNameMatch = lastTokens.length > 0 && qrTokens.length > 0 && lastTokens.every(tok => qrTokens.includes(tok));
-    const givenNameMatch = givenTokens.length > 0 && qrTokens.length > 0 && givenTokens.some(tok => qrTokens.includes(tok));
-    const nameMatch = Boolean(lastNameMatch && givenNameMatch);
-
+    // (b) Date of Birth (ISO YYYY-MM-DD)
     const formDob = (form.date_of_birth || '').trim();
     const qrDob = (extractedDob || '').trim();
     const dobMatch = Boolean(formDob && qrDob && formDob === qrDob);
 
-    const isMatch = Boolean(nameMatch && dobMatch);
+    // (c) CRS Copy Number (Primary Unique Authenticator)
+    const normFormCrs = normalizeCrsCopyNumber(form.crs_copy_number);
+    const normQrCrs = normalizeCrsCopyNumber(extractedCrsCopyNumber);
+    const crsCopyNumberMatch = Boolean(normFormCrs && normQrCrs && normFormCrs === normQrCrs);
+
+    // 3. Validation Outcome Rules
+    const isMatch = Boolean(givenNameMatch && dobMatch && crsCopyNumberMatch);
     const status: PsaQrComparison['status'] = isMatch ? 'PASS' : 'FLAGGED';
-    const message = isMatch
-      ? 'Match: Personal Information matches PSA QR code details.'
-      : 'Mismatch: Personal Information does not match PSA QR code details.';
+    const verificationStatus: PsaQrComparison['verificationStatus'] = isMatch ? 'VERIFIED' : 'MISMATCH';
+
+    let message = 'VERIFIED: Given Name, Date of Birth, and CRS Copy Number match the PSA QR code.';
+    if (!isMatch) {
+      const mismatched: string[] = [];
+      if (!givenNameMatch) mismatched.push('Given Name');
+      if (!dobMatch) mismatched.push('Date of Birth');
+      if (!crsCopyNumberMatch) mismatched.push('CRS Copy Number');
+      message = `Mismatch (${mismatched.join(', ')}): Flagged for manual administrative review or immediate re-upload.`;
+    }
 
     return {
       status,
-      nameMatch,
-      lastNameMatch,
+      verificationStatus,
       givenNameMatch,
-      middleNameMatch: null,
       dobMatch,
-      extractedName: extractedName || 'Not readable in QR',
+      crsCopyNumberMatch,
+      extractedGivenName: extractedGivenName || 'Not readable in QR',
+      extractedName: extractedName || extractedGivenName || 'Not readable in QR',
       extractedDob: extractedDob || 'Not readable in QR',
+      extractedCrsCopyNumber: extractedCrsCopyNumber || 'Not readable in QR',
       message
     };
   };
 
   // Shape persisted into auto_check_results.psa_qr for the Admin Review Queue
   const buildPsaQrCheck = (
-    qr: { payload: string; engine: string; isBinarySeal?: boolean; bytesLen?: number; extractedName?: string | null; extractedDob?: string | null },
+    qr: {
+      payload: string;
+      engine: string;
+      isBinarySeal?: boolean;
+      bytesLen?: number;
+      extractedGivenName?: string | null;
+      extractedName?: string | null;
+      extractedDob?: string | null;
+      extractedCrsCopyNumber?: string | null;
+    },
     cmp: PsaQrComparison
   ) => ({
     status: cmp.status,
+    verification_status: cmp.verificationStatus,
     qr_detected: true,
     engine: qr.engine,
     is_binary_seal: Boolean(qr.isBinarySeal),
     bytes_len: qr.bytesLen || 703,
-    name_match: cmp.nameMatch,
-    last_name_match: cmp.lastNameMatch,
+    name_match: cmp.givenNameMatch,
     given_name_match: cmp.givenNameMatch,
-    middle_name_match: cmp.middleNameMatch,
     dob_match: cmp.dobMatch,
+    crs_copy_number_match: cmp.crsCopyNumberMatch,
+    extracted_given_name: cmp.extractedGivenName,
     extracted_name: cmp.extractedName,
     extracted_dob: cmp.extractedDob,
+    extracted_crs_copy_number: cmp.extractedCrsCopyNumber,
     payload: qr.payload.slice(0, 500),
     message: cmp.message,
   });
@@ -1191,7 +1265,7 @@ export default function SeniorRegistryPage() {
     });
   };
 
-  // Whenever the applicant's Name or DOB is edited at the top of the form,
+  // Whenever the applicant's Given Name, Date of Birth, or CRS Copy Number is edited in the form,
   // re-compare against the temporarily stored PSA QR payload (stored in psaQrRef.current)
   useEffect(() => {
     if (!psaQrRef.current) return;
@@ -1200,16 +1274,20 @@ export default function SeniorRegistryPage() {
       formData,
       psaQrRef.current.isBinarySeal,
       psaQrRef.current.ocrText,
+      psaQrRef.current.extractedGivenName,
       psaQrRef.current.extractedName,
-      psaQrRef.current.extractedDob
+      psaQrRef.current.extractedDob,
+      psaQrRef.current.extractedCrsCopyNumber
     );
     setAutoCheckResults((prev: any) => ({
       ...prev,
       psa_qr: buildPsaQrCheck(psaQrRef.current!, cmp),
       ocr_psa: {
         status: cmp.status,
-        name_found: cmp.nameMatch,
+        verification_status: cmp.verificationStatus,
+        name_found: cmp.givenNameMatch,
         dob_found: cmp.dobMatch,
+        crs_found: cmp.crsCopyNumberMatch,
         message: cmp.message,
       }
     }));
@@ -1221,17 +1299,21 @@ export default function SeniorRegistryPage() {
         psaQr: {
           detected: true,
           status: cmp.status,
-          nameMatch: cmp.nameMatch,
+          verificationStatus: cmp.verificationStatus,
+          givenNameMatch: cmp.givenNameMatch,
           dobMatch: cmp.dobMatch,
+          crsCopyNumberMatch: cmp.crsCopyNumberMatch,
+          extractedGivenName: cmp.extractedGivenName,
           extractedName: cmp.extractedName,
           extractedDob: cmp.extractedDob,
+          extractedCrsCopyNumber: cmp.extractedCrsCopyNumber,
           engine: psaQrRef.current?.engine,
           isBinarySeal: psaQrRef.current?.isBinarySeal,
           bytesLen: psaQrRef.current?.bytesLen,
         }
       };
     });
-  }, [formData.last_name, formData.given_name, formData.middle_name, formData.date_of_birth]);
+  }, [formData.given_name, formData.date_of_birth, formData.crs_copy_number]);
 
   // Whenever any of the 5 OSCA ID fields (Full Name, OSCA ID Number, Date of Birth, Sex, Civil Status)
   // is edited in the Application Form, re-compare against the stored OSCA ID card extraction
@@ -1279,8 +1361,10 @@ export default function SeniorRegistryPage() {
     bytesLen?: number;
     ocrText?: string;
     hasOcrText?: boolean;
+    extractedGivenName?: string | null;
     extractedName?: string | null;
     extractedDob?: string | null;
+    extractedCrsCopyNumber?: string | null;
   } | null> => {
     try {
       const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api';
@@ -1319,8 +1403,10 @@ export default function SeniorRegistryPage() {
             bytesLen: data.bytes_len,
             ocrText: data.ocr_text || '',
             hasOcrText: Boolean(data.has_ocr_text),
+            extractedGivenName: data.extracted_given_name || null,
             extractedName: data.extracted_name || null,
             extractedDob: data.extracted_dob || null,
+            extractedCrsCopyNumber: data.extracted_crs_copy_number || null,
           };
         }
       }
@@ -1348,13 +1434,17 @@ export default function SeniorRegistryPage() {
           if (code?.data) {
             const parsed = parsePsaQrPayload(code.data);
             const extName = [parsed.firstName, parsed.middleName, parsed.lastName].filter(Boolean).join(' ') || parsed.fullName || null;
+            const extGiven = parsed.firstName || (extName ? extName.split(/\s+/)[0] : null) || null;
             const extDob = (parsed.dob ? findDatesInText(parsed.dob)[0] : null) || findDatesInText(code.data)[0] || null;
+            const extCrs = parsed.crsCopyNumber || null;
             return {
               payload: code.data,
               engine: 'jsQR_Browser',
               isBinarySeal: false,
+              extractedGivenName: extGiven,
               extractedName: extName,
-              extractedDob: extDob
+              extractedDob: extDob,
+              extractedCrsCopyNumber: extCrs,
             };
           }
         }
@@ -1485,16 +1575,22 @@ export default function SeniorRegistryPage() {
                 formData,
                 qr.isBinarySeal,
                 qr.ocrText,
+                qr.extractedGivenName,
                 qr.extractedName,
-                qr.extractedDob
+                qr.extractedDob,
+                qr.extractedCrsCopyNumber
               );
               psaQrResult = {
                 detected: true,
                 status: cmp.status,
-                nameMatch: cmp.nameMatch,
+                verificationStatus: cmp.verificationStatus,
+                givenNameMatch: cmp.givenNameMatch,
                 dobMatch: cmp.dobMatch,
+                crsCopyNumberMatch: cmp.crsCopyNumberMatch,
+                extractedGivenName: cmp.extractedGivenName,
                 extractedName: cmp.extractedName,
                 extractedDob: cmp.extractedDob,
+                extractedCrsCopyNumber: cmp.extractedCrsCopyNumber,
                 engine: qr.engine,
                 isBinarySeal: qr.isBinarySeal,
                 bytesLen: qr.bytesLen
@@ -1505,8 +1601,10 @@ export default function SeniorRegistryPage() {
                 psa_qr: buildPsaQrCheck(qr, cmp),
                 ocr_psa: {
                   status: cmp.status,
-                  name_found: cmp.nameMatch,
+                  verification_status: cmp.verificationStatus,
+                  name_found: cmp.givenNameMatch,
                   dob_found: cmp.dobMatch,
+                  crs_found: cmp.crsCopyNumberMatch,
                   message: cmp.message
                 }
               }));
@@ -2003,7 +2101,7 @@ export default function SeniorRegistryPage() {
 
                 <section>
                   <div className="flex items-center gap-3 mb-8"><span className="w-8 h-8 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center font-black text-sm">A</span><h3 className="text-lg font-black text-slate-800 tracking-tight">Personal & Contact Information</h3></div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
                     <div className="space-y-2">
                       <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-1.5">
                         OSCA ID Number *
@@ -2025,20 +2123,39 @@ export default function SeniorRegistryPage() {
                         placeholder="14-digit OSCA ID Number (e.g. 88899912345678)"
                       />
                     </div>
-                    <div className="grid grid-cols-1 gap-4">
-                      <div className="space-y-2">
-                        <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-1.5">
-                          Mobile / Landline
-                          <div className="group relative">
-                            <Info size={12} className="text-slate-300 cursor-help" />
-                            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 p-2 bg-slate-800 text-white text-[10px] rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-20 font-medium text-center shadow-xl">
-                              Primary contact number for payout notifications.
-                              <div className="absolute top-full left-1/2 -translate-x-1/2 border-8 border-transparent border-t-slate-800"></div>
-                            </div>
+                    <div className="space-y-2">
+                      <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-1.5">
+                        CRS Copy Number *
+                        <div className="group relative">
+                          <Info size={12} className="text-slate-300 cursor-help" />
+                          <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-60 p-2 bg-slate-800 text-white text-[10px] rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-20 font-medium text-center shadow-xl">
+                            Unique printed identifier on official PSA birth certificates (Primary Unique Authenticator).
+                            <div className="absolute top-full left-1/2 -translate-x-1/2 border-8 border-transparent border-t-slate-800"></div>
                           </div>
-                        </label>
-                        <input type="text" maxLength={11} value={formData.contact_number} onChange={(e) => setFormData({ ...formData, contact_number: handleNumberInput(e.target.value) })} className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold" placeholder="09171234567" />
-                      </div>
+                        </div>
+                      </label>
+                      <input
+                        required
+                        type="text"
+                        maxLength={40}
+                        value={formData.crs_copy_number}
+                        onChange={(e) => setFormData({ ...formData, crs_copy_number: e.target.value.toUpperCase().replace(/[^A-Z0-9\-]/g, '') })}
+                        className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold uppercase"
+                        placeholder="08621-A8-003AOQ-00669-BI005"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-1.5">
+                        Mobile / Landline
+                        <div className="group relative">
+                          <Info size={12} className="text-slate-300 cursor-help" />
+                          <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 p-2 bg-slate-800 text-white text-[10px] rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-20 font-medium text-center shadow-xl">
+                            Primary contact number for payout notifications.
+                            <div className="absolute top-full left-1/2 -translate-x-1/2 border-8 border-transparent border-t-slate-800"></div>
+                          </div>
+                        </div>
+                      </label>
+                      <input type="text" maxLength={11} value={formData.contact_number} onChange={(e) => setFormData({ ...formData, contact_number: handleNumberInput(e.target.value) })} className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold" placeholder="09171234567" />
                     </div>
                   </div>
 
@@ -2677,7 +2794,7 @@ export default function SeniorRegistryPage() {
                     </h4>
                     <p className="text-xs text-slate-400 font-medium max-w-sm mx-auto">
                       {verificationState.fieldName === 'psa_cert_file'
-                        ? 'Extracting QR payload and cross-checking against Document Owner Name & Date of Birth.'
+                        ? 'Decoding QR payload and cross-matching Given Name, Date of Birth, and CRS Copy Number.'
                         : 'Running multi-scale CNN face landmark isolation, SHA-256 integrity hashing, and security framing checks.'}
                     </p>
                   </div>
@@ -2707,15 +2824,15 @@ export default function SeniorRegistryPage() {
                         <div>
                           <h4 className="text-sm font-black uppercase tracking-wider">
                             {verificationState.status === 'FAIL' || verificationState.psaQr?.status === 'FLAGGED'
-                              ? 'PSA QR Code Mismatch'
-                              : 'Format & PSA QR Identity Verified'}
+                              ? 'PSA QR Code Mismatch — Flagged for Review / Re-Upload'
+                              : 'PSA Birth Certificate Verified'}
                           </h4>
                           <p className="text-xs font-bold opacity-80 mt-0.5 uppercase tracking-wider">
                             {verificationState.errorMessage
                               ? verificationState.errorMessage
                               : (verificationState.psaQr?.status === 'PASS'
-                                ? 'Name and Date of Birth match the PSA QR code.'
-                                : (verificationState.matchNote || 'Personal Information does not match PSA QR code details.'))}
+                                ? 'Given Name, Date of Birth, and CRS Copy Number match the PSA QR code.'
+                                : (verificationState.matchNote || 'Attribute mismatch: Flagged for manual administrative review or immediate re-upload.'))}
                           </p>
                         </div>
                       </div>
@@ -2812,7 +2929,7 @@ export default function SeniorRegistryPage() {
                     {/* RIGHT: Diagnostics & Biometric Scorecard */}
                     <div className="lg:col-span-5 space-y-4">
 
-                      {/* PSA QR Code Cross-Check */}
+                      {/* PSA QR Code Cross-Check (Given Name, Date of Birth, CRS Copy Number) */}
                       {verificationState.fieldName === 'psa_cert_file' && verificationState.psaQr && (
                         <div className="space-y-2">
                           <h5 className="text-[10px] font-black uppercase tracking-widest text-slate-400">
@@ -2833,19 +2950,19 @@ export default function SeniorRegistryPage() {
                                 ? 'bg-emerald-100 text-emerald-700'
                                 : 'bg-rose-100 text-rose-700'
                                 }`}>
-                                {verificationState.psaQr.status === 'PASS' ? 'MATCH' : 'MISMATCH'}
+                                {verificationState.psaQr.status === 'PASS' ? 'VERIFIED' : 'MISMATCH'}
                               </span>
                             </div>
 
                             {verificationState.psaQr.detected ? (
                               <div className="space-y-2.5 text-[11px]">
-                                {/* DOCUMENT OWNER NAME */}
+                                {/* 1. GIVEN NAME */}
                                 <div className="p-3.5 bg-white rounded-2xl border border-slate-100/80 space-y-1.5 shadow-sm">
                                   <div className="flex items-center justify-between">
                                     <span className="text-[9px] font-black uppercase tracking-wider text-slate-400">
-                                      DOCUMENT OWNER NAME
+                                      1. GIVEN NAME
                                     </span>
-                                    {verificationState.psaQr.nameMatch ? (
+                                    {verificationState.psaQr.givenNameMatch ? (
                                       <span className="text-[10px] font-black uppercase text-emerald-600 flex items-center gap-1">
                                         <CheckCircle2 size={12} /> MATCH
                                       </span>
@@ -2859,23 +2976,23 @@ export default function SeniorRegistryPage() {
                                     <div>
                                       <div className="text-[8px] font-bold text-slate-400 uppercase tracking-wider">FORM</div>
                                       <div className="font-bold text-slate-800 break-words text-xs leading-tight uppercase">
-                                        {[formData.given_name, formData.middle_name, formData.last_name].filter(Boolean).join(' ') || '—'}
+                                        {formData.given_name || '—'}
                                       </div>
                                     </div>
                                     <div>
                                       <div className="text-[8px] font-bold text-slate-400 uppercase tracking-wider">PSA QR</div>
                                       <div className="font-bold text-slate-800 break-words text-xs leading-tight uppercase">
-                                        {verificationState.psaQr.extractedName || 'Not found in QR'}
+                                        {verificationState.psaQr.extractedGivenName || 'Not found in QR'}
                                       </div>
                                     </div>
                                   </div>
                                 </div>
 
-                                {/* DATE OF BIRTH */}
+                                {/* 2. DATE OF BIRTH */}
                                 <div className="p-3.5 bg-white rounded-2xl border border-slate-100/80 space-y-1.5 shadow-sm">
                                   <div className="flex items-center justify-between">
                                     <span className="text-[9px] font-black uppercase tracking-wider text-slate-400">
-                                      DATE OF BIRTH
+                                      2. DATE OF BIRTH
                                     </span>
                                     {verificationState.psaQr.dobMatch ? (
                                       <span className="text-[10px] font-black uppercase text-emerald-600 flex items-center gap-1">
@@ -2903,8 +3020,40 @@ export default function SeniorRegistryPage() {
                                   </div>
                                 </div>
 
+                                {/* 3. CRS COPY NUMBER */}
+                                <div className="p-3.5 bg-white rounded-2xl border border-slate-100/80 space-y-1.5 shadow-sm">
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-[9px] font-black uppercase tracking-wider text-slate-400">
+                                      3. CRS COPY NUMBER
+                                    </span>
+                                    {verificationState.psaQr.crsCopyNumberMatch ? (
+                                      <span className="text-[10px] font-black uppercase text-emerald-600 flex items-center gap-1">
+                                        <CheckCircle2 size={12} /> MATCH
+                                      </span>
+                                    ) : (
+                                      <span className="text-[10px] font-black uppercase text-rose-600 flex items-center gap-1">
+                                        <X size={12} /> NO MATCH
+                                      </span>
+                                    )}
+                                  </div>
+                                  <div className="grid grid-cols-2 gap-3 pt-0.5">
+                                    <div>
+                                      <div className="text-[8px] font-bold text-slate-400 uppercase tracking-wider">FORM</div>
+                                      <div className="font-bold text-slate-800 break-words text-xs leading-tight uppercase font-mono">
+                                        {formData.crs_copy_number || '—'}
+                                      </div>
+                                    </div>
+                                    <div>
+                                      <div className="text-[8px] font-bold text-slate-400 uppercase tracking-wider">PSA QR</div>
+                                      <div className="font-bold text-slate-800 break-words text-xs leading-tight uppercase font-mono">
+                                        {verificationState.psaQr.extractedCrsCopyNumber || 'Not found in QR'}
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
+
                                 <p className="text-[10px] text-slate-500 font-medium pt-1">
-                                  Decoded via {verificationState.psaQr.engine === 'jsQR_Browser' ? 'browser jsQR fallback' : 'server-side high-density QR engine'}. Re-validated automatically as Name / DOB is typed at top.
+                                  Excludes Last Name &amp; Middle Name to support married female applicants. Re-validated automatically as Given Name, Birthdate, or CRS Copy Number is edited.
                                 </p>
                               </div>
                             ) : (

@@ -189,34 +189,58 @@ def _extract_text_and_image_from_file(file_input) -> Tuple[str, Optional[Image.I
     return cleaned_text, pil_image
 
 
-def verify_psa_document(file_input, first_name: str, last_name: str, dob: Any) -> Dict[str, Any]:
+def _normalize_crs_copy_number(val: Optional[str]) -> str:
+    if not val:
+        return ""
+    return re.sub(r'\s+', '', str(val).strip().upper())
+
+
+def verify_psa_document(
+    file_input,
+    first_name: str,
+    last_name: str,
+    dob: Any,
+    crs_copy_number: str = "",
+) -> Dict[str, Any]:
     """
-    Validates whether the uploaded file is a genuine PSA/NSO Birth Certificate
-    and cross-checks the senior's name and date of birth.
+    PSA Birth Certificate QR Verification & Field Validation Protocol:
+    - Excludes Last Name and Middle Name from automated cross-matching (Maiden vs. Married Name Adaptation).
+    - Strictly verifies 3 invariant personal attributes:
+      1. Given Name (first_name)
+      2. Date of Birth (dob)
+      3. CRS Copy Number (crs_copy_number — Primary Unique Authenticator)
     """
-    # 0. Check for PSA QR Code in uploaded file
+    # Step 1: QR Payload Decoding
     qr_res = {}
     try:
-        from .qr_engine import decode_qr
+        from .qr_engine import decode_qr, extract_crs_copy_number_from_text
         qr_res = decode_qr(file_input)
-    except Exception as e:
-        pass
+    except Exception:
+        extract_crs_copy_number_from_text = lambda _: None
 
     text, pil_img = _extract_text_and_image_from_file(file_input)
     upper_text = text.upper()
     if qr_res.get('qr_detected') and qr_res.get('payload'):
         upper_text = (upper_text + " " + qr_res['payload']).upper()
 
-    # 1. Authenticity check: Must contain QR code or PSA / Civil Registry keywords
+    # Authenticity check: Must contain QR code or PSA / Civil Registry keywords
     matched_keywords = [kw for kw in PSA_KEYWORDS if kw in upper_text]
-    is_authentic = qr_res.get('qr_detected', False) or len(matched_keywords) >= 2 or "CERTIFICATE OF LIVE BIRTH" in upper_text or "PHILIPPINE STATISTICS AUTHORITY" in upper_text
+    is_authentic = (
+        qr_res.get('qr_detected', False)
+        or len(matched_keywords) >= 2
+        or "CERTIFICATE OF LIVE BIRTH" in upper_text
+        or "PHILIPPINE STATISTICS AUTHORITY" in upper_text
+    )
 
     if not is_authentic and not upper_text:
         return {
             'status': 'REJECTED',
+            'verification_status': 'FAIL',
             'is_authentic_psa': False,
             'name_match': False,
+            'given_name_match': False,
             'dob_match': False,
+            'crs_copy_number_match': False,
             'message': 'Walang nakitang PSA QR code o mababasang dokumento sa in-upload na file.',
             'confidence': 0,
             'extracted_sample': ''
@@ -225,27 +249,43 @@ def verify_psa_document(file_input, first_name: str, last_name: str, dob: Any) -
     if not is_authentic:
         return {
             'status': 'REJECTED',
+            'verification_status': 'FAIL',
             'is_authentic_psa': False,
             'name_match': False,
+            'given_name_match': False,
             'dob_match': False,
+            'crs_copy_number_match': False,
             'message': 'Ang in-upload na file ay hindi opisyal na PSA/NSO Birth Certificate o PSA QR Code.',
             'confidence': 10,
             'extracted_sample': upper_text[:200]
         }
 
-    # 2. Senior Name Match
-    full_name_clean = f"{first_name} {last_name}".strip().upper()
-    l_name_clean = last_name.strip().upper()
-    f_name_clean = first_name.strip().upper()
+    # Step 2: Attribute Extraction (Given Name, Date of Birth, CRS Copy Number)
+    ext_given = (qr_res.get('extracted_given_name') or "").strip().upper()
+    ext_dob = (qr_res.get('extracted_dob') or "").strip()
+    ext_crs = _normalize_crs_copy_number(qr_res.get('extracted_crs_copy_number'))
+    if not ext_crs and upper_text:
+        ext_crs = _normalize_crs_copy_number(extract_crs_copy_number_from_text(upper_text))
 
-    # Calculate token set ratio and partial ratio
-    token_score = fuzz.token_set_ratio(full_name_clean, upper_text)
-    last_name_found = l_name_clean in upper_text or fuzz.partial_ratio(l_name_clean, upper_text) >= 85
-    first_name_found = f_name_clean in upper_text or fuzz.partial_ratio(f_name_clean, upper_text) >= 80
+    # Step 3: Application Form Cross-Matching (Excludes Last Name & Middle Name)
+    f_name_clean = re.sub(r'[^A-Z\s]', ' ', (first_name or "")).upper()
+    f_name_clean = " ".join(f_name_clean.split())
 
-    name_matched = token_score >= 70 or (last_name_found and first_name_found)
+    if ext_given:
+        ext_given_clean = " ".join(re.sub(r'[^A-Z\s]', ' ', ext_given).split())
+        given_name_matched = bool(
+            f_name_clean
+            and (
+                f_name_clean == ext_given_clean
+                or all(tok in ext_given_clean.split() for tok in f_name_clean.split())
+            )
+        )
+        token_score = 100.0 if given_name_matched else float(fuzz.ratio(f_name_clean, ext_given_clean))
+    else:
+        token_score = float(fuzz.partial_ratio(f_name_clean, upper_text)) if f_name_clean and upper_text else 0.0
+        given_name_matched = bool(f_name_clean and (f_name_clean in upper_text or token_score >= 85))
 
-    # 3. Date of Birth Match
+    # Date of Birth Match
     dob_date = None
     if isinstance(dob, (date, datetime)):
         dob_date = dob
@@ -262,12 +302,12 @@ def verify_psa_document(file_input, first_name: str, last_name: str, dob: Any) -
     calculated_age = 0
     milestone_eligible = False
     milestone_bracket = "None"
+    iso_form_dob = dob_date.strftime('%Y-%m-%d') if dob_date else (str(dob).strip() if dob else "")
 
     if dob_date:
         today = date.today()
         calculated_age = today.year - dob_date.year - ((today.month, today.day) < (dob_date.month, dob_date.day))
-        
-        # Check milestones: 80, 85, 90, 95, 100+
+
         if calculated_age >= 100:
             milestone_eligible = True
             milestone_bracket = "100 (Centenarian)"
@@ -285,55 +325,65 @@ def verify_psa_document(file_input, first_name: str, last_name: str, dob: Any) -
             milestone_bracket = "80 Milestone"
 
         y_str = str(dob_date.year)
-        m_names = MONTH_NAMES.get(dob_date.month, [])
-
-        year_in_text = y_str in upper_text
-        month_in_text = any(mn in upper_text for mn in m_names) or f"/{dob_date.month:02d}/" in upper_text or f"-{dob_date.month:02d}-" in upper_text
-
-        if year_in_text and month_in_text:
-            dob_matched = True
-            detected_year = y_str
-        elif year_in_text:
-            # Year matches directly
-            dob_matched = True
-            detected_year = y_str
-
-    # Determine status
-    if qr_res.get('is_binary_seal') or (qr_res.get('qr_detected') and qr_res.get('bytes_len', 0) >= 500):
-        # High-density PSA security seal detected
-        if name_matched and dob_matched:
-            status = 'PASS'
-            message = f"PSA Verified: Opisyal na PSA QR Seal at detalye sa sertipiko ay kumpirmado para kay {full_name_clean}."
-        elif not upper_text or len(upper_text.strip()) < 15:
-            # Cropped QR code only, identity details cannot be read as plaintext -> Queue for manual admin review
-            status = 'NEEDS_REVIEW'
-            name_matched = False
-            dob_matched = False
-            message = "PSA Pre-Check: Opisyal na PSA QR Seal (703 Bytes) ay nakita. Ang impormasyon ay naka-encrypt; kailangan ng manual review para sa beripikasyon."
-        elif not name_matched or not dob_matched:
-            status = 'REJECTED'
-            mismatched = "Petsa ng Kapanganakan" if not dob_matched else "Pangalan"
-            message = f"PSA Mismatch: Ang in-upload na dokumento ay hindi tumutugma sa {mismatched} ng aplikante."
+        if ext_dob:
+            dob_matched = (iso_form_dob == ext_dob)
+            if dob_matched:
+                detected_year = y_str
         else:
-            status = 'NEEDS_REVIEW'
-            message = "PSA Pre-Check: Nangangailangan ng karagdagang beripikasyon."
-    elif is_authentic and name_matched and dob_matched:
-        status = 'PASS'
-        message = f"PSA Verified: Pangalan ({full_name_clean}) at Petsa ng Kapanganakan ({dob_date.year if dob_date else ''}) ay kumpirmado."
-    elif is_authentic and (name_matched or dob_matched):
-        status = 'NEEDS_REVIEW'
-        mismatched = "Petsa ng Kapanganakan" if not dob_matched else "Pangalan"
-        message = f"PSA Pre-Check: Nangangailangan ng beripikasyon sa {mismatched}."
+            m_names = MONTH_NAMES.get(dob_date.month, [])
+            year_in_text = y_str in upper_text
+            month_in_text = (
+                any(mn in upper_text for mn in m_names)
+                or f"/{dob_date.month:02d}/" in upper_text
+                or f"-{dob_date.month:02d}-" in upper_text
+            )
+            if year_in_text and month_in_text:
+                dob_matched = True
+                detected_year = y_str
+
+    # CRS Copy Number Match
+    form_crs = _normalize_crs_copy_number(crs_copy_number)
+    if ext_crs and form_crs:
+        crs_matched = (form_crs == ext_crs)
+    elif form_crs and upper_text:
+        crs_matched = (form_crs in _normalize_crs_copy_number(upper_text))
     else:
-        status = 'REJECTED'
-        message = "Hindi tumutugma ang impormasyon sa in-upload na PSA Certificate."
+        crs_matched = False
+
+    # Step 4: Validation Outcome Rules
+    all_three_matched = bool(given_name_matched and dob_matched and crs_matched)
+    if all_three_matched:
+        status = 'PASS'
+        verification_status = 'VERIFIED'
+        message = (
+            f"VERIFIED: Given Name ({f_name_clean}), Date of Birth ({iso_form_dob}), "
+            f"at CRS Copy Number ({form_crs}) ay tugma sa PSA QR Code."
+        )
+    else:
+        status = 'NEEDS_REVIEW'
+        verification_status = 'MISMATCH'
+        mismatched_fields = []
+        if not given_name_matched:
+            mismatched_fields.append("Given Name")
+        if not dob_matched:
+            mismatched_fields.append("Date of Birth")
+        if not crs_matched:
+            mismatched_fields.append("CRS Copy Number")
+        mismatch_str = ", ".join(mismatched_fields) if mismatched_fields else "QR Payload"
+        message = f"PSA Mismatch ({mismatch_str}): Flagged for manual administrative review or re-upload."
 
     return {
         'status': status,
+        'verification_status': verification_status,
         'is_authentic_psa': is_authentic,
-        'name_match': name_matched,
+        'name_match': given_name_matched,
+        'given_name_match': given_name_matched,
         'name_score': round(token_score, 1),
         'dob_match': dob_matched,
+        'crs_copy_number_match': crs_matched,
+        'extracted_given_name': ext_given or None,
+        'extracted_dob': ext_dob or None,
+        'extracted_crs_copy_number': ext_crs or None,
         'detected_year': detected_year,
         'calculated_age': calculated_age,
         'milestone_eligible': milestone_eligible,
@@ -430,6 +480,12 @@ def perform_complete_document_verification(senior_data: Dict[str, Any], files: D
     last_name = str(senior_data.get('last_name', '')).strip()
     dob = senior_data.get('date_of_birth')
     osca_id = str(senior_data.get('osca_id', '')).strip()
+    annex_a = senior_data.get('annex_a_data') if isinstance(senior_data.get('annex_a_data'), dict) else {}
+    crs_copy_number = str(
+        senior_data.get('crs_copy_number')
+        or annex_a.get('crs_copy_number')
+        or ''
+    ).strip()
 
     f_psa = files.get('psa_cert_file')
     f_id = files.get('primary_id_file')
@@ -479,9 +535,9 @@ def perform_complete_document_verification(senior_data: Dict[str, Any], files: D
             'message': 'Lahat ng dokumento ay orihinal at walang kapareho sa database.'
         }
 
-    # 2. Verify PSA Birth Certificate
+    # 2. Verify PSA Birth Certificate (Given Name, Date of Birth, CRS Copy Number)
     if f_psa:
-        psa_res = verify_psa_document(f_psa, first_name, last_name, dob)
+        psa_res = verify_psa_document(f_psa, first_name, last_name, dob, crs_copy_number)
         results['psa_check'] = psa_res
         if psa_res['status'] != 'PASS':
             results['reasons'].append(psa_res['message'])

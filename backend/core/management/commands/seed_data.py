@@ -173,6 +173,8 @@ class Command(BaseCommand):
                 primary_ben = f"{random.choice(all_firsts).title()} {ln}"
                 reps = [{'name': f"{random.choice(all_firsts).title()} {random.choice(all_lasts).title()}", 'relation': 'Child'}]
 
+                crs_copy_number = f"08621-A8-003AOQ-{i:05d}-BI005"
+
                 annex_data = {
                     'given_name': fn,
                     'middle_name': mn,
@@ -180,6 +182,7 @@ class Command(BaseCommand):
                     'date_of_birth': dob.strftime('%Y-%m-%d'),
                     'sex': sex,
                     'civil_status': civil_status,
+                    'crs_copy_number': crs_copy_number,
                     'spouse_name': spouse_name,
                     'spouse_citizenship': spouse_citizenship,
                     'res_house': str(random.randint(1, 200)),
@@ -188,8 +191,6 @@ class Command(BaseCommand):
                     'res_district': district,
                     'res_city': 'Quezon City',
                     'res_prov': 'Metro Manila',
-                    'osca_id_year': '2026',
-                    'osca_id_serial': serial_num,
                     'primary_ben_name': primary_ben,
                     'primary_ben_rel': random.choice(['Child', 'Grandchild', 'Spouse']),
                     'utilization': random.sample(['FOOD', 'MEDICINE', 'HEALTH SERVICES', 'HOUSEHOLD NEEDS'], random.randint(1, 3)),

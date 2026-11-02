@@ -776,18 +776,18 @@ export default function ReviewQueuePage() {
                       </span>
                     </div>
 
-                    {/* PSA QR Code Cross-Check */}
+                    {/* PSA QR Code Cross-Check (Given Name, Date of Birth, CRS Copy Number) */}
                     <div className="p-3 bg-slate-50 border border-slate-100 rounded-2xl flex items-center justify-between">
                       <div className="flex items-center gap-2.5">
                         <span className="text-base">🔳</span>
                         <div>
-                          <div className="text-[10px] font-black uppercase tracking-wider text-slate-700">PSA QR Code Verification</div>
+                          <div className="text-[10px] font-black uppercase tracking-wider text-slate-700">PSA QR Code 3-Field Verification</div>
                           <div className="text-[11px] font-medium text-slate-500">
                             {selectedSenior.auto_check_results?.psa_qr?.message || "No PSA QR scan recorded for this application"}
                           </div>
                           {selectedSenior.auto_check_results?.psa_qr?.qr_detected && (
                             <div className="text-[10px] font-semibold text-slate-400 mt-0.5">
-                              QR: {selectedSenior.auto_check_results.psa_qr.extracted_name || '—'} • {selectedSenior.auto_check_results.psa_qr.extracted_dob || '—'}
+                              Given Name: {selectedSenior.auto_check_results.psa_qr.extracted_given_name || selectedSenior.auto_check_results.psa_qr.extracted_name || '—'} • DOB: {selectedSenior.auto_check_results.psa_qr.extracted_dob || '—'} • CRS Copy No.: {selectedSenior.auto_check_results.psa_qr.extracted_crs_copy_number || '—'}
                             </div>
                           )}
                         </div>
@@ -799,7 +799,7 @@ export default function ReviewQueuePage() {
                             : 'bg-amber-100 text-amber-800'
                         }`}>
                         {selectedSenior.auto_check_results?.psa_qr?.status === 'PASS'
-                          ? 'Matched'
+                          ? 'Verified'
                           : selectedSenior.auto_check_results?.psa_qr?.status === 'FLAGGED' ? 'Mismatch' : 'Review'}
                       </span>
                     </div>

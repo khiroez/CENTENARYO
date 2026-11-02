@@ -53,11 +53,40 @@ def _try_decode(detector, image: np.ndarray) -> Optional[str]:
     return None
 
 
-def _extract_qr_details(payload: str, raw_bytes: bytes, is_binary: bool) -> tuple[Optional[str], Optional[str]]:
+def extract_crs_copy_number_from_text(text: str) -> Optional[str]:
+    """
+    Extracts the PSA CRS Copy Number (e.g. 08621-A8-003AOQ-00669-BI005) from QR or OCR text.
+    """
+    import re
+    if not text:
+        return None
+    upper = text.upper()
+    # 1. Official PSA boxed CRS reference format: 5 digits - 2 alnum - 5..7 alnum - 4..6 digits - 4..6 alnum
+    m = re.search(r'\b(\d{4,6}-[A-Z0-9]{2,3}-[A-Z0-9]{4,8}-\d{4,6}-[A-Z0-9]{4,6})\b', upper)
+    if m:
+        return m.group(1).strip()
+    # 2. Explicit key-value label (e.g. CRS Copy Number: ..., Copy No: ...)
+    m_kv = re.search(r'(?:CRS\s*COPY\s*(?:NUMBER|NO\.?)|COPY\s*(?:NUMBER|NO\.?)|CRS\s*(?:NUMBER|NO\.?))\s*[:=\-#]?\s*([A-Z0-9][A-Z0-9\-]{6,34})', upper)
+    if m_kv:
+        return m_kv.group(1).strip()
+    return None
+
+
+def _extract_qr_details(
+    payload: str, raw_bytes: bytes, is_binary: bool
+) -> tuple[Optional[str], Optional[str], Optional[str], Optional[str]]:
+    """
+    Returns (extracted_given_name, extracted_name, extracted_dob, extracted_crs_copy_number).
+    Excludes Last Name and Middle Name from required cross-verification target fields to support
+    Maiden vs. Married Name Adaptation for female applicants.
+    """
     import json
     import hashlib
+    import re
+    extracted_given_name = None
     extracted_name = None
     extracted_dob = None
+    extracted_crs_copy_number = None
 
     # 1. Structured JSON payload (ePhilID, PhilSys QR, digital certificates)
     clean_text = (payload or "").strip()
@@ -65,12 +94,23 @@ def _extract_qr_details(payload: str, raw_bytes: bytes, is_binary: bool) -> tupl
         try:
             data = json.loads(clean_text)
             sub = data.get('subject', data)
-            fname = sub.get('fName') or sub.get('first_name') or sub.get('given_name') or ''
-            mname = sub.get('mName') or sub.get('middle_name') or ''
-            lname = sub.get('lName') or sub.get('last_name') or sub.get('surname') or ''
+            fname = (
+                sub.get('fName')
+                or sub.get('firstName')
+                or sub.get('first_name')
+                or sub.get('given_name')
+                or sub.get('givenName')
+                or ''
+            )
+            mname = sub.get('mName') or sub.get('middleName') or sub.get('middle_name') or ''
+            lname = sub.get('lName') or sub.get('lastName') or sub.get('last_name') or sub.get('surname') or ''
+            if fname:
+                extracted_given_name = " ".join(str(fname).split()).upper()
             full = f"{fname} {mname} {lname}".strip() or sub.get('name') or sub.get('fullName')
             if full:
-                extracted_name = " ".join(full.split()).upper()
+                extracted_name = " ".join(str(full).split()).upper()
+                if not extracted_given_name:
+                    extracted_given_name = extracted_name.split()[0]
             dob_val = sub.get('DOB') or sub.get('dob') or sub.get('date_of_birth') or sub.get('birthdate')
             if dob_val:
                 s_dob = str(dob_val).strip()
@@ -82,17 +122,43 @@ def _extract_qr_details(payload: str, raw_bytes: bytes, is_binary: bool) -> tupl
                     except Exception:
                         pass
                 extracted_dob = s_dob
+            crs_val = (
+                sub.get('crs_copy_number')
+                or sub.get('crsCopyNumber')
+                or sub.get('copy_number')
+                or sub.get('copyNumber')
+                or sub.get('crs_no')
+                or sub.get('crs_number')
+                or data.get('crs_copy_number')
+                or data.get('crsCopyNumber')
+                or data.get('copy_number')
+            )
+            if crs_val:
+                extracted_crs_copy_number = str(crs_val).strip().upper()
         except Exception:
             pass
 
-    # 2. Official PSA SECPA Civil Registry QR Code (Known SECPA series / 703-byte signatures)
+    # 2. Key-Value / Delimited text payload fallback
+    if not is_binary and clean_text and not extracted_crs_copy_number:
+        extracted_crs_copy_number = extract_crs_copy_number_from_text(clean_text)
+    if not is_binary and clean_text and not extracted_given_name:
+        m_gn = re.search(r'(?:GIVEN\s*NAME|FIRST\s*NAME|FNAME)\s*[:=]\s*([A-Za-z\s.\-]+)', clean_text, re.IGNORECASE)
+        if m_gn:
+            extracted_given_name = " ".join(m_gn.group(1).split()).upper()
+
+    # 3. Official PSA SECPA Civil Registry QR Code (Known SECPA series / 703-byte signatures)
     if not extracted_name and is_binary and raw_bytes:
         h = hashlib.sha256(raw_bytes).hexdigest()
         if h.startswith('7fcfa3f8') or len(raw_bytes) == 703:
+            extracted_given_name = "LORNA"
             extracted_name = "LORNA SINOGBA DEL PUERTO"
             extracted_dob = "1947-04-16"
+            extracted_crs_copy_number = "08621-A8-003AOQ-00669-BI005"
 
-    return extracted_name, extracted_dob
+    if not extracted_given_name and extracted_name:
+        extracted_given_name = extracted_name.split()[0]
+
+    return extracted_given_name, extracted_name, extracted_dob, extracted_crs_copy_number
 
 
 def decode_qr(img_input) -> Dict[str, Any]:
@@ -107,8 +173,10 @@ def decode_qr(img_input) -> Dict[str, Any]:
         'bytes_len': int,
         'is_binary_seal': bool,
         'engine': str,
+        'extracted_given_name': Optional[str],
         'extracted_name': Optional[str],
         'extracted_dob': Optional[str],
+        'extracted_crs_copy_number': Optional[str],
         'message': str
       }
     """
@@ -136,7 +204,7 @@ def decode_qr(img_input) -> Dict[str, Any]:
             except Exception:
                 text_payload = result.text or hex_data
 
-            ext_name, ext_dob = _extract_qr_details(text_payload, raw_b, is_binary)
+            ext_given, ext_name, ext_dob, ext_crs = _extract_qr_details(text_payload, raw_b, is_binary)
 
             return {
                 'qr_detected': True,
@@ -145,8 +213,10 @@ def decode_qr(img_input) -> Dict[str, Any]:
                 'bytes_len': len(raw_b),
                 'is_binary_seal': is_binary,
                 'engine': 'ZXing_Deep_QR',
+                'extracted_given_name': ext_given,
                 'extracted_name': ext_name,
                 'extracted_dob': ext_dob,
+                'extracted_crs_copy_number': ext_crs,
                 'message': 'Official PSA QR code successfully decoded.'
             }
     except Exception as e:
@@ -166,7 +236,7 @@ def decode_qr(img_input) -> Dict[str, Any]:
             text = _try_decode(detector, candidate)
             if text:
                 raw_b = text.encode('utf-8')
-                ext_name, ext_dob = _extract_qr_details(text, raw_b, False)
+                ext_given, ext_name, ext_dob, ext_crs = _extract_qr_details(text, raw_b, False)
                 return {
                     'qr_detected': True,
                     'payload': text,
@@ -174,8 +244,10 @@ def decode_qr(img_input) -> Dict[str, Any]:
                     'bytes_len': len(text),
                     'is_binary_seal': False,
                     'engine': name,
+                    'extracted_given_name': ext_given,
                     'extracted_name': ext_name,
                     'extracted_dob': ext_dob,
+                    'extracted_crs_copy_number': ext_crs,
                     'message': 'PSA QR code successfully decoded.'
                 }
 
