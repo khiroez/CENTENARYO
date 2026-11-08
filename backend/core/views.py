@@ -404,9 +404,16 @@ class SeniorViewSet(viewsets.ModelViewSet):
             queryset = queryset.filter(barangay__icontains=brgy_param)
         
         # Registration Status Filter
+        # Applications still pending or under review stay in the Review Queue (/review)
+        # and are NOT shown in the Senior Registry table until approved.
         reg_status = self.request.query_params.get('registration_status', '')
-        if reg_status:
+        if reg_status and reg_status.upper() == 'RETURNED':
+            queryset = queryset.filter(registration_status='RETURNED')
+        elif reg_status and reg_status.upper() not in ['ALL', '']:
             queryset = queryset.filter(registration_status=reg_status.upper())
+        else:
+            # Default for Senior Registry: Only show officially approved beneficiaries
+            queryset = queryset.filter(registration_status='APPROVED')
                 
         return queryset
 

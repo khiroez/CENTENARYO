@@ -196,7 +196,7 @@ export default function SeniorRegistryPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [ageFilter, setAgeFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
-  const [registrationStatusFilter, setRegistrationStatusFilter] = useState(regStatusParam || "all");
+  const [registrationStatusFilter, setRegistrationStatusFilter] = useState(regStatusParam || "APPROVED");
   const [sexFilter, setSexFilter] = useState("all");
   const [brgyFilter, setBrgyFilter] = useState("");
 
@@ -430,7 +430,7 @@ export default function SeniorRegistryPage() {
         page: currentPage.toString(),
         filter: ageFilter,
         status: statusFilter,
-        registration_status: registrationStatusFilter === "all" ? "" : registrationStatusFilter,
+        registration_status: registrationStatusFilter,
         sex: sexFilter,
         barangay: brgyFilter,
         search: searchTerm
@@ -2003,7 +2003,7 @@ export default function SeniorRegistryPage() {
         <button
           type="button"
           onClick={() => {
-            setRegistrationStatusFilter(prev => prev === 'RETURNED' ? 'all' : 'RETURNED');
+            setRegistrationStatusFilter(prev => prev === 'RETURNED' ? 'APPROVED' : 'RETURNED');
             setCurrentPage(1);
           }}
           className={`px-3 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center gap-1.5 border shadow-sm ${registrationStatusFilter === 'RETURNED'
@@ -2018,23 +2018,8 @@ export default function SeniorRegistryPage() {
         <select value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setCurrentPage(1); }} className="px-4 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-600 outline-none focus:border-indigo-400 transition-all cursor-pointer"><option value="all">ALL STATUS</option><option value="ACTIVE">ACTIVE</option><option value="DECEASED">DECEASED</option><option value="TRANSFERRED">TRANSFERRED</option><option value="SUSPENDED">SUSPENDED</option></select>
         <select value={ageFilter} onChange={(e) => { setAgeFilter(e.target.value); setCurrentPage(1); }} className="px-4 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-600 outline-none focus:border-indigo-400 transition-all cursor-pointer"><option value="all">ALL AGES</option><option value="eligible">ELIGIBLE (80+)</option><option value="upcoming">UPCOMING (78-79)</option></select>
         <select value={sexFilter} onChange={(e) => { setSexFilter(e.target.value); setCurrentPage(1); }} className="px-4 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-600 outline-none focus:border-indigo-400 transition-all cursor-pointer"><option value="all">ALL SEX</option><option value="Male">MALE</option><option value="Female">FEMALE</option></select>
-        <select
-          value={registrationStatusFilter}
-          onChange={(e) => { setRegistrationStatusFilter(e.target.value); setCurrentPage(1); }}
-          className={`px-4 py-2 bg-white border rounded-xl text-xs font-bold outline-none transition-all cursor-pointer ${registrationStatusFilter === 'RETURNED'
-            ? 'border-amber-400 bg-amber-50 text-amber-900 ring-2 ring-amber-400/20'
-            : 'border-slate-200 text-slate-600 focus:border-indigo-400'
-            }`}
-        >
-          <option value="all">ALL REG. STATUS</option>
-          <option value="RETURNED">RETURNED FOR CORRECTION</option>
-          <option value="PENDING_REVIEW">PENDING REVIEW</option>
-          <option value="UNDER_REVIEW">UNDER REVIEW</option>
-          <option value="APPROVED">APPROVED</option>
-          <option value="REJECTED">REJECTED</option>
-        </select>
         <div className="relative group flex-1 min-w-[200px]"><input type="text" value={brgyFilter} onChange={(e) => setBrgyFilter(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && fetchSeniors()} placeholder="Barangay..." className="w-full px-4 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-600 outline-none focus:border-indigo-400 transition-all" /><button onClick={fetchSeniors} className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-indigo-600"><RefreshCcw size={14} /></button></div>
-        <button onClick={() => { setStatusFilter("all"); setAgeFilter("all"); setSexFilter("all"); setRegistrationStatusFilter("all"); setBrgyFilter(""); setSearchTerm(""); }} className="px-4 py-2 text-slate-400 hover:text-rose-600 text-[10px] font-black uppercase tracking-widest transition-colors">Reset</button>
+        <button onClick={() => { setStatusFilter("all"); setAgeFilter("all"); setSexFilter("all"); setRegistrationStatusFilter("APPROVED"); setBrgyFilter(""); setSearchTerm(""); }} className="px-4 py-2 text-slate-400 hover:text-rose-600 text-[10px] font-black uppercase tracking-widest transition-colors">Reset</button>
       </div>
 
       {/* Registry Table */}
@@ -2074,7 +2059,7 @@ export default function SeniorRegistryPage() {
                           )}
                           {senior.death_cert_file && (
                             <a
-                              href={senior.death_cert_file.startsWith('http') ? senior.death_cert_file : `${process.env.NEXT_PUBLIC_API_URL?.replace('/api', '')}${senior.death_cert_file}`}
+                              href={resolveMediaUrl(senior.death_cert_file)}
                               target="_blank"
                               rel="noreferrer"
                               className="text-[9px] font-black text-rose-700 underline hover:text-rose-900"
@@ -2084,7 +2069,7 @@ export default function SeniorRegistryPage() {
                           )}
                         </div>
                       )}
-                      {senior.registration_status === 'RETURNED' ? (
+                      {senior.registration_status === 'RETURNED' && (
                         <button
                           type="button"
                           onClick={() => handleEditClick(senior)}
@@ -2093,13 +2078,6 @@ export default function SeniorRegistryPage() {
                         >
                           <RotateCcw size={10} /> Returned for Correction
                         </button>
-                      ) : (
-                        <span className={`px-2 py-0.5 rounded text-[8px] font-black border uppercase tracking-widest ${senior.registration_status === 'APPROVED' ? 'bg-emerald-50 text-emerald-600 border-emerald-200' :
-                          senior.registration_status === 'PENDING_REVIEW' ? 'bg-amber-50 text-amber-600 border-amber-200' :
-                            senior.registration_status === 'UNDER_REVIEW' ? 'bg-indigo-50 text-indigo-600 border-indigo-200' :
-                              senior.registration_status === 'REJECTED' ? 'bg-rose-50 text-rose-600 border-rose-200' :
-                                'bg-slate-50 text-slate-600 border-slate-200'
-                          }`}>{senior.registration_status ? senior.registration_status.replace('_', ' ') : 'PENDING REVIEW'}</span>
                       )}
                     </div>
                   </td>
@@ -2583,11 +2561,20 @@ export default function SeniorRegistryPage() {
                     </div>
                   </section>
 
-                  <section>
+                </fieldset>
+
+                  <section className="space-y-6">
                     <div className="flex items-center gap-3 mb-8"><span className="w-8 h-8 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center font-black text-sm">D</span><h3 className="text-lg font-black text-slate-800 tracking-tight">Documentary Requirements</h3></div>
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                       <div className="p-6 bg-slate-50 rounded-[32px] border-2 border-dashed border-slate-200 hover:border-indigo-400 group relative transition-all border-spacing-2">
-                        <input type="file" accept="image/*,.pdf" onChange={(e) => handleFileChange(e, 'psa_cert_file')} className="absolute inset-0 opacity-0 cursor-pointer z-10" />
+                        {!isViewOnly && (
+                          <input
+                            type="file"
+                            accept="image/*,.pdf"
+                            onChange={(e) => handleFileChange(e, 'psa_cert_file')}
+                            className="absolute inset-0 opacity-0 cursor-pointer z-10"
+                          />
+                        )}
                         <div className="flex flex-col items-center text-center gap-3">
                           <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center text-slate-400 group-hover:text-indigo-600 shadow-sm">
                             {formData.psa_cert_file ? <FileCheck size={24} className="text-emerald-500" /> : (formData.psa_cert_url ? <FileCheck size={24} className="text-indigo-400" /> : <Upload size={24} />)}
@@ -2609,7 +2596,8 @@ export default function SeniorRegistryPage() {
                               {(formData.psa_cert_file || formData.psa_cert_url) && (
                                 <button
                                   type="button"
-                                  onClick={() => {
+                                  onClick={(e) => {
+                                    e.stopPropagation();
                                     const file = formData.psa_cert_file;
                                     const url = formData.psa_cert_url;
                                     setPdfPreviewSrc({
@@ -2618,7 +2606,7 @@ export default function SeniorRegistryPage() {
                                       title: 'PSA Birth Certificate / QR Code'
                                     });
                                   }}
-                                  className="mt-2 px-3 py-1 bg-indigo-50 text-indigo-600 rounded-lg text-[9px] font-black uppercase tracking-widest hover:bg-indigo-100 transition-all relative z-20"
+                                  className="mt-2 px-3 py-1 bg-indigo-50 text-indigo-600 rounded-lg text-[9px] font-black uppercase tracking-widest hover:bg-indigo-100 transition-all relative z-20 cursor-pointer pointer-events-auto shadow-sm"
                                 >
                                   View File
                                 </button>
@@ -2629,7 +2617,14 @@ export default function SeniorRegistryPage() {
                       </div>
 
                       <div className="p-6 bg-slate-50 rounded-[32px] border-2 border-dashed border-slate-200 hover:border-indigo-400 group relative transition-all border-spacing-2">
-                        <input type="file" accept=".pdf,image/*" onChange={(e) => handleFileChange(e, 'primary_id_file')} className="absolute inset-0 opacity-0 cursor-pointer z-10" />
+                        {!isViewOnly && (
+                          <input
+                            type="file"
+                            accept=".pdf,image/*"
+                            onChange={(e) => handleFileChange(e, 'primary_id_file')}
+                            className="absolute inset-0 opacity-0 cursor-pointer z-10"
+                          />
+                        )}
                         <div className="flex flex-col items-center text-center gap-3">
                           <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center text-slate-400 group-hover:text-indigo-600 shadow-sm">
                             {formData.primary_id_file ? <FileCheck size={24} className="text-emerald-500" /> : (formData.primary_id_url ? <FileCheck size={24} className="text-indigo-400" /> : <Upload size={24} />)}
@@ -2651,7 +2646,8 @@ export default function SeniorRegistryPage() {
                               {(formData.primary_id_file || formData.primary_id_url) && (
                                 <button
                                   type="button"
-                                  onClick={() => {
+                                  onClick={(e) => {
+                                    e.stopPropagation();
                                     const file = formData.primary_id_file;
                                     const url = formData.primary_id_url;
                                     setPdfPreviewSrc({
@@ -2660,7 +2656,7 @@ export default function SeniorRegistryPage() {
                                       title: 'QC QCitizen Senior Card'
                                     });
                                   }}
-                                  className="mt-2 px-3 py-1 bg-indigo-50 text-indigo-600 rounded-lg text-[9px] font-black uppercase tracking-widest hover:bg-indigo-100 transition-all relative z-20"
+                                  className="mt-2 px-3 py-1 bg-indigo-50 text-indigo-600 rounded-lg text-[9px] font-black uppercase tracking-widest hover:bg-indigo-100 transition-all relative z-20 cursor-pointer pointer-events-auto shadow-sm"
                                 >
                                   View File
                                 </button>
@@ -2671,7 +2667,14 @@ export default function SeniorRegistryPage() {
                       </div>
 
                       <div className="p-6 bg-slate-50 rounded-[32px] border-2 border-dashed border-slate-200 hover:border-indigo-400 group relative transition-all border-spacing-2">
-                        <input type="file" accept="image/*" onChange={(e) => handleFileChange(e, 'picture_2x2_file')} className="absolute inset-0 opacity-0 cursor-pointer z-10" />
+                        {!isViewOnly && (
+                          <input
+                            type="file"
+                            accept="image/*"
+                            onChange={(e) => handleFileChange(e, 'picture_2x2_file')}
+                            className="absolute inset-0 opacity-0 cursor-pointer z-10"
+                          />
+                        )}
                         <div className="flex flex-col items-center text-center gap-3">
                           <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center text-slate-400 group-hover:text-indigo-600 shadow-sm">
                             {formData.picture_2x2_file ? <ImageIcon size={24} className="text-emerald-500" /> : (formData.picture_2x2_url ? <ImageIcon size={24} className="text-indigo-400" /> : <Upload size={24} />)}
@@ -2691,14 +2694,22 @@ export default function SeniorRegistryPage() {
                                 {formData.picture_2x2_file ? formData.picture_2x2_file.name : (formData.picture_2x2_url ? getFileNameFromUrl(formData.picture_2x2_url) : 'Upload Image')}
                               </p>
                               {(formData.picture_2x2_file || formData.picture_2x2_url) && (
-                                <a
-                                  href={formData.picture_2x2_file ? URL.createObjectURL(formData.picture_2x2_file) : resolveMediaUrl(formData.picture_2x2_url)}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="mt-2 px-3 py-1 bg-indigo-50 text-indigo-600 rounded-lg text-[9px] font-black uppercase tracking-widest hover:bg-indigo-100 transition-all relative z-20"
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    const file = formData.picture_2x2_file;
+                                    const url = formData.picture_2x2_url;
+                                    setPdfPreviewSrc({
+                                      url: file ? undefined : resolveMediaUrl(url),
+                                      file: file || null,
+                                      title: '2x2 ID Photo'
+                                    });
+                                  }}
+                                  className="mt-2 px-3 py-1 bg-indigo-50 text-indigo-600 rounded-lg text-[9px] font-black uppercase tracking-widest hover:bg-indigo-100 transition-all relative z-20 cursor-pointer pointer-events-auto shadow-sm"
                                 >
                                   View Photo
-                                </a>
+                                </button>
                               )}
                             </div>
                           </div>
@@ -2707,14 +2718,15 @@ export default function SeniorRegistryPage() {
                     </div>
                   </section>
 
-                  <section className="bg-rose-50 border border-rose-100 p-10 rounded-[40px] space-y-8">
-                    <div className="flex items-center gap-4 text-rose-600"><AlertCircle size={32} /><div><h3 className="text-lg font-black uppercase tracking-tighter">Legal Certification & Consent</h3><p className="text-xs font-bold text-rose-400 uppercase tracking-widest">Final Verification</p></div></div>
-                    <div className="space-y-4">
-                      <label className="flex items-start gap-5 cursor-pointer p-6 hover:bg-white rounded-3xl transition-all border border-transparent hover:border-rose-100"><input type="checkbox" required checked={formData.consent_truth} onChange={(e) => setFormData({ ...formData, consent_truth: e.target.checked })} className="mt-1 w-7 h-7 rounded-xl text-rose-600 border-rose-200" /><span className="text-sm text-slate-700 font-bold leading-relaxed">I certify under oath that all information is true and correct.</span></label>
-                      <label className="flex items-start gap-5 cursor-pointer p-6 hover:bg-white rounded-3xl transition-all border border-transparent hover:border-rose-100"><input type="checkbox" required checked={formData.consent_privacy} onChange={(e) => setFormData({ ...formData, consent_privacy: e.target.checked })} className="mt-1 w-7 h-7 rounded-xl text-rose-600 border-rose-200" /><span className="text-sm text-slate-700 font-bold leading-relaxed">I authorize NCSC to process my data per R.A. No. 11982.</span></label>
-                    </div>
-                  </section>
-                </fieldset>
+                  <fieldset disabled={isViewOnly} className="space-y-8 border-0 p-0 m-0 min-w-0">
+                    <section className="bg-rose-50 border border-rose-100 p-10 rounded-[40px] space-y-8">
+                      <div className="flex items-center gap-4 text-rose-600"><AlertCircle size={32} /><div><h3 className="text-lg font-black uppercase tracking-tighter">Legal Certification & Consent</h3><p className="text-xs font-bold text-rose-400 uppercase tracking-widest">Final Verification</p></div></div>
+                      <div className="space-y-4">
+                        <label className="flex items-start gap-5 cursor-pointer p-6 hover:bg-white rounded-3xl transition-all border border-transparent hover:border-rose-100"><input type="checkbox" required checked={formData.consent_truth} onChange={(e) => setFormData({ ...formData, consent_truth: e.target.checked })} className="mt-1 w-7 h-7 rounded-xl text-rose-600 border-rose-200" /><span className="text-sm text-slate-700 font-bold leading-relaxed">I certify under oath that all information is true and correct.</span></label>
+                        <label className="flex items-start gap-5 cursor-pointer p-6 hover:bg-white rounded-3xl transition-all border border-transparent hover:border-rose-100"><input type="checkbox" required checked={formData.consent_privacy} onChange={(e) => setFormData({ ...formData, consent_privacy: e.target.checked })} className="mt-1 w-7 h-7 rounded-xl text-rose-600 border-rose-200" /><span className="text-sm text-slate-700 font-bold leading-relaxed">I authorize NCSC to process my data per R.A. No. 11982.</span></label>
+                      </div>
+                    </section>
+                  </fieldset>
               </div>
 
               <div className="flex justify-end gap-4 px-10 py-8 border-t border-slate-100 bg-slate-50/50 shrink-0">
