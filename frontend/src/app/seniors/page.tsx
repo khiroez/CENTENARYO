@@ -1966,10 +1966,6 @@ export default function SeniorRegistryPage() {
       reader.readAsArrayBuffer(file);
     }
   };
-  const handleUtilizationChange = (value: string) => {
-    const isChecked = formData.utilization.includes(value);
-    setFormData({ ...formData, utilization: isChecked ? formData.utilization.filter(item => item !== value) : [...formData.utilization, value] });
-  };
 
   return (
     <div className="space-y-8 max-w-[1400px] mx-auto pb-12 animate-in fade-in duration-500">
@@ -2349,7 +2345,6 @@ export default function SeniorRegistryPage() {
                         </label>
                         <div className="relative">
                           <input readOnly type="text" value={formData.age} className="w-full px-5 py-4 bg-indigo-50/50 border border-indigo-100 rounded-2xl font-black text-indigo-600 text-center" placeholder="--" />
-                          {formData.age && parseInt(formData.age) >= 80 && <span className="absolute -top-1 -right-1 flex h-3 w-3"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span><span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span></span>}
                         </div>
                       </div>
                       <div className="space-y-2">
@@ -2514,57 +2509,10 @@ export default function SeniorRegistryPage() {
                     </div>
                   </section>
 
-                  <section>
-                    <div className="flex items-center gap-3 mb-8">
-                      <span className="w-8 h-8 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center font-black text-sm">C</span>
-                      <h3 className="text-lg font-black text-slate-800 tracking-tight flex items-center gap-2">
-                        Benefit Utilization
-                        <div className="group relative">
-                          <Info size={16} className="text-slate-300 cursor-help" />
-                          <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-64 p-3 bg-slate-800 text-white text-[10px] rounded-xl opacity-0 group-hover:opacity-100 transition-opacity z-20 font-medium text-center shadow-2xl">
-                            Indicate how the financial assistance will be utilized by the senior citizen.
-                            <div className="absolute top-full left-1/2 -translate-x-1/2 border-8 border-transparent border-t-slate-800"></div>
-                          </div>
-                        </div>
-                      </h3>
-                    </div>
-                    <div className="space-y-4">
-                      <div className="grid grid-cols-2 md:grid-cols-5 gap-4 p-8 bg-slate-50 rounded-[32px] border border-slate-100">
-                        {['FOOD', 'MEDICINE', 'HEALTH SERVICES', 'HOUSEHOLD NEEDS', 'OTHERS'].map((item) => (
-                          <label key={item} className="flex items-center gap-3 cursor-pointer group">
-                            <input type="checkbox" checked={formData.utilization.includes(item)} onChange={() => handleUtilizationChange(item)} className="w-6 h-6 rounded-lg text-indigo-600" />
-                            <span className="text-[10px] font-black uppercase tracking-widest text-slate-500 group-hover:text-indigo-600 transition-colors">{item}</span>
-                          </label>
-                        ))}
-                      </div>
-
-                      {formData.utilization.includes('OTHERS') && (
-                        <div className="p-6 bg-indigo-50/50 rounded-2xl border border-indigo-100 animate-in slide-in-from-top-2 duration-300">
-                          <label className="text-[10px] font-black text-indigo-600 uppercase tracking-widest ml-1 mb-2 block flex items-center gap-1.5">
-                            Specify Other Purposes
-                            <div className="group relative">
-                              <Info size={10} className="text-indigo-300" />
-                              <div className="absolute bottom-full left-0 mb-2 w-48 p-2 bg-slate-800 text-white text-[9px] rounded-lg opacity-0 group-hover:opacity-100 transition-opacity z-20 font-medium">
-                                Type specific usage (e.g. ELECTRICITY, WATER).
-                              </div>
-                            </div>
-                          </label>
-                          <input
-                            type="text"
-                            value={formData.utilization_others}
-                            onChange={(e) => setFormData({ ...formData, utilization_others: e.target.value.toUpperCase() })}
-                            placeholder="e.g. UTILITIES, DEBT PAYMENT, ETC."
-                            className="w-full px-5 py-3 bg-white border border-indigo-200 rounded-xl font-bold text-sm text-indigo-900 outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all"
-                          />
-                        </div>
-                      )}
-                    </div>
-                  </section>
-
                 </fieldset>
 
                   <section className="space-y-6">
-                    <div className="flex items-center gap-3 mb-8"><span className="w-8 h-8 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center font-black text-sm">D</span><h3 className="text-lg font-black text-slate-800 tracking-tight">Documentary Requirements</h3></div>
+                    <div className="flex items-center gap-3 mb-8"><span className="w-8 h-8 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center font-black text-sm">C</span><h3 className="text-lg font-black text-slate-800 tracking-tight">Documentary Requirements</h3></div>
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                       <div className="p-6 bg-slate-50 rounded-[32px] border-2 border-dashed border-slate-200 hover:border-indigo-400 group relative transition-all border-spacing-2">
                         {!isViewOnly && (
