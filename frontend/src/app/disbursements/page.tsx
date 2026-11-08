@@ -711,16 +711,16 @@ export default function DisbursementsPage() {
             />
           </form>
 
-          <div className="relative group w-full md:w-auto">
-            <Filter className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={18} />
+          <div className="flex items-center bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5">
+            <Filter size={16} className="text-slate-400 mr-2" />
             <select
               value={statusFilter}
               onChange={(e) => { setStatusFilter(e.target.value); setCurrentPage(1); }}
-              className="w-full md:w-auto pl-11 pr-10 py-3 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-400 bg-white text-slate-700 text-sm font-medium cursor-pointer transition-all shadow-sm appearance-none"
+              className="bg-transparent text-xs font-black uppercase tracking-widest text-slate-700 outline-none cursor-pointer"
             >
-              <option value="all">All Statuses</option>
-              <option value="PENDING">Pending Payouts</option>
-              <option value="RELEASED">Released</option>
+              <option value="all">ALL STATUSES</option>
+              <option value="PENDING">PENDING PAYOUTS</option>
+              <option value="RELEASED">RELEASED</option>
             </select>
           </div>
 
