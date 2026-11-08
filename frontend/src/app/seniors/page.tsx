@@ -2011,9 +2011,18 @@ export default function SeniorRegistryPage() {
           <RotateCcw size={12} className={registrationStatusFilter === 'RETURNED' ? 'animate-spin-slow' : ''} />
           <span>Returned for Correction</span>
         </button>
-        <select value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setCurrentPage(1); }} className="px-4 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-600 outline-none focus:border-indigo-400 transition-all cursor-pointer"><option value="all">ALL STATUS</option><option value="ACTIVE">ACTIVE</option><option value="DECEASED">DECEASED</option><option value="TRANSFERRED">TRANSFERRED</option><option value="SUSPENDED">SUSPENDED</option></select>
-        <select value={ageFilter} onChange={(e) => { setAgeFilter(e.target.value); setCurrentPage(1); }} className="px-4 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-600 outline-none focus:border-indigo-400 transition-all cursor-pointer"><option value="all">ALL AGES</option><option value="eligible">ELIGIBLE (80+)</option><option value="upcoming">UPCOMING (78-79)</option></select>
-        <select value={sexFilter} onChange={(e) => { setSexFilter(e.target.value); setCurrentPage(1); }} className="px-4 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-600 outline-none focus:border-indigo-400 transition-all cursor-pointer"><option value="all">ALL SEX</option><option value="Male">MALE</option><option value="Female">FEMALE</option></select>
+        <div className="flex items-center bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5">
+          <Filter size={16} className="text-slate-400 mr-2" />
+          <select value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setCurrentPage(1); }} className="bg-transparent text-xs font-black uppercase tracking-widest text-slate-700 outline-none cursor-pointer"><option value="all">ALL STATUS</option><option value="ACTIVE">ACTIVE</option><option value="DECEASED">DECEASED</option><option value="TRANSFERRED">TRANSFERRED</option><option value="SUSPENDED">SUSPENDED</option></select>
+        </div>
+        <div className="flex items-center bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5">
+          <Filter size={16} className="text-slate-400 mr-2" />
+          <select value={ageFilter} onChange={(e) => { setAgeFilter(e.target.value); setCurrentPage(1); }} className="bg-transparent text-xs font-black uppercase tracking-widest text-slate-700 outline-none cursor-pointer"><option value="all">ALL AGES</option><option value="eligible">ELIGIBLE (80+)</option><option value="upcoming">UPCOMING (78-79)</option></select>
+        </div>
+        <div className="flex items-center bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5">
+          <Filter size={16} className="text-slate-400 mr-2" />
+          <select value={sexFilter} onChange={(e) => { setSexFilter(e.target.value); setCurrentPage(1); }} className="bg-transparent text-xs font-black uppercase tracking-widest text-slate-700 outline-none cursor-pointer"><option value="all">ALL SEX</option><option value="Male">MALE</option><option value="Female">FEMALE</option></select>
+        </div>
         <div className="relative group flex-1 min-w-[200px]"><input type="text" value={brgyFilter} onChange={(e) => setBrgyFilter(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && fetchSeniors()} placeholder="Barangay..." className="w-full px-4 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-600 outline-none focus:border-indigo-400 transition-all" /><button onClick={fetchSeniors} className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-indigo-600"><RefreshCcw size={14} /></button></div>
         <button onClick={() => { setStatusFilter("all"); setAgeFilter("all"); setSexFilter("all"); setRegistrationStatusFilter("APPROVED"); setBrgyFilter(""); setSearchTerm(""); }} className="px-4 py-2 text-slate-400 hover:text-rose-600 text-[10px] font-black uppercase tracking-widest transition-colors">Reset</button>
       </div>
