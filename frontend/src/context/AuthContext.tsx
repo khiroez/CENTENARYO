@@ -37,7 +37,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [token, setToken] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  const API_URL = process.env.NEXT_PUBLIC_API_URL;
+  const API_URL = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api').replace(/\/+$/, '');
 
   // Fetch current user info from /api/me/
   const fetchMe = useCallback(async (accessToken: string) => {
@@ -45,10 +45,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const res = await fetch(`${API_URL}/me/`, {
         headers: { 'Authorization': `Bearer ${accessToken}` },
       });
-      if (res.ok) {
-        const data = await res.json();
-        setUser(data);
-        return true;
+      if (res.ok && res.headers.get('content-type')?.includes('application/json')) {
+        const data = await res.json().catch(() => null);
+        if (data) {
+          setUser(data);
+          return true;
+        }
+        return false;
       } else {
         // Token expired or invalid
         logout();
@@ -93,7 +96,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         return { success: true };
       } else {
-        const errorData = await res.json();
+        const errorData = res.headers.get('content-type')?.includes('application/json')
+          ? await res.json().catch(() => ({}))
+          : {};
         return {
           success: false,
           error: errorData.detail || 'Hindi tugma ang username at password.',

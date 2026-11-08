@@ -43,7 +43,7 @@ import {
   Building2,
   ChevronDown
 } from 'lucide-react';
-import { authFetch } from '@/lib/api';
+import { authFetch, safeParseResponse, API_BASE } from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
 
 export default function Dashboard() {
@@ -122,9 +122,9 @@ export default function Dashboard() {
 
   const fetchStats = async () => {
     try {
-      const res = await authFetch(`${process.env.NEXT_PUBLIC_API_URL}/stats/`);
-      if (res.ok) {
-        const data = await res.json();
+      const res = await authFetch(`${API_BASE}/stats/`);
+      const { ok, data } = await safeParseResponse(res);
+      if (ok && data) {
         setStats(data);
       }
     } catch (error) {
@@ -137,10 +137,9 @@ export default function Dashboard() {
   const fetchBudgetForecast = async (horizon: string) => {
     setIsBudgetLoading(true);
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api';
-      const res = await authFetch(`${apiUrl}/budget-forecast/?horizon=${horizon}`);
-      if (res.ok) {
-        const data = await res.json();
+      const res = await authFetch(`${API_BASE}/budget-forecast/?horizon=${horizon}`);
+      const { ok, data } = await safeParseResponse(res);
+      if (ok && data) {
         setBudgetForecast(data);
       } else {
         console.error('Failed to fetch budget forecast. HTTP status:', res.status);
@@ -163,14 +162,12 @@ export default function Dashboard() {
     setAiReport(null);
     setAiReportError(null);
     try {
-      const res = await authFetch(`${process.env.NEXT_PUBLIC_API_URL}/ai-report/`);
-      if (res.ok) {
-        const data = await res.json();
+      const res = await authFetch(`${API_BASE}/ai-report/`);
+      const { ok, data, errorMessage } = await safeParseResponse(res);
+      if (ok && data) {
         setAiReport(data);
       } else {
-        const errText = await res.text();
-        console.error("AI report API error:", res.status, errText);
-        setAiReportError(`Server error (${res.status}): ${errText.slice(0, 200)}`);
+        setAiReportError(errorMessage || `Server error (${res.status})`);
       }
     } catch (error) {
       console.error("Error fetching AI report:", error);

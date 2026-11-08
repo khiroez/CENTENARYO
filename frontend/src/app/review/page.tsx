@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from "@/context/AuthContext";
 import { useNotifications } from "@/context/NotificationContext";
-import { authFetch } from "@/lib/api";
+import { authFetch, safeParseResponse, API_BASE } from "@/lib/api";
 import { useUI } from "@/context/UIContext";
 import PdfViewer from "@/components/PdfViewer";
 
@@ -79,9 +79,9 @@ export default function ReviewQueuePage() {
   const fetchQueue = async () => {
     setIsLoading(true);
     try {
-      const res = await authFetch(`${process.env.NEXT_PUBLIC_API_URL}/seniors/review-queue/`);
-      if (res.ok) {
-        const data = await res.json();
+      const res = await authFetch(`${API_BASE}/seniors/review-queue/`);
+      const { ok, data } = await safeParseResponse(res);
+      if (ok && data) {
         setQueue(data);
       }
     } catch (err) {
@@ -165,9 +165,10 @@ export default function ReviewQueuePage() {
         })
       });
 
-      if (res.ok) {
-        const result = await res.json();
-        showModal("success", "Review Submitted", result.message);
+      const { ok, data: result, errorMessage } = await safeParseResponse(res);
+
+      if (ok) {
+        showModal("success", "Review Submitted", result?.message || "Review decision recorded.");
 
         // Close modals
         setIsRejectModalOpen(false);
@@ -194,8 +195,7 @@ export default function ReviewQueuePage() {
           });
         }
       } else {
-        const err = await res.json();
-        showModal("error", "Review Failed", err.error || "Failed to submit review decision.");
+        showModal("error", "Review Failed", errorMessage || "Failed to submit review decision.");
       }
     } catch (err) {
       console.error(err);
@@ -234,11 +234,11 @@ export default function ReviewQueuePage() {
   const handleBatchApprove = async () => {
     setIsBatchApproving(true);
     try {
-      const res = await authFetch(`${process.env.NEXT_PUBLIC_API_URL}/seniors/batch-approve-verified/`, {
+      const res = await authFetch(`${API_BASE}/seniors/batch-approve-verified/`, {
         method: 'POST'
       });
-      if (res.ok) {
-        const data = await res.json();
+      const { ok, data, errorMessage } = await safeParseResponse(res);
+      if (ok && data) {
         showModal("success", "Batch Approval Successful", data.message || `Approved ${data.approved_count} seniors.`);
         addNotification({
           type: 'DOCUMENT',
@@ -248,8 +248,7 @@ export default function ReviewQueuePage() {
         });
         fetchQueue();
       } else {
-        const err = await res.json();
-        showModal("error", "Batch Approval Failed", err.detail || "Unable to batch approve records.");
+        showModal("error", "Batch Approval Failed", errorMessage || "Unable to batch approve records.");
       }
     } catch (e: any) {
       showModal("error", "Network Error", e.message || "Failed to contact server.");

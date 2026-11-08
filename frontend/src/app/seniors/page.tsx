@@ -5,7 +5,7 @@ import { Users, Search, Plus, Edit, Trash2, X, FileText, CheckSquare, PlusCircle
 import { useAuth } from "@/context/AuthContext";
 import { useNotifications } from "@/context/NotificationContext";
 import { useSearchParams } from "next/navigation";
-import { authFetch } from "@/lib/api";
+import { authFetch, resolveMediaUrl, safeParseResponse, API_BASE } from "@/lib/api";
 import { useUI } from "@/context/UIContext";
 import PdfViewer from "@/components/PdfViewer";
 
@@ -435,9 +435,9 @@ export default function SeniorRegistryPage() {
         barangay: brgyFilter,
         search: searchTerm
       });
-      const res = await authFetch(`${process.env.NEXT_PUBLIC_API_URL}/seniors/?${query.toString()}`);
-      if (res.ok) {
-        const data = await res.json();
+      const res = await authFetch(`${API_BASE}/seniors/?${query.toString()}`);
+      const { ok, data } = await safeParseResponse(res);
+      if (ok && data) {
         setSeniors(data.results || []);
         setTotalRecords(data.count || 0);
       }
@@ -609,16 +609,22 @@ export default function SeniorRegistryPage() {
     }
     setIsSubmitting(true);
     try {
-      const res = await authFetch(`${process.env.NEXT_PUBLIC_API_URL}/seniors/${selectedSeniorForStatus.id}/`, {
+      const res = await authFetch(`${API_BASE}/seniors/${selectedSeniorForStatus.id}/`, {
         method: 'PATCH',
         body: JSON.stringify({ status: newStatus, is_active: newStatus === 'ACTIVE' })
       });
-      if (res.ok) { setIsStatusModalOpen(false); fetchSeniors(); }
-      else {
-        const err = await res.json().catch(() => ({}));
-        openError("Update Failed", err.error || "Failed to update record status.");
+      const { ok, errorMessage } = await safeParseResponse(res);
+      if (ok) {
+        setIsStatusModalOpen(false);
+        fetchSeniors();
+      } else {
+        openError("Update Failed", errorMessage || "Failed to update record status.");
       }
-    } catch (error) { console.error("Error updating status:", error); } finally { setIsSubmitting(false); }
+    } catch (error) {
+      console.error("Error updating status:", error);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleReportDeceased = async (e: React.FormEvent) => {
@@ -642,22 +648,22 @@ export default function SeniorRegistryPage() {
         fd.append('death_cert_file', deceasedForm.death_cert_file);
       }
 
-      const res = await authFetch(`${process.env.NEXT_PUBLIC_API_URL}/seniors/${selectedSeniorForStatus.id}/report-deceased/`, {
+      const res = await authFetch(`${API_BASE}/seniors/${selectedSeniorForStatus.id}/report-deceased/`, {
         method: 'POST',
         body: fd
       });
 
-      if (res.ok) {
-        const result = await res.json();
+      const { ok, data: result, errorMessage } = await safeParseResponse(res);
+
+      if (ok) {
         setIsDeceasedModalOpen(false);
         fetchSeniors();
         openSuccess(
           "Notice of Demise Recorded",
-          result.message || "Senior record has been marked as DECEASED and all future disbursements have been frozen."
+          result?.message || "Senior record has been marked as DECEASED and all future disbursements have been frozen."
         );
       } else {
-        const err = await res.json();
-        openError("Report Failed", err.error || "Failed to record notice of death.");
+        openError("Report Failed", errorMessage || "Failed to record notice of death.");
       }
     } catch (error) {
       console.error("Error reporting deceased:", error);
@@ -825,11 +831,11 @@ export default function SeniorRegistryPage() {
         fd.append('resubmission_notes', 'Staff addressed flagged defects and resubmitted record for review.');
       }
 
-      const url = isEditMode ? `${process.env.NEXT_PUBLIC_API_URL}/seniors/${editingId}/` : `${process.env.NEXT_PUBLIC_API_URL}/seniors/`;
+      const url = isEditMode ? `${API_BASE}/seniors/${editingId}/` : `${API_BASE}/seniors/`;
       const res = await authFetch(url, { method: isEditMode ? 'PATCH' : 'POST', body: fd });
+      const { ok, data: result, errorMessage } = await safeParseResponse(res);
 
-      if (res.ok) {
-        const result = await res.json();
+      if (ok) {
         setIsModalOpen(false);
         revokeBlobUrls();
         setFormData(initialFormState);
@@ -851,14 +857,10 @@ export default function SeniorRegistryPage() {
           title: isEditMode ? 'Record Updated' : 'New Registration',
           description: `${formData.given_name} ${formData.last_name}'s profile was ${isEditMode ? 'updated' : 'added to the registry'}.`,
           link: '/seniors',
-          targetId: result.id
+          targetId: result?.id
         });
       } else {
-        const errorData = await res.json();
-        const errorMessage = typeof errorData === 'object'
-          ? Object.entries(errorData).map(([key, value]) => `${key}: ${value}`).join('\n')
-          : "An error occurred while saving.";
-        openError("Submission Failed", errorMessage);
+        openError("Submission Failed", errorMessage || "An error occurred while saving.");
       }
     } catch (error) {
       console.error("Error submitting form:", error);
@@ -932,9 +934,9 @@ export default function SeniorRegistryPage() {
         }
       }
 
-      if (res && res.ok) {
-        const data = await res.json();
-        if (data.face_detected && data.crop_data_url) {
+      if (res && res.ok && res.headers.get('content-type')?.includes('application/json')) {
+        const data = await res.json().catch(() => null);
+        if (data?.face_detected && data.crop_data_url) {
           return {
             descriptor: data.features || [],
             features: data.features || [],
@@ -1480,9 +1482,9 @@ export default function SeniorRegistryPage() {
         }
       }
 
-      if (res && res.ok) {
-        const data = await res.json();
-        if (data.qr_detected && (data.payload || data.payload_hex)) {
+      if (res && res.ok && res.headers.get('content-type')?.includes('application/json')) {
+        const data = await res.json().catch(() => null);
+        if (data?.qr_detected && (data.payload || data.payload_hex)) {
           return {
             payload: String(data.payload || data.payload_hex),
             engine: data.engine || 'ZXing_Deep_QR',
@@ -1776,8 +1778,8 @@ export default function SeniorRegistryPage() {
                 body: oscaFormData,
               });
 
-              if (valRes.ok) {
-                oscaValidationRes = await valRes.json();
+              if (valRes.ok && valRes.headers.get('content-type')?.includes('application/json')) {
+                oscaValidationRes = await valRes.json().catch(() => null);
                 if (oscaValidationRes && oscaValidationRes.overall_status !== 'PASS') {
                   finalStatus = 'FAIL';
                   errorMessage = oscaValidationRes.summary_message || 'Rejected: Only official Quezon City QCitizen Senior Citizen Cards are accommodated. Non-QC IDs or older formats are not accepted.';
@@ -1795,22 +1797,22 @@ export default function SeniorRegistryPage() {
             const s2Face = oscaValidationRes?.stage2?.face_details;
             const faceDetails: FaceDetailResult | null = (s2Face?.face_detected && s2Face.crop_data_url)
               ? {
-                  descriptor: s2Face.features || [],
-                  features: s2Face.features || [],
-                  confidence: Math.round(s2Face.confidence || 96),
-                  cropDataUrl: s2Face.crop_data_url,
-                }
+                descriptor: s2Face.features || [],
+                features: s2Face.features || [],
+                confidence: Math.round(s2Face.confidence || 96),
+                cropDataUrl: s2Face.crop_data_url,
+              }
               : await extractFaceDetails(oscaCanvasOrImg, file);
             const ocrOscaSummary = oscaCrossCheckResult
               ? {
-                  status: oscaCrossCheckResult.status,
-                  name_match: oscaCrossCheckResult.nameMatch,
-                  osca_id_match: oscaCrossCheckResult.oscaIdMatch,
-                  dob_match: oscaCrossCheckResult.dobMatch,
-                  sex_match: oscaCrossCheckResult.sexMatch,
-                  civil_status_match: oscaCrossCheckResult.civilStatusMatch,
-                  message: oscaCrossCheckResult.message,
-                }
+                status: oscaCrossCheckResult.status,
+                name_match: oscaCrossCheckResult.nameMatch,
+                osca_id_match: oscaCrossCheckResult.oscaIdMatch,
+                dob_match: oscaCrossCheckResult.dobMatch,
+                sex_match: oscaCrossCheckResult.sexMatch,
+                civil_status_match: oscaCrossCheckResult.civilStatusMatch,
+                message: oscaCrossCheckResult.message,
+              }
               : { status: oscaValidationRes?.overall_status || 'PASS' };
 
             if (faceDetails) {
@@ -2237,483 +2239,481 @@ export default function SeniorRegistryPage() {
 
                 <fieldset disabled={isViewOnly} className="space-y-12 border-0 p-0 m-0 min-w-0">
 
-                <section>
-                  <div className="flex items-center gap-3 mb-8"><span className="w-8 h-8 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center font-black text-sm">A</span><h3 className="text-lg font-black text-slate-800 tracking-tight">Personal & Contact Information</h3></div>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-                    <div className="space-y-2">
-                      <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-1.5">
-                        OSCA ID Number *
-                        <div className="group relative">
-                          <Info size={12} className="text-slate-300 cursor-help" />
-                          <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-56 p-2 bg-slate-800 text-white text-[10px] rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-20 font-medium text-center shadow-xl">
-                            Official 14-digit OSCA ID Number directly below the QR code.
-                            <div className="absolute top-full left-1/2 -translate-x-1/2 border-8 border-transparent border-t-slate-800"></div>
+                  <section>
+                    <div className="flex items-center gap-3 mb-8"><span className="w-8 h-8 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center font-black text-sm">A</span><h3 className="text-lg font-black text-slate-800 tracking-tight">Personal & Contact Information</h3></div>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+                      <div className="space-y-2">
+                        <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-1.5">
+                          OSCA ID Number *
+                          <div className="group relative">
+                            <Info size={12} className="text-slate-300 cursor-help" />
+                            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-56 p-2 bg-slate-800 text-white text-[10px] rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-20 font-medium text-center shadow-xl">
+                              Official 14-digit OSCA ID Number directly below the QR code.
+                              <div className="absolute top-full left-1/2 -translate-x-1/2 border-8 border-transparent border-t-slate-800"></div>
+                            </div>
                           </div>
-                        </div>
-                      </label>
-                      <input
-                        required
-                        type="text"
-                        maxLength={14}
-                        value={formData.osca_id_number}
-                        onChange={(e) => setFormData({ ...formData, osca_id_number: handleNumberInput(e.target.value) })}
-                        className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold"
-                        placeholder="14-digit OSCA ID Number (e.g. 88899912345678)"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-1.5">
-                        CRS Copy Number *
-                        <div className="group relative">
-                          <Info size={12} className="text-slate-300 cursor-help" />
-                          <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-60 p-2 bg-slate-800 text-white text-[10px] rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-20 font-medium text-center shadow-xl">
-                            Unique printed identifier on official PSA birth certificates (Primary Unique Authenticator).
-                            <div className="absolute top-full left-1/2 -translate-x-1/2 border-8 border-transparent border-t-slate-800"></div>
+                        </label>
+                        <input
+                          required
+                          type="text"
+                          maxLength={14}
+                          value={formData.osca_id_number}
+                          onChange={(e) => setFormData({ ...formData, osca_id_number: handleNumberInput(e.target.value) })}
+                          className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold"
+                          placeholder="14-digit OSCA ID Number (e.g. 88899912345678)"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-1.5">
+                          CRS Copy Number *
+                          <div className="group relative">
+                            <Info size={12} className="text-slate-300 cursor-help" />
+                            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-60 p-2 bg-slate-800 text-white text-[10px] rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-20 font-medium text-center shadow-xl">
+                              Unique printed identifier on official PSA birth certificates (Primary Unique Authenticator).
+                              <div className="absolute top-full left-1/2 -translate-x-1/2 border-8 border-transparent border-t-slate-800"></div>
+                            </div>
                           </div>
-                        </div>
-                      </label>
-                      <input
-                        required
-                        type="text"
-                        maxLength={40}
-                        value={formData.crs_copy_number}
-                        onChange={(e) => setFormData({ ...formData, crs_copy_number: e.target.value.toUpperCase().replace(/[^A-Z0-9\-]/g, '') })}
-                        className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold uppercase"
-                        placeholder="08621-A8-003AOQ-00669-BI005"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-1.5">
-                        Mobile / Landline
-                        <div className="group relative">
-                          <Info size={12} className="text-slate-300 cursor-help" />
-                          <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 p-2 bg-slate-800 text-white text-[10px] rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-20 font-medium text-center shadow-xl">
-                            Primary contact number for payout notifications.
-                            <div className="absolute top-full left-1/2 -translate-x-1/2 border-8 border-transparent border-t-slate-800"></div>
+                        </label>
+                        <input
+                          required
+                          type="text"
+                          maxLength={40}
+                          value={formData.crs_copy_number}
+                          onChange={(e) => setFormData({ ...formData, crs_copy_number: e.target.value.toUpperCase().replace(/[^A-Z0-9\-]/g, '') })}
+                          className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold uppercase"
+                          placeholder="00001-A1-000001-00001-00001"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-1.5">
+                          Mobile / Landline
+                          <div className="group relative">
+                            <Info size={12} className="text-slate-300 cursor-help" />
+                            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 p-2 bg-slate-800 text-white text-[10px] rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-20 font-medium text-center shadow-xl">
+                              Primary contact number for payout notifications.
+                              <div className="absolute top-full left-1/2 -translate-x-1/2 border-8 border-transparent border-t-slate-800"></div>
+                            </div>
                           </div>
-                        </div>
-                      </label>
-                      <input type="text" maxLength={11} value={formData.contact_number} onChange={(e) => setFormData({ ...formData, contact_number: handleNumberInput(e.target.value) })} className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold" placeholder="09171234567" />
+                        </label>
+                        <input type="text" maxLength={11} value={formData.contact_number} onChange={(e) => setFormData({ ...formData, contact_number: handleNumberInput(e.target.value) })} className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold" placeholder="09171234567" />
+                      </div>
                     </div>
-                  </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-                    <div className="space-y-2">
-                      <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-1.5">
-                        Last Name *
-                        <div className="group relative">
-                          <Info size={12} className="text-slate-300 cursor-help" />
-                          <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 p-2 bg-slate-800 text-white text-[10px] rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-20 font-medium text-center">
-                            Legal surname as appearing on birth certificate.
-                            <div className="absolute top-full left-1/2 -translate-x-1/2 border-8 border-transparent border-t-slate-800"></div>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+                      <div className="space-y-2">
+                        <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-1.5">
+                          Last Name *
+                          <div className="group relative">
+                            <Info size={12} className="text-slate-300 cursor-help" />
+                            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 p-2 bg-slate-800 text-white text-[10px] rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-20 font-medium text-center">
+                              Legal surname as appearing on birth certificate.
+                              <div className="absolute top-full left-1/2 -translate-x-1/2 border-8 border-transparent border-t-slate-800"></div>
+                            </div>
                           </div>
-                        </div>
-                      </label>
-                      <input required type="text" value={formData.last_name} onChange={(e) => setFormData({ ...formData, last_name: handleNameInput(e.target.value) })} className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold uppercase" />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-1.5">
-                        Given Name *
-                        <div className="group relative">
-                          <Info size={12} className="text-slate-300 cursor-help" />
-                          <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 p-2 bg-slate-800 text-white text-[10px] rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-20 font-medium text-center">
-                            First name and any other names (e.g. Juan Jr.)
-                            <div className="absolute top-full left-1/2 -translate-x-1/2 border-8 border-transparent border-t-slate-800"></div>
+                        </label>
+                        <input required type="text" value={formData.last_name} onChange={(e) => setFormData({ ...formData, last_name: handleNameInput(e.target.value) })} className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold uppercase" />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-1.5">
+                          Given Name *
+                          <div className="group relative">
+                            <Info size={12} className="text-slate-300 cursor-help" />
+                            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 p-2 bg-slate-800 text-white text-[10px] rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-20 font-medium text-center">
+                              First name and any other names (e.g. Juan Jr.)
+                              <div className="absolute top-full left-1/2 -translate-x-1/2 border-8 border-transparent border-t-slate-800"></div>
+                            </div>
                           </div>
-                        </div>
-                      </label>
-                      <input required type="text" value={formData.given_name} onChange={(e) => setFormData({ ...formData, given_name: handleNameInput(e.target.value) })} className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold uppercase" />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-1.5">
-                        Middle Name
-                        <div className="group relative">
-                          <Info size={12} className="text-slate-300 cursor-help" />
-                          <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 p-2 bg-slate-800 text-white text-[10px] rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-20 font-medium text-center">
-                            Leave blank if not applicable.
-                            <div className="absolute top-full left-1/2 -translate-x-1/2 border-8 border-transparent border-t-slate-800"></div>
+                        </label>
+                        <input required type="text" value={formData.given_name} onChange={(e) => setFormData({ ...formData, given_name: handleNameInput(e.target.value) })} className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold uppercase" />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-1.5">
+                          Middle Name
+                          <div className="group relative">
+                            <Info size={12} className="text-slate-300 cursor-help" />
+                            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 p-2 bg-slate-800 text-white text-[10px] rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-20 font-medium text-center">
+                              Leave blank if not applicable.
+                              <div className="absolute top-full left-1/2 -translate-x-1/2 border-8 border-transparent border-t-slate-800"></div>
+                            </div>
                           </div>
-                        </div>
-                      </label>
-                      <input type="text" value={formData.middle_name} onChange={(e) => setFormData({ ...formData, middle_name: handleNameInput(e.target.value) })} className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold uppercase" />
+                        </label>
+                        <input type="text" value={formData.middle_name} onChange={(e) => setFormData({ ...formData, middle_name: handleNameInput(e.target.value) })} className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold uppercase" />
+                      </div>
                     </div>
-                  </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-5 gap-6 mb-12">
-                    <div className="col-span-2 space-y-2">
-                      <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-1.5">
-                        Birthdate *
-                        <div className="group relative">
-                          <Info size={12} className="text-slate-300 cursor-help" />
-                          <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 p-2 bg-slate-800 text-white text-[10px] rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-20 font-medium text-center shadow-xl">
-                            Crucial for milestone gift (80, 85, 90, 95, 100) eligibility.
-                            <div className="absolute top-full left-1/2 -translate-x-1/2 border-8 border-transparent border-t-slate-800"></div>
+                    <div className="grid grid-cols-1 md:grid-cols-5 gap-6 mb-12">
+                      <div className="col-span-2 space-y-2">
+                        <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-1.5">
+                          Birthdate *
+                          <div className="group relative">
+                            <Info size={12} className="text-slate-300 cursor-help" />
+                            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 p-2 bg-slate-800 text-white text-[10px] rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-20 font-medium text-center shadow-xl">
+                              Crucial for milestone gift (80, 85, 90, 95, 100) eligibility.
+                              <div className="absolute top-full left-1/2 -translate-x-1/2 border-8 border-transparent border-t-slate-800"></div>
+                            </div>
                           </div>
+                        </label>
+                        <div className="relative group">
+                          <Calendar className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-indigo-600" size={18} />
+                          <input required type="date" max={getMinAgeDate()} value={formData.date_of_birth} onChange={(e) => handleDobChange(e.target.value)} className="w-full pl-11 pr-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold focus:bg-white transition-all outline-none" />
                         </div>
-                      </label>
-                      <div className="relative group">
-                        <Calendar className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-indigo-600" size={18} />
-                        <input required type="date" max={getMinAgeDate()} value={formData.date_of_birth} onChange={(e) => handleDobChange(e.target.value)} className="w-full pl-11 pr-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold focus:bg-white transition-all outline-none" />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-1.5">
+                          Age (Auto)
+                          <div className="group relative">
+                            <Info size={12} className="text-slate-300 cursor-help" />
+                            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 p-2 bg-slate-800 text-white text-[10px] rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-20 font-medium text-center shadow-xl">
+                              Automatically calculated based on the birthdate above.
+                              <div className="absolute top-full left-1/2 -translate-x-1/2 border-8 border-transparent border-t-slate-800"></div>
+                            </div>
+                          </div>
+                        </label>
+                        <div className="relative">
+                          <input readOnly type="text" value={formData.age} className="w-full px-5 py-4 bg-indigo-50/50 border border-indigo-100 rounded-2xl font-black text-indigo-600 text-center" placeholder="--" />
+                          {formData.age && parseInt(formData.age) >= 80 && <span className="absolute -top-1 -right-1 flex h-3 w-3"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span><span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span></span>}
+                        </div>
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-1.5">
+                          Sex
+                          <div className="group relative">
+                            <Info size={12} className="text-slate-300 cursor-help" />
+                            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 p-2 bg-slate-800 text-white text-[10px] rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-20 font-medium text-center shadow-xl">
+                              Biological sex for demographic reporting.
+                              <div className="absolute top-full left-1/2 -translate-x-1/2 border-8 border-transparent border-t-slate-800"></div>
+                            </div>
+                          </div>
+                        </label>
+                        <select required value={formData.sex} onChange={(e) => setFormData({ ...formData, sex: e.target.value })} className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold"><option value="">Select...</option><option value="Male">Male</option><option value="Female">Female</option></select>
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-1.5">
+                          Civil Status
+                          <div className="group relative">
+                            <Info size={12} className="text-slate-300 cursor-help" />
+                            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 p-2 bg-slate-800 text-white text-[10px] rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-20 font-medium text-center shadow-xl">
+                              Legal civil status for pension verification.
+                              <div className="absolute top-full left-1/2 -translate-x-1/2 border-8 border-transparent border-t-slate-800"></div>
+                            </div>
+                          </div>
+                        </label>
+                        <select required value={formData.civil_status} onChange={(e) => handleCivilStatusChange(e.target.value)} className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold"><option value="">Select...</option><option value="SINGLE">Single</option><option value="MARRIED">Married</option><option value="WIDOWED">Widowed</option><option value="SEPARATED">Separated</option><option value="DIVORCED">Divorced</option></select>
                       </div>
                     </div>
-                    <div className="space-y-2">
-                      <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-1.5">
-                        Age (Auto)
-                        <div className="group relative">
-                          <Info size={12} className="text-slate-300 cursor-help" />
-                          <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 p-2 bg-slate-800 text-white text-[10px] rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-20 font-medium text-center shadow-xl">
-                            Automatically calculated based on the birthdate above.
-                            <div className="absolute top-full left-1/2 -translate-x-1/2 border-8 border-transparent border-t-slate-800"></div>
-                          </div>
-                        </div>
-                      </label>
-                      <div className="relative">
-                        <input readOnly type="text" value={formData.age} className="w-full px-5 py-4 bg-indigo-50/50 border border-indigo-100 rounded-2xl font-black text-indigo-600 text-center" placeholder="--" />
-                        {formData.age && parseInt(formData.age) >= 80 && <span className="absolute -top-1 -right-1 flex h-3 w-3"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span><span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span></span>}
-                      </div>
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-1.5">
-                        Sex
-                        <div className="group relative">
-                          <Info size={12} className="text-slate-300 cursor-help" />
-                          <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 p-2 bg-slate-800 text-white text-[10px] rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-20 font-medium text-center shadow-xl">
-                            Biological sex for demographic reporting.
-                            <div className="absolute top-full left-1/2 -translate-x-1/2 border-8 border-transparent border-t-slate-800"></div>
-                          </div>
-                        </div>
-                      </label>
-                      <select required value={formData.sex} onChange={(e) => setFormData({ ...formData, sex: e.target.value })} className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold"><option value="">Select...</option><option value="Male">Male</option><option value="Female">Female</option></select>
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-1.5">
-                        Civil Status
-                        <div className="group relative">
-                          <Info size={12} className="text-slate-300 cursor-help" />
-                          <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 p-2 bg-slate-800 text-white text-[10px] rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-20 font-medium text-center shadow-xl">
-                            Legal civil status for pension verification.
-                            <div className="absolute top-full left-1/2 -translate-x-1/2 border-8 border-transparent border-t-slate-800"></div>
-                          </div>
-                        </div>
-                      </label>
-                      <select required value={formData.civil_status} onChange={(e) => handleCivilStatusChange(e.target.value)} className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold"><option value="">Select...</option><option value="SINGLE">Single</option><option value="MARRIED">Married</option><option value="WIDOWED">Widowed</option><option value="SEPARATED">Separated</option><option value="DIVORCED">Divorced</option></select>
-                    </div>
-                  </div>
 
-                  <div className="p-8 bg-slate-50 rounded-[32px] border border-slate-100 space-y-6">
-                    <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-1.5">
-                      Residential Address
-                      <div className="group relative">
-                        <Info size={12} className="text-slate-300 cursor-help" />
-                        <div className="absolute bottom-full left-0 mb-2 w-56 p-2 bg-slate-800 text-white text-[10px] rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-20 font-medium text-center shadow-xl">
-                          Current living address for door-to-door distribution.
-                          <div className="absolute top-full left-4 border-8 border-transparent border-t-slate-800"></div>
-                        </div>
-                      </div>
-                    </h4>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div className="space-y-1.5">
-                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">District *</label>
-                        <select required value={formData.res_district} onChange={(e) => setFormData({ ...formData, res_district: e.target.value, res_brgy: '' })} className="w-full px-4 py-3.5 bg-white border border-slate-200 rounded-xl text-sm font-bold appearance-none cursor-pointer">
-                          <option value="">Select District...</option>
-                          {Object.keys(QUEZON_CITY_BARANGAYS).map(d => <option key={d} value={d}>{d}</option>)}
-                        </select>
-                      </div>
-                      <div className="space-y-1.5">
-                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Barangay *</label>
-                        <select required value={formData.res_brgy} onChange={(e) => setFormData({ ...formData, res_brgy: e.target.value })} disabled={!formData.res_district} className="w-full px-4 py-3.5 bg-white border border-slate-200 rounded-xl text-sm font-bold appearance-none cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed">
-                          <option value="">{formData.res_district ? 'Select Barangay...' : 'Select a district first'}</option>
-                          {formData.res_district && [...QUEZON_CITY_BARANGAYS[formData.res_district]].sort((a, b) => a.localeCompare(b)).map(b => <option key={b} value={b}>{b}</option>)}
-                        </select>
-                      </div>
-                      <div className="space-y-1.5">
-                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">House / Unit # *</label>
-                        <input required type="text" placeholder="e.g. 123 / Blk 5 Lot 10" value={formData.res_house} onChange={(e) => setFormData({ ...formData, res_house: e.target.value })} className="w-full px-4 py-3.5 bg-white border border-slate-200 rounded-xl text-sm font-medium" />
-                      </div>
-                      <div className="space-y-1.5">
-                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Street *</label>
-                        <input required type="text" placeholder="e.g. Sampaguita St." value={formData.res_street} onChange={(e) => setFormData({ ...formData, res_street: e.target.value })} className="w-full px-4 py-3.5 bg-white border border-slate-200 rounded-xl text-sm font-medium" />
-                      </div>
-                    </div>
-                    <div className="mt-3 px-4 py-2.5 bg-indigo-50 border border-indigo-100 rounded-xl">
-                      <p className="text-[10px] font-bold text-indigo-500 uppercase tracking-widest">Quezon City, Metro Manila</p>
-                    </div>
-                  </div>
-                </section>
-
-                <section>
-                  <div className="flex items-center gap-3 mb-8"><span className="w-8 h-8 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center font-black text-sm">B</span><h3 className="text-lg font-black text-slate-800 tracking-tight">Family & Beneficiaries</h3></div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
-                    <div className="space-y-4">
+                    <div className="p-8 bg-slate-50 rounded-[32px] border border-slate-100 space-y-6">
                       <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-1.5">
-                        Spouse Details
+                        Residential Address
                         <div className="group relative">
                           <Info size={12} className="text-slate-300 cursor-help" />
-                          <div className="absolute bottom-full left-0 mb-2 w-48 p-2 bg-slate-800 text-white text-[10px] rounded-lg opacity-0 group-hover:opacity-100 transition-opacity z-20 font-medium text-center">
-                            Legal name and citizenship of the spouse.
+                          <div className="absolute bottom-full left-0 mb-2 w-56 p-2 bg-slate-800 text-white text-[10px] rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-20 font-medium text-center shadow-xl">
+                            Current living address for door-to-door distribution.
                             <div className="absolute top-full left-4 border-8 border-transparent border-t-slate-800"></div>
                           </div>
                         </div>
                       </h4>
-                      <input
-                        type="text"
-                        disabled={formData.civil_status !== 'MARRIED' && formData.civil_status !== 'SEPARATED'}
-                        value={formData.spouse_name}
-                        onChange={(e) => setFormData({ ...formData, spouse_name: handleNameInput(e.target.value) })}
-                        className={`w-full px-5 py-4 border rounded-2xl font-bold uppercase transition-all ${(formData.civil_status !== 'MARRIED' && formData.civil_status !== 'SEPARATED') ? 'bg-slate-100 border-slate-200 text-slate-400 cursor-not-allowed shadow-none' : 'bg-slate-50 border-slate-200 text-slate-800'}`}
-                        placeholder={(formData.civil_status !== 'MARRIED' && formData.civil_status !== 'SEPARATED') ? "Spouse Details Disabled" : "Spouse Full Name"}
-                      />
-                      <input
-                        type="text"
-                        disabled={formData.civil_status !== 'MARRIED' && formData.civil_status !== 'SEPARATED'}
-                        value={formData.spouse_citizenship}
-                        onChange={(e) => setFormData({ ...formData, spouse_citizenship: e.target.value.toUpperCase() })}
-                        className={`w-full px-5 py-4 border rounded-2xl font-bold uppercase transition-all ${(formData.civil_status !== 'MARRIED' && formData.civil_status !== 'SEPARATED') ? 'bg-slate-100 border-slate-200 text-slate-400 cursor-not-allowed shadow-none' : 'bg-slate-50 border-slate-200 text-slate-800'}`}
-                        placeholder={(formData.civil_status !== 'MARRIED' && formData.civil_status !== 'SEPARATED') ? "Spouse Details Disabled" : "Spouse Citizenship"}
-                      />
-                    </div>
-                  </div>
-
-                  {/* NEW: Authorized Representative Section */}
-                  <div className="p-8 bg-indigo-50/30 rounded-[32px] border border-indigo-100/50 space-y-6">
-                    <h4 className="text-xs font-black text-indigo-400 uppercase tracking-widest flex items-center gap-1.5">
-                      Authorized Representative (If Any)
-                      <div className="group relative">
-                        <Info size={12} className="text-indigo-300 cursor-help" />
-                        <div className="absolute bottom-full left-0 mb-2 w-56 p-2 bg-slate-800 text-white text-[10px] rounded-lg opacity-0 group-hover:opacity-100 transition-opacity z-20 font-medium text-center shadow-xl">
-                          Person authorized by the senior to receive the gift/pension.
-                          <div className="absolute top-full left-4 border-8 border-transparent border-t-slate-800"></div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="space-y-1.5">
+                          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">District *</label>
+                          <select required value={formData.res_district} onChange={(e) => setFormData({ ...formData, res_district: e.target.value, res_brgy: '' })} className="w-full px-4 py-3.5 bg-white border border-slate-200 rounded-xl text-sm font-bold appearance-none cursor-pointer">
+                            <option value="">Select District...</option>
+                            {Object.keys(QUEZON_CITY_BARANGAYS).map(d => <option key={d} value={d}>{d}</option>)}
+                          </select>
+                        </div>
+                        <div className="space-y-1.5">
+                          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Barangay *</label>
+                          <select required value={formData.res_brgy} onChange={(e) => setFormData({ ...formData, res_brgy: e.target.value })} disabled={!formData.res_district} className="w-full px-4 py-3.5 bg-white border border-slate-200 rounded-xl text-sm font-bold appearance-none cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed">
+                            <option value="">{formData.res_district ? 'Select Barangay...' : 'Select a district first'}</option>
+                            {formData.res_district && [...QUEZON_CITY_BARANGAYS[formData.res_district]].sort((a, b) => a.localeCompare(b)).map(b => <option key={b} value={b}>{b}</option>)}
+                          </select>
+                        </div>
+                        <div className="space-y-1.5">
+                          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">House / Unit # *</label>
+                          <input required type="text" placeholder="e.g. 123 / Blk 5 Lot 10" value={formData.res_house} onChange={(e) => setFormData({ ...formData, res_house: e.target.value })} className="w-full px-4 py-3.5 bg-white border border-slate-200 rounded-xl text-sm font-medium" />
+                        </div>
+                        <div className="space-y-1.5">
+                          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Street *</label>
+                          <input required type="text" placeholder="e.g. Sampaguita St." value={formData.res_street} onChange={(e) => setFormData({ ...formData, res_street: e.target.value })} className="w-full px-4 py-3.5 bg-white border border-slate-200 rounded-xl text-sm font-medium" />
                         </div>
                       </div>
-                    </h4>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                      <div className="md:col-span-1">
-                        <input
-                          type="text"
-                          placeholder="Representative Full Name"
-                          value={formData.reps[0]?.name || ''}
-                          onChange={(e) => {
-                            const newReps = [...formData.reps];
-                            if (newReps.length === 0) newReps.push({ name: '', relation: '', contact: '' });
-                            newReps[0].name = handleNameInput(e.target.value);
-                            setFormData({ ...formData, reps: newReps });
-                          }}
-                          className="w-full px-5 py-4 bg-white border border-slate-200 rounded-2xl text-xs font-bold uppercase"
-                        />
-                      </div>
-                      <div className="md:col-span-1">
-                        <input
-                          type="text"
-                          placeholder="Relationship"
-                          value={formData.reps[0]?.relation || ''}
-                          onChange={(e) => {
-                            const newReps = [...formData.reps];
-                            if (newReps.length === 0) newReps.push({ name: '', relation: '', contact: '' });
-                            newReps[0].relation = handleNameInput(e.target.value);
-                            setFormData({ ...formData, reps: newReps });
-                          }}
-                          className="w-full px-5 py-4 bg-white border border-slate-200 rounded-2xl text-xs font-bold uppercase"
-                        />
-                      </div>
-                      <div className="md:col-span-1">
-                        <input
-                          type="text"
-                          maxLength={11}
-                          placeholder="Contact Number"
-                          value={formData.reps[0]?.contact || ''}
-                          onChange={(e) => {
-                            const newReps = [...formData.reps];
-                            if (newReps.length === 0) newReps.push({ name: '', relation: '', contact: '' });
-                            newReps[0].contact = handleNumberInput(e.target.value);
-                            setFormData({ ...formData, reps: newReps });
-                          }}
-                          className="w-full px-5 py-4 bg-white border border-slate-200 rounded-2xl text-xs font-bold uppercase"
-                        />
+                      <div className="mt-3 px-4 py-2.5 bg-indigo-50 border border-indigo-100 rounded-xl">
+                        <p className="text-[10px] font-bold text-indigo-500 uppercase tracking-widest">Quezon City, Metro Manila</p>
                       </div>
                     </div>
-                  </div>
-                </section>
+                  </section>
 
-                <section>
-                  <div className="flex items-center gap-3 mb-8">
-                    <span className="w-8 h-8 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center font-black text-sm">C</span>
-                    <h3 className="text-lg font-black text-slate-800 tracking-tight flex items-center gap-2">
-                      Benefit Utilization
-                      <div className="group relative">
-                        <Info size={16} className="text-slate-300 cursor-help" />
-                        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-64 p-3 bg-slate-800 text-white text-[10px] rounded-xl opacity-0 group-hover:opacity-100 transition-opacity z-20 font-medium text-center shadow-2xl">
-                          Indicate how the financial assistance will be utilized by the senior citizen.
-                          <div className="absolute top-full left-1/2 -translate-x-1/2 border-8 border-transparent border-t-slate-800"></div>
-                        </div>
-                      </div>
-                    </h3>
-                  </div>
-                  <div className="space-y-4">
-                    <div className="grid grid-cols-2 md:grid-cols-5 gap-4 p-8 bg-slate-50 rounded-[32px] border border-slate-100">
-                      {['FOOD', 'MEDICINE', 'HEALTH SERVICES', 'HOUSEHOLD NEEDS', 'OTHERS'].map((item) => (
-                        <label key={item} className="flex items-center gap-3 cursor-pointer group">
-                          <input type="checkbox" checked={formData.utilization.includes(item)} onChange={() => handleUtilizationChange(item)} className="w-6 h-6 rounded-lg text-indigo-600" />
-                          <span className="text-[10px] font-black uppercase tracking-widest text-slate-500 group-hover:text-indigo-600 transition-colors">{item}</span>
-                        </label>
-                      ))}
-                    </div>
-
-                    {formData.utilization.includes('OTHERS') && (
-                      <div className="p-6 bg-indigo-50/50 rounded-2xl border border-indigo-100 animate-in slide-in-from-top-2 duration-300">
-                        <label className="text-[10px] font-black text-indigo-600 uppercase tracking-widest ml-1 mb-2 block flex items-center gap-1.5">
-                          Specify Other Purposes
+                  <section>
+                    <div className="flex items-center gap-3 mb-8"><span className="w-8 h-8 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center font-black text-sm">B</span><h3 className="text-lg font-black text-slate-800 tracking-tight">Family & Beneficiaries</h3></div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
+                      <div className="space-y-4">
+                        <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-1.5">
+                          Spouse Details
                           <div className="group relative">
-                            <Info size={10} className="text-indigo-300" />
-                            <div className="absolute bottom-full left-0 mb-2 w-48 p-2 bg-slate-800 text-white text-[9px] rounded-lg opacity-0 group-hover:opacity-100 transition-opacity z-20 font-medium">
-                              Type specific usage (e.g. ELECTRICITY, WATER).
+                            <Info size={12} className="text-slate-300 cursor-help" />
+                            <div className="absolute bottom-full left-0 mb-2 w-48 p-2 bg-slate-800 text-white text-[10px] rounded-lg opacity-0 group-hover:opacity-100 transition-opacity z-20 font-medium text-center">
+                              Legal name and citizenship of the spouse.
+                              <div className="absolute top-full left-4 border-8 border-transparent border-t-slate-800"></div>
                             </div>
                           </div>
-                        </label>
+                        </h4>
                         <input
                           type="text"
-                          value={formData.utilization_others}
-                          onChange={(e) => setFormData({ ...formData, utilization_others: e.target.value.toUpperCase() })}
-                          placeholder="e.g. UTILITIES, DEBT PAYMENT, ETC."
-                          className="w-full px-5 py-3 bg-white border border-indigo-200 rounded-xl font-bold text-sm text-indigo-900 outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all"
+                          disabled={formData.civil_status !== 'MARRIED' && formData.civil_status !== 'SEPARATED'}
+                          value={formData.spouse_name}
+                          onChange={(e) => setFormData({ ...formData, spouse_name: handleNameInput(e.target.value) })}
+                          className={`w-full px-5 py-4 border rounded-2xl font-bold uppercase transition-all ${(formData.civil_status !== 'MARRIED' && formData.civil_status !== 'SEPARATED') ? 'bg-slate-100 border-slate-200 text-slate-400 cursor-not-allowed shadow-none' : 'bg-slate-50 border-slate-200 text-slate-800'}`}
+                          placeholder={(formData.civil_status !== 'MARRIED' && formData.civil_status !== 'SEPARATED') ? "Spouse Details Disabled" : "Spouse Full Name"}
+                        />
+                        <input
+                          type="text"
+                          disabled={formData.civil_status !== 'MARRIED' && formData.civil_status !== 'SEPARATED'}
+                          value={formData.spouse_citizenship}
+                          onChange={(e) => setFormData({ ...formData, spouse_citizenship: e.target.value.toUpperCase() })}
+                          className={`w-full px-5 py-4 border rounded-2xl font-bold uppercase transition-all ${(formData.civil_status !== 'MARRIED' && formData.civil_status !== 'SEPARATED') ? 'bg-slate-100 border-slate-200 text-slate-400 cursor-not-allowed shadow-none' : 'bg-slate-50 border-slate-200 text-slate-800'}`}
+                          placeholder={(formData.civil_status !== 'MARRIED' && formData.civil_status !== 'SEPARATED') ? "Spouse Details Disabled" : "Spouse Citizenship"}
                         />
                       </div>
-                    )}
-                  </div>
-                </section>
+                    </div>
 
-                <section>
-                  <div className="flex items-center gap-3 mb-8"><span className="w-8 h-8 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center font-black text-sm">D</span><h3 className="text-lg font-black text-slate-800 tracking-tight">Documentary Requirements</h3></div>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                    <div className="p-6 bg-slate-50 rounded-[32px] border-2 border-dashed border-slate-200 hover:border-indigo-400 group relative transition-all border-spacing-2">
-                      <input type="file" accept="image/*,.pdf" onChange={(e) => handleFileChange(e, 'psa_cert_file')} className="absolute inset-0 opacity-0 cursor-pointer z-10" />
-                      <div className="flex flex-col items-center text-center gap-3">
-                        <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center text-slate-400 group-hover:text-indigo-600 shadow-sm">
-                          {formData.psa_cert_file ? <FileCheck size={24} className="text-emerald-500" /> : (formData.psa_cert_url ? <FileCheck size={24} className="text-indigo-400" /> : <Upload size={24} />)}
+                    {/* NEW: Authorized Representative Section */}
+                    <div className="p-8 bg-indigo-50/30 rounded-[32px] border border-indigo-100/50 space-y-6">
+                      <h4 className="text-xs font-black text-indigo-400 uppercase tracking-widest flex items-center gap-1.5">
+                        Authorized Representative (If Any)
+                        <div className="group relative">
+                          <Info size={12} className="text-indigo-300 cursor-help" />
+                          <div className="absolute bottom-full left-0 mb-2 w-56 p-2 bg-slate-800 text-white text-[10px] rounded-lg opacity-0 group-hover:opacity-100 transition-opacity z-20 font-medium text-center shadow-xl">
+                            Person authorized by the senior to receive the gift/pension.
+                            <div className="absolute top-full left-4 border-8 border-transparent border-t-slate-800"></div>
+                          </div>
                         </div>
-                        <div>
-                          <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-700 flex items-center gap-1.5 justify-center">
-                            PSA Birth Certificate (With QR)
+                      </h4>
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div className="md:col-span-1">
+                          <input
+                            type="text"
+                            placeholder="Representative Full Name"
+                            value={formData.reps[0]?.name || ''}
+                            onChange={(e) => {
+                              const newReps = [...formData.reps];
+                              if (newReps.length === 0) newReps.push({ name: '', relation: '', contact: '' });
+                              newReps[0].name = handleNameInput(e.target.value);
+                              setFormData({ ...formData, reps: newReps });
+                            }}
+                            className="w-full px-5 py-4 bg-white border border-slate-200 rounded-2xl text-xs font-bold uppercase"
+                          />
+                        </div>
+                        <div className="md:col-span-1">
+                          <input
+                            type="text"
+                            placeholder="Relationship"
+                            value={formData.reps[0]?.relation || ''}
+                            onChange={(e) => {
+                              const newReps = [...formData.reps];
+                              if (newReps.length === 0) newReps.push({ name: '', relation: '', contact: '' });
+                              newReps[0].relation = handleNameInput(e.target.value);
+                              setFormData({ ...formData, reps: newReps });
+                            }}
+                            className="w-full px-5 py-4 bg-white border border-slate-200 rounded-2xl text-xs font-bold uppercase"
+                          />
+                        </div>
+                        <div className="md:col-span-1">
+                          <input
+                            type="text"
+                            maxLength={11}
+                            placeholder="Contact Number"
+                            value={formData.reps[0]?.contact || ''}
+                            onChange={(e) => {
+                              const newReps = [...formData.reps];
+                              if (newReps.length === 0) newReps.push({ name: '', relation: '', contact: '' });
+                              newReps[0].contact = handleNumberInput(e.target.value);
+                              setFormData({ ...formData, reps: newReps });
+                            }}
+                            className="w-full px-5 py-4 bg-white border border-slate-200 rounded-2xl text-xs font-bold uppercase"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </section>
+
+                  <section>
+                    <div className="flex items-center gap-3 mb-8">
+                      <span className="w-8 h-8 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center font-black text-sm">C</span>
+                      <h3 className="text-lg font-black text-slate-800 tracking-tight flex items-center gap-2">
+                        Benefit Utilization
+                        <div className="group relative">
+                          <Info size={16} className="text-slate-300 cursor-help" />
+                          <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-64 p-3 bg-slate-800 text-white text-[10px] rounded-xl opacity-0 group-hover:opacity-100 transition-opacity z-20 font-medium text-center shadow-2xl">
+                            Indicate how the financial assistance will be utilized by the senior citizen.
+                            <div className="absolute top-full left-1/2 -translate-x-1/2 border-8 border-transparent border-t-slate-800"></div>
+                          </div>
+                        </div>
+                      </h3>
+                    </div>
+                    <div className="space-y-4">
+                      <div className="grid grid-cols-2 md:grid-cols-5 gap-4 p-8 bg-slate-50 rounded-[32px] border border-slate-100">
+                        {['FOOD', 'MEDICINE', 'HEALTH SERVICES', 'HOUSEHOLD NEEDS', 'OTHERS'].map((item) => (
+                          <label key={item} className="flex items-center gap-3 cursor-pointer group">
+                            <input type="checkbox" checked={formData.utilization.includes(item)} onChange={() => handleUtilizationChange(item)} className="w-6 h-6 rounded-lg text-indigo-600" />
+                            <span className="text-[10px] font-black uppercase tracking-widest text-slate-500 group-hover:text-indigo-600 transition-colors">{item}</span>
+                          </label>
+                        ))}
+                      </div>
+
+                      {formData.utilization.includes('OTHERS') && (
+                        <div className="p-6 bg-indigo-50/50 rounded-2xl border border-indigo-100 animate-in slide-in-from-top-2 duration-300">
+                          <label className="text-[10px] font-black text-indigo-600 uppercase tracking-widest ml-1 mb-2 block flex items-center gap-1.5">
+                            Specify Other Purposes
                             <div className="group relative">
-                              <Info size={10} className="text-slate-300" />
-                              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-52 p-2 bg-slate-800 text-white text-[9px] rounded-lg opacity-0 group-hover:opacity-100 transition-opacity z-20 font-medium text-center">
-                                Modern PSA Birth Certificate with official QR code. Older versions without QR code are not supported.
+                              <Info size={10} className="text-indigo-300" />
+                              <div className="absolute bottom-full left-0 mb-2 w-48 p-2 bg-slate-800 text-white text-[9px] rounded-lg opacity-0 group-hover:opacity-100 transition-opacity z-20 font-medium">
+                                Type specific usage (e.g. ELECTRICITY, WATER).
                               </div>
                             </div>
-                          </h4>
-                          <div className="flex flex-col items-center">
-                            <p className="text-[9px] font-bold text-slate-400 mt-1 truncate max-w-[150px]">
-                              {formData.psa_cert_file ? formData.psa_cert_file.name : (formData.psa_cert_url ? getFileNameFromUrl(formData.psa_cert_url) : 'Upload PSA QR Code')}
-                            </p>
-                            {(formData.psa_cert_file || formData.psa_cert_url) && (
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  const file = formData.psa_cert_file;
-                                  const url = formData.psa_cert_url;
-                                  const isPdfDoc = file ? (file.type === 'application/pdf' || file.name.toUpperCase().endsWith('.PDF')) : (url.toUpperCase().endsWith('.PDF'));
-                                  if (isPdfDoc) {
+                          </label>
+                          <input
+                            type="text"
+                            value={formData.utilization_others}
+                            onChange={(e) => setFormData({ ...formData, utilization_others: e.target.value.toUpperCase() })}
+                            placeholder="e.g. UTILITIES, DEBT PAYMENT, ETC."
+                            className="w-full px-5 py-3 bg-white border border-indigo-200 rounded-xl font-bold text-sm text-indigo-900 outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all"
+                          />
+                        </div>
+                      )}
+                    </div>
+                  </section>
+
+                  <section>
+                    <div className="flex items-center gap-3 mb-8"><span className="w-8 h-8 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center font-black text-sm">D</span><h3 className="text-lg font-black text-slate-800 tracking-tight">Documentary Requirements</h3></div>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                      <div className="p-6 bg-slate-50 rounded-[32px] border-2 border-dashed border-slate-200 hover:border-indigo-400 group relative transition-all border-spacing-2">
+                        <input type="file" accept="image/*,.pdf" onChange={(e) => handleFileChange(e, 'psa_cert_file')} className="absolute inset-0 opacity-0 cursor-pointer z-10" />
+                        <div className="flex flex-col items-center text-center gap-3">
+                          <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center text-slate-400 group-hover:text-indigo-600 shadow-sm">
+                            {formData.psa_cert_file ? <FileCheck size={24} className="text-emerald-500" /> : (formData.psa_cert_url ? <FileCheck size={24} className="text-indigo-400" /> : <Upload size={24} />)}
+                          </div>
+                          <div>
+                            <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-700 flex items-center gap-1.5 justify-center">
+                              PSA Birth Certificate (With QR)
+                              <div className="group relative">
+                                <Info size={10} className="text-slate-300" />
+                                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-52 p-2 bg-slate-800 text-white text-[9px] rounded-lg opacity-0 group-hover:opacity-100 transition-opacity z-20 font-medium text-center">
+                                  Modern PSA Birth Certificate with official QR code. Older versions without QR code are not supported.
+                                </div>
+                              </div>
+                            </h4>
+                            <div className="flex flex-col items-center">
+                              <p className="text-[9px] font-bold text-slate-400 mt-1 truncate max-w-[150px]">
+                                {formData.psa_cert_file ? formData.psa_cert_file.name : (formData.psa_cert_url ? getFileNameFromUrl(formData.psa_cert_url) : 'Upload PSA QR Code')}
+                              </p>
+                              {(formData.psa_cert_file || formData.psa_cert_url) && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const file = formData.psa_cert_file;
+                                    const url = formData.psa_cert_url;
                                     setPdfPreviewSrc({
-                                      url: file ? undefined : url,
+                                      url: file ? undefined : resolveMediaUrl(url),
                                       file: file || null,
-                                      title: 'PSA QR Code'
+                                      title: 'PSA Birth Certificate / QR Code'
                                     });
-                                  } else {
-                                    const imgUrl = file ? URL.createObjectURL(file) : url;
-                                    if (imgUrl) window.open(imgUrl, '_blank');
-                                  }
-                                }}
-                                className="mt-2 px-3 py-1 bg-indigo-50 text-indigo-600 rounded-lg text-[9px] font-black uppercase tracking-widest hover:bg-indigo-100 transition-all relative z-20"
-                              >
-                                View File
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="p-6 bg-slate-50 rounded-[32px] border-2 border-dashed border-slate-200 hover:border-indigo-400 group relative transition-all border-spacing-2">
-                      <input type="file" accept=".pdf,image/*" onChange={(e) => handleFileChange(e, 'primary_id_file')} className="absolute inset-0 opacity-0 cursor-pointer z-10" />
-                      <div className="flex flex-col items-center text-center gap-3">
-                        <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center text-slate-400 group-hover:text-indigo-600 shadow-sm">
-                          {formData.primary_id_file ? <FileCheck size={24} className="text-emerald-500" /> : (formData.primary_id_url ? <FileCheck size={24} className="text-indigo-400" /> : <Upload size={24} />)}
-                        </div>
-                        <div>
-                          <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-700 flex items-center gap-1.5 justify-center">
-                            QC QCitizen Senior Card
-                            <div className="group relative">
-                              <Info size={10} className="text-slate-300" />
-                              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-52 p-2 bg-slate-800 text-white text-[9px] rounded-lg opacity-0 group-hover:opacity-100 transition-opacity z-20 font-medium text-center">
-                                Official Quezon City QCitizen Senior Citizen Card only. Older or non-QC IDs are not supported.
-                              </div>
+                                  }}
+                                  className="mt-2 px-3 py-1 bg-indigo-50 text-indigo-600 rounded-lg text-[9px] font-black uppercase tracking-widest hover:bg-indigo-100 transition-all relative z-20"
+                                >
+                                  View File
+                                </button>
+                              )}
                             </div>
-                          </h4>
-                          <div className="flex flex-col items-center">
-                            <p className="text-[9px] font-bold text-slate-400 mt-1 truncate max-w-[150px]">
-                              {formData.primary_id_file ? formData.primary_id_file.name : (formData.primary_id_url ? getFileNameFromUrl(formData.primary_id_url) : 'Upload QCitizen Card')}
-                            </p>
-                            {(formData.primary_id_file || formData.primary_id_url) && (
-                              <button
-                                type="button"
-                                onClick={() => setPdfPreviewSrc({
-                                  url: formData.primary_id_file ? undefined : formData.primary_id_url,
-                                  file: formData.primary_id_file || null,
-                                  title: 'QC QCitizen Senior Card'
-                                })}
-                                className="mt-2 px-3 py-1 bg-indigo-50 text-indigo-600 rounded-lg text-[9px] font-black uppercase tracking-widest hover:bg-indigo-100 transition-all relative z-20"
-                              >
-                                View File
-                              </button>
-                            )}
                           </div>
                         </div>
                       </div>
-                    </div>
 
-                    <div className="p-6 bg-slate-50 rounded-[32px] border-2 border-dashed border-slate-200 hover:border-indigo-400 group relative transition-all border-spacing-2">
-                      <input type="file" accept="image/*" onChange={(e) => handleFileChange(e, 'picture_2x2_file')} className="absolute inset-0 opacity-0 cursor-pointer z-10" />
-                      <div className="flex flex-col items-center text-center gap-3">
-                        <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center text-slate-400 group-hover:text-indigo-600 shadow-sm">
-                          {formData.picture_2x2_file ? <ImageIcon size={24} className="text-emerald-500" /> : (formData.picture_2x2_url ? <ImageIcon size={24} className="text-indigo-400" /> : <Upload size={24} />)}
-                        </div>
-                        <div>
-                          <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-700 flex items-center gap-1.5 justify-center">
-                            2x2 Photo
-                            <div className="group relative">
-                              <Info size={10} className="text-slate-300" />
-                              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-40 p-2 bg-slate-800 text-white text-[9px] rounded-lg opacity-0 group-hover:opacity-100 transition-opacity z-20 font-medium">
-                                Recent 2x2 colored photo with white background.
+                      <div className="p-6 bg-slate-50 rounded-[32px] border-2 border-dashed border-slate-200 hover:border-indigo-400 group relative transition-all border-spacing-2">
+                        <input type="file" accept=".pdf,image/*" onChange={(e) => handleFileChange(e, 'primary_id_file')} className="absolute inset-0 opacity-0 cursor-pointer z-10" />
+                        <div className="flex flex-col items-center text-center gap-3">
+                          <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center text-slate-400 group-hover:text-indigo-600 shadow-sm">
+                            {formData.primary_id_file ? <FileCheck size={24} className="text-emerald-500" /> : (formData.primary_id_url ? <FileCheck size={24} className="text-indigo-400" /> : <Upload size={24} />)}
+                          </div>
+                          <div>
+                            <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-700 flex items-center gap-1.5 justify-center">
+                              QC QCitizen Senior Card
+                              <div className="group relative">
+                                <Info size={10} className="text-slate-300" />
+                                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-52 p-2 bg-slate-800 text-white text-[9px] rounded-lg opacity-0 group-hover:opacity-100 transition-opacity z-20 font-medium text-center">
+                                  Official Quezon City QCitizen Senior Citizen Card only. Older or non-QC IDs are not supported.
+                                </div>
                               </div>
+                            </h4>
+                            <div className="flex flex-col items-center">
+                              <p className="text-[9px] font-bold text-slate-400 mt-1 truncate max-w-[150px]">
+                                {formData.primary_id_file ? formData.primary_id_file.name : (formData.primary_id_url ? getFileNameFromUrl(formData.primary_id_url) : 'Upload QCitizen Card')}
+                              </p>
+                              {(formData.primary_id_file || formData.primary_id_url) && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const file = formData.primary_id_file;
+                                    const url = formData.primary_id_url;
+                                    setPdfPreviewSrc({
+                                      url: file ? undefined : resolveMediaUrl(url),
+                                      file: file || null,
+                                      title: 'QC QCitizen Senior Card'
+                                    });
+                                  }}
+                                  className="mt-2 px-3 py-1 bg-indigo-50 text-indigo-600 rounded-lg text-[9px] font-black uppercase tracking-widest hover:bg-indigo-100 transition-all relative z-20"
+                                >
+                                  View File
+                                </button>
+                              )}
                             </div>
-                          </h4>
-                          <div className="flex flex-col items-center">
-                            <p className="text-[9px] font-bold text-slate-400 mt-1 truncate max-w-[150px]">
-                              {formData.picture_2x2_file ? formData.picture_2x2_file.name : (formData.picture_2x2_url ? getFileNameFromUrl(formData.picture_2x2_url) : 'Upload Image')}
-                            </p>
-                            {(formData.picture_2x2_file || formData.picture_2x2_url) && (
-                              <a
-                                href={formData.picture_2x2_file ? URL.createObjectURL(formData.picture_2x2_file) : formData.picture_2x2_url}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="mt-2 px-3 py-1 bg-indigo-50 text-indigo-600 rounded-lg text-[9px] font-black uppercase tracking-widest hover:bg-indigo-100 transition-all relative z-20"
-                              >
-                                View Photo
-                              </a>
-                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="p-6 bg-slate-50 rounded-[32px] border-2 border-dashed border-slate-200 hover:border-indigo-400 group relative transition-all border-spacing-2">
+                        <input type="file" accept="image/*" onChange={(e) => handleFileChange(e, 'picture_2x2_file')} className="absolute inset-0 opacity-0 cursor-pointer z-10" />
+                        <div className="flex flex-col items-center text-center gap-3">
+                          <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center text-slate-400 group-hover:text-indigo-600 shadow-sm">
+                            {formData.picture_2x2_file ? <ImageIcon size={24} className="text-emerald-500" /> : (formData.picture_2x2_url ? <ImageIcon size={24} className="text-indigo-400" /> : <Upload size={24} />)}
+                          </div>
+                          <div>
+                            <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-700 flex items-center gap-1.5 justify-center">
+                              2x2 Photo
+                              <div className="group relative">
+                                <Info size={10} className="text-slate-300" />
+                                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-40 p-2 bg-slate-800 text-white text-[9px] rounded-lg opacity-0 group-hover:opacity-100 transition-opacity z-20 font-medium">
+                                  Recent 2x2 colored photo with white background.
+                                </div>
+                              </div>
+                            </h4>
+                            <div className="flex flex-col items-center">
+                              <p className="text-[9px] font-bold text-slate-400 mt-1 truncate max-w-[150px]">
+                                {formData.picture_2x2_file ? formData.picture_2x2_file.name : (formData.picture_2x2_url ? getFileNameFromUrl(formData.picture_2x2_url) : 'Upload Image')}
+                              </p>
+                              {(formData.picture_2x2_file || formData.picture_2x2_url) && (
+                                <a
+                                  href={formData.picture_2x2_file ? URL.createObjectURL(formData.picture_2x2_file) : resolveMediaUrl(formData.picture_2x2_url)}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="mt-2 px-3 py-1 bg-indigo-50 text-indigo-600 rounded-lg text-[9px] font-black uppercase tracking-widest hover:bg-indigo-100 transition-all relative z-20"
+                                >
+                                  View Photo
+                                </a>
+                              )}
+                            </div>
                           </div>
                         </div>
                       </div>
                     </div>
-                  </div>
-                </section>
+                  </section>
 
-                <section className="bg-rose-50 border border-rose-100 p-10 rounded-[40px] space-y-8">
-                  <div className="flex items-center gap-4 text-rose-600"><AlertCircle size={32} /><div><h3 className="text-lg font-black uppercase tracking-tighter">Legal Certification & Consent</h3><p className="text-xs font-bold text-rose-400 uppercase tracking-widest">Final Verification</p></div></div>
-                  <div className="space-y-4">
-                    <label className="flex items-start gap-5 cursor-pointer p-6 hover:bg-white rounded-3xl transition-all border border-transparent hover:border-rose-100"><input type="checkbox" required checked={formData.consent_truth} onChange={(e) => setFormData({ ...formData, consent_truth: e.target.checked })} className="mt-1 w-7 h-7 rounded-xl text-rose-600 border-rose-200" /><span className="text-sm text-slate-700 font-bold leading-relaxed">I certify under oath that all information is true and correct.</span></label>
-                    <label className="flex items-start gap-5 cursor-pointer p-6 hover:bg-white rounded-3xl transition-all border border-transparent hover:border-rose-100"><input type="checkbox" required checked={formData.consent_privacy} onChange={(e) => setFormData({ ...formData, consent_privacy: e.target.checked })} className="mt-1 w-7 h-7 rounded-xl text-rose-600 border-rose-200" /><span className="text-sm text-slate-700 font-bold leading-relaxed">I authorize NCSC to process my data per R.A. No. 11982.</span></label>
-                  </div>
-                </section>
+                  <section className="bg-rose-50 border border-rose-100 p-10 rounded-[40px] space-y-8">
+                    <div className="flex items-center gap-4 text-rose-600"><AlertCircle size={32} /><div><h3 className="text-lg font-black uppercase tracking-tighter">Legal Certification & Consent</h3><p className="text-xs font-bold text-rose-400 uppercase tracking-widest">Final Verification</p></div></div>
+                    <div className="space-y-4">
+                      <label className="flex items-start gap-5 cursor-pointer p-6 hover:bg-white rounded-3xl transition-all border border-transparent hover:border-rose-100"><input type="checkbox" required checked={formData.consent_truth} onChange={(e) => setFormData({ ...formData, consent_truth: e.target.checked })} className="mt-1 w-7 h-7 rounded-xl text-rose-600 border-rose-200" /><span className="text-sm text-slate-700 font-bold leading-relaxed">I certify under oath that all information is true and correct.</span></label>
+                      <label className="flex items-start gap-5 cursor-pointer p-6 hover:bg-white rounded-3xl transition-all border border-transparent hover:border-rose-100"><input type="checkbox" required checked={formData.consent_privacy} onChange={(e) => setFormData({ ...formData, consent_privacy: e.target.checked })} className="mt-1 w-7 h-7 rounded-xl text-rose-600 border-rose-200" /><span className="text-sm text-slate-700 font-bold leading-relaxed">I authorize NCSC to process my data per R.A. No. 11982.</span></label>
+                    </div>
+                  </section>
                 </fieldset>
               </div>
 
