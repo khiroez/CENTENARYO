@@ -8,7 +8,8 @@ with a binomial 3-sigma test whose thresholds are a function of cohort size N:
     S_max   = min(1, mu_s + 3*SE)   -> above: FLAG_SUSPICIOUSLY_HIGH_SURVIVAL (ghost seniors)
     S_min   = max(0, mu_s - 3*SE)   -> below: FLAG_EXCESS_MORTALITY (purge / data error / health event)
 
-Small cohorts (N < 5) are reported as INSUFFICIENT_SAMPLE_SIZE instead of being flagged.
+Small barangay cohorts (N < 5) are pooled per district + milestone and tested again;
+anything still under N < 5 is reported as INSUFFICIENT_SAMPLE_SIZE instead of being flagged.
 """
 import math
 from datetime import date, timedelta
@@ -23,6 +24,21 @@ BENCHMARKS = {
 
 MIN_SAMPLE_SIZE = 5
 SIGMA = 3
+
+# Quezon City barangay -> legislative district (mirrors the frontend registry form list)
+QC_DISTRICTS = {
+    "District 1": ['Vasra', 'Bagong Pag-asa', 'Sto. Cristo', 'Project 6', 'Ramon Magsaysay', 'Alicia', 'Bahay Toro', 'Katipunan', 'San Antonio', 'Veterans Village', 'Bungad', 'Phil-Am', 'West Triangle', 'Sta. Cruz', 'Nayong Kanluran', 'Paltok', 'Paraiso', 'Mariblo', 'Damayan', 'Del Monte', 'Masambong', 'Talayan', 'Sto. Domingo', 'Siena', 'St. Peter', 'San Jose', 'Manresa', 'Damar', 'Pag-ibig sa Nayon', 'Balingasa', 'Sta. Teresita', 'San Isidro Labrador', 'Paang Bundok', 'Salvacion', 'N.S Amoranto', 'Maharlika', 'Lourdes'],
+    "District 2": ['Bagong Silangan', 'Batasan Hills', 'Commonwealth', 'Holy Spirit', 'Payatas'],
+    "District 3": ['Silangan', 'Socorro', 'E. Rodriguez', 'West Kamias', 'East Kamias', 'Quirino 2-A', 'Quirino 2-B', 'Quirino 2-C', 'Quirino 3-A', 'Claro (Quirino 3-B)', 'Duyan-Duyan', 'Amihan', 'Matandang Balara', 'Pansol', 'Loyola Heights', 'San Roque', 'Mangga', 'Masagana', 'Villa Maria Clara', 'Bayanihan', 'Camp Aguinaldo', 'White Plains', 'Libis', 'Ugong Norte', 'Bagumbayan', 'Blue Ridge A', 'Blue Ridge B', 'St. Ignatius', 'Milagrosa', 'Escopa I', 'Escopa II', 'Escopa III', 'Escopa IV', 'Marilag', 'Bagumbuhay', 'Tagumpay', 'Dioquino Zobel'],
+    "District 4": ['Sacred Heart', 'Laging Handa', 'Obrero', 'Paligsahan', 'Roxas', 'Kamuning', 'South Triangle', 'Pinagkaisahan', 'Immaculate Concepcion', 'San Martin De Porres', 'Kaunlaran', 'Bagong Lipunan ng Crame', 'Horseshoe', 'Valencia', 'Tatalon', 'Kalusugan', 'Kristong Hari', 'Damayang Lagi', 'Mariana', 'Doña Imelda', 'Santol', 'Sto. Niño', 'San Isidro Galas', 'Doña Aurora', 'Don Manuel', 'Doña Josefa', 'UP Village', 'Old Capitol Site', 'UP Campus', 'San Vicente', 'Teachers Village East', 'Teachers Village West', 'Central', 'Pinyahan', 'Malaya', 'Sikatuna Village', 'Botocan', 'Krus Na Ligas'],
+    "District 5": ['Bagbag', 'Capri', 'Greater Lagro', 'Gulod', 'Kaligayahan', 'Nagkaisang Nayon', 'North Fairview', 'Novaliches Proper', 'Pasong Putik Proper', 'San Agustin', 'San Bartolome', 'Sta. Lucia', 'Sta. Monica', 'Fairview'],
+    "District 6": ['Apolonio Samson', 'Baesa', 'Balon Bato', 'Culiat', 'New Era', 'Pasong Tamo', 'Sangandaan', 'Tandang Sora', 'Unang Sigaw', 'Sauyo', 'Talipapa'],
+}
+_BRGY_TO_DISTRICT = {b.strip().lower(): d for d, brgys in QC_DISTRICTS.items() for b in brgys}
+
+
+def district_for_barangay(name):
+    return _BRGY_TO_DISTRICT.get((name or "").strip().lower())
 
 NORMAL = "NORMAL"
 HIGH_SURVIVAL = "FLAG_SUSPICIOUSLY_HIGH_SURVIVAL"
@@ -129,16 +145,44 @@ def run_registry_audit(seniors, today=None, cycle_days=365):
         bucket["died" if died else "active"].append(s["id"])
 
     results = []
+    small_pools = {}  # (district, milestone) -> pooled small barangay cohorts
     for (brgy, milestone), b in cohorts.items():
         d = len(b["died"])
         n = len(b["active"]) + d
         r = audit_cohort(milestone, n, d)
-        r.update({"barangay": brgy, "milestone": milestone, "n": n, "d": d})
-        if r["status"] == HIGH_SURVIVAL:
-            r["flag_ids"] = b["active"]
-        elif r["status"] == EXCESS_MORTALITY:
-            r["flag_ids"] = b["died"]
-        else:
-            r["flag_ids"] = []
+        r.update({"level": "BARANGAY", "barangay": brgy, "district": district_for_barangay(brgy),
+                  "milestone": milestone, "n": n, "d": d})
+        r["flag_ids"] = _flag_ids(r["status"], b)
+        results.append(r)
+
+        # Barangay too small to test on its own -> pool it into its district for the same milestone
+        if r["status"] == INSUFFICIENT and n > 0 and r["district"]:
+            pool = small_pools.setdefault((r["district"], milestone),
+                                          {"active": [], "died": [], "barangays": []})
+            pool["active"] += b["active"]
+            pool["died"] += b["died"]
+            pool["barangays"].append(brgy)
+
+    # District-level fallback test. Only the small barangay cohorts are pooled, so seniors
+    # already tested at barangay level are never counted twice.
+    for (district, milestone), p in small_pools.items():
+        d = len(p["died"])
+        n = len(p["active"]) + d
+        r = audit_cohort(milestone, n, d)
+        r.update({"level": "DISTRICT", "barangay": f"{district} (pooled)", "district": district,
+                  "pooled_barangays": sorted(p["barangays"]),
+                  "milestone": milestone, "n": n, "d": d})
+        r["flag_ids"] = _flag_ids(r["status"], p)
+        if r["status"] == INSUFFICIENT:
+            r["notes"] = "Still below minimum sample even after district pooling. Physical home verification required."
         results.append(r)
     return results
+
+
+def _flag_ids(status, bucket):
+    if status == HIGH_SURVIVAL:
+        return list(bucket["active"])
+    if status == EXCESS_MORTALITY:
+        return list(bucket["died"])
+    return []
+

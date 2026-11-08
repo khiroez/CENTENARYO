@@ -1382,15 +1382,22 @@ def ai_report_data(request):
             if r['status'] not in (HIGH_SURVIVAL, EXCESS_MORTALITY):
                 continue
 
+            is_district = r.get('level') == 'DISTRICT'
+            pooled_list = r.get('pooled_barangays', [])
+            scope_note = (
+                f" [District Pool: {len(pooled_list)} small barangays combined]"
+                if is_district and pooled_list else ""
+            )
+
             if r['status'] == HIGH_SURVIVAL:
                 reason = (
                     f"Suspiciously High Survival Rate ({r['milestone']}): {r['actual']}% survived "
-                    f"(N={r['n']}, deaths={r['d']}) vs. expected {r['expected']}%, upper limit {r['max']}%."
+                    f"(N={r['n']}, deaths={r['d']}) vs. expected {r['expected']}%, upper limit {r['max']}%{scope_note}."
                 )
             else:
                 reason = (
                     f"Excess Mortality / Low Survival Rate ({r['milestone']}): {r['actual']}% survived "
-                    f"(N={r['n']}, deaths={r['d']}) vs. expected {r['expected']}%, lower limit {r['min']}%."
+                    f"(N={r['n']}, deaths={r['d']}) vs. expected {r['expected']}%, lower limit {r['min']}%{scope_note}."
                 )
 
             # Confidence grows with how far outside the band the cohort sits
@@ -1404,7 +1411,10 @@ def ai_report_data(request):
                     created_pairs.add((sid, reason))
 
             ghost_warnings.append({
+                'level': r.get('level', 'BARANGAY'),
                 'barangay': r['barangay'],
+                'district': r.get('district'),
+                'pooled_barangays': pooled_list,
                 'milestone': r['milestone'],
                 'status': r['status'],
                 'n': r['n'],
@@ -1417,8 +1427,8 @@ def ai_report_data(request):
                 'notes': r['notes'],
             })
 
-        # Most severe first: larger cohorts outside the band are the strongest signals
-        ghost_warnings.sort(key=lambda w: (-w['n'], w['barangay']))
+        # Most severe first: barangay-level cohorts first, then largest N
+        ghost_warnings.sort(key=lambda w: (0 if w.get('level') == 'BARANGAY' else 1, -w['n'], w['barangay']))
 
         # 5. Syndicate / Shared Representative Detection
         AnomalyFlag.objects.filter(flag_reason__icontains="Syndicate Risk").delete()

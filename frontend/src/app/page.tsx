@@ -1165,10 +1165,13 @@ export default function Dashboard() {
                         <div className="space-y-3">
                           {aiReport.ghost_warnings.slice(0, 10).map((w: any) => {
                             const isHigh = w.status !== 'FLAG_EXCESS_MORTALITY';
+                            const isDistrict = w.level === 'DISTRICT';
                             return (
                               <div key={`${w.barangay}-${w.milestone}`} className="bg-white p-4 rounded-2xl border border-slate-300 shadow-sm">
                                 <div className="flex items-center justify-between gap-2">
-                                  <p className="text-xs font-black text-slate-900 uppercase">Brgy. {w.barangay}</p>
+                                  <p className="text-xs font-black text-slate-900 uppercase">
+                                    {isDistrict ? w.barangay : `Brgy. ${w.barangay}`}
+                                  </p>
                                   <span className={`px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider ${isHigh ? 'bg-rose-50 text-rose-700' : 'bg-amber-50 text-amber-700'}`}>
                                     {isHigh ? 'High Survival' : 'Excess Mortality'} · {w.milestone}
                                   </span>
@@ -1179,6 +1182,11 @@ export default function Dashboard() {
                                 <p className="text-[10px] font-semibold text-slate-500 mt-0.5 tabular-nums">
                                   Expected {w.expected_survival}% · normal band {w.min_survival}%–{w.max_survival}%
                                 </p>
+                                {isDistrict && w.pooled_barangays?.length > 0 && (
+                                  <p className="text-[9px] font-semibold text-slate-400 mt-1 truncate" title={w.pooled_barangays.join(', ')}>
+                                    Pooled ({w.pooled_barangays.length} small brgys): {w.pooled_barangays.slice(0, 4).join(', ')}{w.pooled_barangays.length > 4 ? '...' : ''}
+                                  </p>
+                                )}
                               </div>
                             );
                           })}
@@ -1404,7 +1412,7 @@ export default function Dashboard() {
                 <ul style={{ margin: 0, paddingLeft: '20px' }}>
                   {aiReport.ghost_warnings.map((w: any, idx: number) => (
                     <li key={idx} style={{ marginBottom: '5px' }}>
-                      <strong>Brgy. {w.barangay}:</strong> {w.message} (Requires immediate clean-up audit).
+                      <strong>{w.level === 'DISTRICT' ? w.barangay : `Brgy. ${w.barangay}`}:</strong> {w.message} (Requires immediate clean-up audit).
                     </li>
                   ))}
                 </ul>
