@@ -203,12 +203,6 @@ class Command(BaseCommand):
                 d_here = 1 if idx_b < deaths_left else 0
                 cohort_specs.append((b, "80s", 3, d_here, 1, 1))
 
-        # Real sample attachments available in backend/media/requirements/
-        sample_psa = "requirements/psa/853474348_1124121226924883_4064499458893852287_n_1.jpg"
-        sample_id = "requirements/id/try_kZ8ZZGj.jpg"
-        sample_photo = "requirements/pictures/2x2_mdVmlHP.jpg"
-        sample_death_cert = "requirements/death_certs/Gemini_Generated_Image_1iuyv31iuyv31iuy.jpg"
-
         # Controlled shared representatives (2 syndicate test cases of 3 seniors each)
         syndicate_reps = [
             "MARCO ANTONIO DELA CRUZ",
@@ -240,10 +234,8 @@ class Command(BaseCommand):
             crs_copy_number = f"08621-A8-003AOQ-{name_idx:05d}-BI005"
 
             dod = None
-            death_cert = ""
             if status == "DECEASED":
                 dod = today - timedelta(days=random.randint(15, 340))
-                death_cert = sample_death_cert
 
             annex_data = {
                 "given_name": fn,
@@ -278,11 +270,11 @@ class Command(BaseCommand):
                 civil_status=civil_status,
                 is_indigent=True,
                 annex_a_data=annex_data,
-                psa_cert_file=sample_psa,
-                primary_id_file=sample_id,
-                picture_2x2_file=sample_photo,
+                psa_cert_file="",
+                primary_id_file="",
+                picture_2x2_file="",
                 date_of_death=dod,
-                death_cert_file=death_cert,
+                death_cert_file="",
                 registration_status=reg_status,
             )
 
