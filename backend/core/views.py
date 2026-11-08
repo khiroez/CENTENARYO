@@ -1345,23 +1345,6 @@ def ai_report_data(request):
             and date_80_years_ago < s['date_of_birth'] <= date_78_years_ago
         )
 
-        # 3. Door-to-Door Logistics (Based on Section C: Benefit Utilization)
-        med_utilization = 0
-        total_active_with_data = 0
-        for s in seniors_data:
-            if s['status'] != 'ACTIVE':
-                continue
-
-            data = s['annex_a_data'] or {}
-            util = data.get('utilization', [])
-            if util:
-                total_active_with_data += 1
-                is_medical = any(item.upper() in ['MEDICINE', 'HEALTH SERVICES', 'HEALTH'] for item in util)
-                if is_medical:
-                    med_utilization += 1
-
-        med_percentage = (med_utilization / total_active_with_data * 100) if total_active_with_data > 0 else 0
-
         # 4. Ghost Pensioner Anomaly (Audit of Mortality vs Registry)
         # CLEAR OLD SURVIVAL FLAGS FIRST
         AnomalyFlag.objects.filter(flag_reason__icontains="Survival Rate").delete()
@@ -1487,13 +1470,9 @@ def ai_report_data(request):
                 'recommended_funding': upcoming_count * 10000,
                 'warning': upcoming_count > 20
             },
-            'logistics': {
-                'medical_utilization_rate': round(med_percentage, 1),
-                'recommendation': 'Prioritize Door-to-Door Payout' if med_percentage > 50 else 'Standard Payout'
-            },
             'ghost_warnings': ghost_warnings,
             'syndicate_warnings': syndicate_warnings,
-            'data_integrity': 'HIGH' if total_active_with_data > 0 else 'LOW_DATA'
+            'data_integrity': 'HIGH' if seniors_data else 'LOW_DATA'
         })
 
     except Exception as e:

@@ -1122,7 +1122,7 @@ export default function Dashboard() {
 
 
                   {/* 1. Budget Deficit */}
-                  <div className="p-8 bg-indigo-50 rounded-[40px] border border-indigo-100 space-y-6 relative overflow-hidden group">
+                  <div className="p-8 bg-indigo-50 rounded-[40px] border border-indigo-100 space-y-6 relative overflow-hidden group md:col-span-2">
                     <div className="absolute top-0 right-0 p-6 text-indigo-100 group-hover:text-indigo-200 transition-colors"><TrendingUp size={64} /></div>
                     <div className="relative z-10 space-y-4">
                       <div className="flex items-center gap-3 text-indigo-600"><TrendingUp size={20} /><h3 className="text-xs font-black uppercase tracking-widest">Financial Planning</h3></div>
@@ -1133,22 +1133,6 @@ export default function Dashboard() {
                         <p className="text-[10px] font-bold text-indigo-500 uppercase tracking-wider">{aiReport.budget_forecast.upcoming_beneficiaries} New Milestone Beneficiaries</p>
                       </div>
                       <p className="text-[10px] font-bold text-slate-500 leading-relaxed">Recommendation: Draft Supplemental Budget Request to DBM now to avoid payout delays.</p>
-                    </div>
-                  </div>
-
-                  {/* 3. Door-to-Door Logistics */}
-                  <div className="p-8 bg-emerald-50 rounded-[40px] border border-emerald-100 space-y-6 relative overflow-hidden group">
-                    <div className="absolute top-0 right-0 p-6 text-emerald-100 group-hover:text-emerald-200 transition-colors"><Truck size={64} /></div>
-                    <div className="relative z-10 space-y-4">
-                      <div className="flex items-center gap-3 text-emerald-600"><Truck size={20} /><h3 className="text-xs font-black uppercase tracking-widest">Operational Logistics</h3></div>
-                      <h4 className="text-xl font-black text-slate-900">Routing Recommendation</h4>
-                      <div className="flex items-center gap-4">
-                        <div className="text-4xl font-black text-slate-900">{aiReport.logistics.medical_utilization_rate}%</div>
-                        <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">of seniors utilize funds for Medicine</p>
-                      </div>
-                      <div className={`p-4 rounded-2xl text-[10px] font-black uppercase tracking-widest text-center ${aiReport.logistics.medical_utilization_rate > 50 ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-400'}`}>
-                        Strategy: {aiReport.logistics.recommendation}
-                      </div>
                     </div>
                   </div>
 
@@ -1382,30 +1366,7 @@ export default function Dashboard() {
             </p>
 
             <h3 style={{ borderBottom: '1.5px solid #000', paddingBottom: '3px', fontSize: '11pt', marginTop: '15px', textTransform: 'uppercase' }}>
-              II. LOGISTICAL STRATEGY & COHORT MEDICINE UTILIZATION
-            </h3>
-            <table style={{ marginBottom: '10px' }}>
-              <thead>
-                <tr>
-                  <th>Primary Utilization Type</th>
-                  <th>Medicine/Health Share</th>
-                  <th>Recommended Distribution Mode</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <td>Healthcare & Medication Support</td>
-                  <td>{aiReport.logistics.medical_utilization_rate}% of Total Registry</td>
-                  <td>{aiReport.logistics.recommendation}</td>
-                </tr>
-              </tbody>
-            </table>
-            <p style={{ fontSize: '9.5pt', margin: '5px 0 15px 0', fontStyle: 'italic', lineHeight: '1.3' }}>
-              <strong>Operational Strategy:</strong> Establish a dedicated medical transport coordinate program. Provide door-to-door distribution teams for highly vulnerable senior citizen cohorts utilization.
-            </p>
-
-            <h3 style={{ borderBottom: '1.5px solid #000', paddingBottom: '3px', fontSize: '11pt', marginTop: '15px', textTransform: 'uppercase' }}>
-              III. MORTALITY AUDIT & GHOST VOTER PREVENTION
+              II. MORTALITY AUDIT & GHOST VOTER PREVENTION
             </h3>
             <div style={{ padding: '8px', border: '1.5px solid #000', fontSize: '9.5pt', marginBottom: '15px', lineHeight: '1.3' }}>
               {aiReport.ghost_warnings.length > 0 ? (
@@ -1422,7 +1383,7 @@ export default function Dashboard() {
             </div>
 
             <h3 style={{ borderBottom: '1.5px solid #000', paddingBottom: '3px', fontSize: '11pt', marginTop: '15px', textTransform: 'uppercase' }}>
-              IV. FRAUD PROTECTION & REPRESENTATIVE AUDIT
+              III. FRAUD PROTECTION & REPRESENTATIVE AUDIT
             </h3>
             <div style={{ padding: '8px', border: '1.5px solid #000', fontSize: '9.5pt', marginBottom: '15px', lineHeight: '1.3' }}>
               {aiReport.syndicate_warnings && aiReport.syndicate_warnings.length > 0 ? (
