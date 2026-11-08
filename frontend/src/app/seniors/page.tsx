@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Users, Search, Plus, Edit, Trash2, X, FileText, CheckSquare, PlusCircle, MinusCircle, AlertCircle, AlertTriangle, RefreshCcw, RotateCcw, UserX, Upload, FileCheck, Image as ImageIcon, Filter, Calendar, ChevronLeft, ChevronRight, Info, CheckCircle2, ShieldCheck } from 'lucide-react';
+import { Users, Search, Plus, Edit, Trash2, X, FileText, CheckSquare, PlusCircle, MinusCircle, AlertCircle, AlertTriangle, RefreshCcw, RotateCcw, UserX, Upload, FileCheck, Image as ImageIcon, Filter, Calendar, ChevronLeft, ChevronRight, Info, CheckCircle2, ShieldCheck, Eye, Lock } from 'lucide-react';
 import { useAuth } from "@/context/AuthContext";
 import { useNotifications } from "@/context/NotificationContext";
 import { useSearchParams } from "next/navigation";
@@ -214,6 +214,7 @@ export default function SeniorRegistryPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const [isEditMode, setIsEditMode] = useState(false);
+  const [isViewOnly, setIsViewOnly] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [selectedSeniorForStatus, setSelectedSeniorForStatus] = useState<any>(null);
   const [isDeceasedModalOpen, setIsDeceasedModalOpen] = useState(false);
@@ -342,19 +343,32 @@ export default function SeniorRegistryPage() {
     v.fieldName !== 'psa_cert_file' && v.faceDetected === false;
 
   const handleDeleteSenior = async (id: number) => {
+    if (!isAdmin) {
+      openError("Access Denied", "Only administrators can delete senior records.");
+      return;
+    }
     try {
       const res = await authFetch(`${process.env.NEXT_PUBLIC_API_URL}/seniors/${id}/`, {
         method: 'DELETE'
       });
       if (res.ok) {
         fetchSeniors();
+        openSuccess("Record Deleted", "The senior record has been permanently removed.");
+      } else {
+        const err = await res.json().catch(() => ({}));
+        openError("Deletion Failed", err.error || "Failed to delete senior record.");
       }
     } catch (error) {
       console.error("Error deleting senior:", error);
+      openError("Connection Error", "Cannot connect to server to delete record.");
     }
   };
 
   const openDeleteConfirm = (senior: any) => {
+    if (!isAdmin) {
+      openError("Access Denied", "Only administrators can delete senior records.");
+      return;
+    }
     showConfirm(
       'Delete Permanent Record?',
       `Are you sure you want to delete the record of ${senior.first_name} ${senior.last_name}? This action cannot be undone and will remove all associated history.`,
@@ -493,7 +507,58 @@ export default function SeniorRegistryPage() {
     }
   };
 
+  const handleNewRecord = () => {
+    setIsViewOnly(false);
+    setIsEditMode(false);
+    setEditingId(null);
+    setReturnedCorrectionInfo(null);
+    resetPsaQr();
+    resetOscaCard();
+    revokeBlobUrls();
+    setFormData(initialFormState);
+    setIsModalOpen(true);
+  };
+
+  const handleViewClick = (senior: any) => {
+    setIsViewOnly(true);
+    setIsEditMode(true);
+    setEditingId(senior.id);
+    setReturnedCorrectionInfo(null);
+    const { email: _email, primary_ben_name: _pbn, primary_ben_rel: _pbr, ...annexData } = senior.annex_a_data || {};
+    resetPsaQr();
+    resetOscaCard();
+    revokeBlobUrls();
+    setFormData({
+      ...initialFormState,
+      ...annexData,
+      given_name: senior.first_name,
+      last_name: senior.last_name,
+      middle_name: senior.middle_name || '',
+      date_of_birth: senior.date_of_birth,
+      age: calculateAge(senior.date_of_birth),
+      osca_id_number: senior.osca_id || '',
+      crs_copy_number: senior.crs_copy_number || annexData.crs_copy_number || '',
+      res_brgy: senior.barangay,
+      res_district: getDistrictForBarangay(senior.barangay || ''),
+      status: senior.status || 'ACTIVE',
+      sex: senior.sex || '',
+      civil_status: senior.civil_status || '',
+      consent_privacy: true,
+      consent_truth: true,
+      psa_cert_url: senior.psa_cert_file || '',
+      primary_id_url: senior.primary_id_file || '',
+      picture_2x2_url: senior.picture_2x2_file || ''
+    });
+    setIsModalOpen(true);
+  };
+
   const handleEditClick = (senior: any) => {
+    // RBAC: If not admin and record is NOT returned for correction, default to read-only view
+    if (!isAdmin && senior.registration_status !== 'RETURNED') {
+      handleViewClick(senior);
+      return;
+    }
+    setIsViewOnly(false);
     setIsEditMode(true);
     setEditingId(senior.id);
     if (senior.registration_status === 'RETURNED') {
@@ -516,6 +581,7 @@ export default function SeniorRegistryPage() {
       date_of_birth: senior.date_of_birth,
       age: calculateAge(senior.date_of_birth),
       osca_id_number: senior.osca_id || '',
+      crs_copy_number: senior.crs_copy_number || annexData.crs_copy_number || '',
       res_brgy: senior.barangay,
       res_district: getDistrictForBarangay(senior.barangay || ''),
       status: senior.status || 'ACTIVE',
@@ -531,6 +597,10 @@ export default function SeniorRegistryPage() {
   };
 
   const handleStatusUpdate = async (newStatus: string) => {
+    if (!isAdmin) {
+      openError("Access Denied", "Only administrators can update senior record status.");
+      return;
+    }
     if (!selectedSeniorForStatus) return;
     if (newStatus === 'DECEASED') {
       setIsStatusModalOpen(false);
@@ -544,11 +614,19 @@ export default function SeniorRegistryPage() {
         body: JSON.stringify({ status: newStatus, is_active: newStatus === 'ACTIVE' })
       });
       if (res.ok) { setIsStatusModalOpen(false); fetchSeniors(); }
+      else {
+        const err = await res.json().catch(() => ({}));
+        openError("Update Failed", err.error || "Failed to update record status.");
+      }
     } catch (error) { console.error("Error updating status:", error); } finally { setIsSubmitting(false); }
   };
 
   const handleReportDeceased = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!isAdmin) {
+      openError("Access Denied", "Only administrators can report senior records as deceased.");
+      return;
+    }
     if (!selectedSeniorForStatus) return;
     if (!deceasedForm.date_of_death) {
       openWarning("Date of Death Required", "Please specify the official date of death.");
@@ -591,6 +669,15 @@ export default function SeniorRegistryPage() {
 
   const handleFormSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (isViewOnly) {
+      return;
+    }
+
+    if (isEditMode && !isAdmin && !returnedCorrectionInfo) {
+      openError("Access Denied", "Only administrators can update senior profiles.");
+      return;
+    }
 
     // Detailed Validation
     if (!formData.given_name || !formData.last_name || !formData.date_of_birth) {
@@ -1901,7 +1988,7 @@ export default function SeniorRegistryPage() {
             <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-indigo-600 transition-colors" size={18} />
             <input type="text" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} placeholder="Search Name or ID..." className="w-full pl-11 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:bg-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-all text-sm font-medium shadow-sm" />
           </form>
-          <button onClick={() => { setFormData(initialFormState); resetPsaQr(); resetOscaCard(); revokeBlobUrls(); setIsEditMode(false); setReturnedCorrectionInfo(null); setIsModalOpen(true); }} className="flex items-center justify-center gap-2 px-6 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl shadow-lg shadow-indigo-500/20 transition-all hover:-translate-y-0.5 whitespace-nowrap text-sm font-bold w-full md:w-auto">
+          <button onClick={handleNewRecord} className="flex items-center justify-center gap-2 px-6 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl shadow-lg shadow-indigo-500/20 transition-all hover:-translate-y-0.5 whitespace-nowrap text-sm font-bold w-full md:w-auto">
             <Plus size={18} />
             <span>New Record</span>
           </button>
@@ -2015,9 +2102,33 @@ export default function SeniorRegistryPage() {
                     </div>
                   </td>
                   <td className="px-8 py-5 flex justify-end gap-2">
-                    <button title="Update Status / Report Deceased" onClick={() => { setSelectedSeniorForStatus(senior); setIsStatusModalOpen(true); }} className="p-2 text-slate-400 hover:text-rose-600 rounded-xl transition-all"><UserX size={18} /></button>
-                    <button onClick={() => handleEditClick(senior)} className="p-2 text-slate-400 hover:text-indigo-600 rounded-xl transition-all"><Edit size={18} /></button>
-                    <button onClick={() => openDeleteConfirm(senior)} className="p-2 text-slate-400 hover:text-slate-600 rounded-xl transition-all"><Trash2 size={18} /></button>
+                    {isAdmin ? (
+                      <>
+                        <button title="Update Status / Report Deceased" onClick={() => { setSelectedSeniorForStatus(senior); setIsStatusModalOpen(true); }} className="p-2 text-slate-400 hover:text-rose-600 rounded-xl transition-all"><UserX size={18} /></button>
+                        <button title="Update Profile" onClick={() => handleEditClick(senior)} className="p-2 text-slate-400 hover:text-indigo-600 rounded-xl transition-all"><Edit size={18} /></button>
+                        <button title="Delete Record" onClick={() => openDeleteConfirm(senior)} className="p-2 text-slate-400 hover:text-slate-600 rounded-xl transition-all"><Trash2 size={18} /></button>
+                      </>
+                    ) : (
+                      senior.registration_status === 'RETURNED' ? (
+                        <button
+                          type="button"
+                          title="Correct and Resubmit Application"
+                          onClick={() => handleEditClick(senior)}
+                          className="px-3 py-1.5 text-xs font-bold text-amber-700 bg-amber-50 hover:bg-amber-100 rounded-xl border border-amber-200 transition-all flex items-center gap-1.5 shadow-sm"
+                        >
+                          <RotateCcw size={14} /> Correct
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          title="View Record Details (Read-Only)"
+                          onClick={() => handleViewClick(senior)}
+                          className="p-2 text-slate-400 hover:text-indigo-600 rounded-xl transition-all"
+                        >
+                          <Eye size={18} />
+                        </button>
+                      )
+                    )}
                   </td>
                 </tr>
               )))}
@@ -2061,12 +2172,37 @@ export default function SeniorRegistryPage() {
               <div className="flex justify-between items-center px-10 py-8 border-b border-slate-100 bg-slate-50/50">
                 <div className="flex items-center gap-4">
                   <div className="p-3 bg-indigo-600 text-white rounded-2xl shadow-lg shadow-indigo-200"><FileText size={28} /></div>
-                  <div><h2 className="text-2xl font-black text-slate-900 tracking-tight">{isEditMode ? 'Update Profile' : 'Application Form (Annex A)'}</h2><p className="text-sm font-bold text-slate-400 uppercase tracking-widest mt-1">National Commission of Senior Citizens</p></div>
+                  <div>
+                    <div className="flex items-center gap-2.5">
+                      <h2 className="text-2xl font-black text-slate-900 tracking-tight">
+                        {isViewOnly ? 'View Beneficiary Profile' : (isEditMode ? 'Update Profile' : 'Application Form (Annex A)')}
+                      </h2>
+                      {isViewOnly && (
+                        <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-slate-100 text-slate-600 border border-slate-200 flex items-center gap-1 shadow-sm">
+                          <Lock size={10} /> Read-Only
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-sm font-bold text-slate-400 uppercase tracking-widest mt-1">National Commission of Senior Citizens</p>
+                  </div>
                 </div>
                 <button type="button" onClick={() => setIsModalOpen(false)} className="p-3 text-slate-400 hover:text-slate-900 border border-transparent hover:border-slate-200 rounded-2xl transition-all"><X size={24} /></button>
               </div>
 
               <div className="px-10 py-8 overflow-y-auto flex-1 custom-scrollbar space-y-12">
+
+                {/* --- STAFF READ-ONLY NOTICE BANNER --- */}
+                {isViewOnly && (
+                  <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl flex items-center gap-3 text-slate-700 text-xs font-semibold shadow-sm animate-in slide-in-from-top-1 duration-200">
+                    <div className="p-2 bg-white text-slate-600 rounded-xl shadow-sm border border-slate-200 shrink-0">
+                      <Lock size={16} />
+                    </div>
+                    <div>
+                      <p className="font-bold text-slate-900">Staff Read-Only View</p>
+                      <p className="text-slate-500">Only Administrator accounts have permission to update profiles, alter record status, or delete accounts.</p>
+                    </div>
+                  </div>
+                )}
 
                 {/* --- RETURNED FOR CORRECTION REMEDIATION BANNER --- */}
                 {returnedCorrectionInfo && (
@@ -2098,6 +2234,8 @@ export default function SeniorRegistryPage() {
                     </div>
                   </div>
                 )}
+
+                <fieldset disabled={isViewOnly} className="space-y-12 border-0 p-0 m-0 min-w-0">
 
                 <section>
                   <div className="flex items-center gap-3 mb-8"><span className="w-8 h-8 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center font-black text-sm">A</span><h3 className="text-lg font-black text-slate-800 tracking-tight">Personal & Contact Information</h3></div>
@@ -2576,21 +2714,24 @@ export default function SeniorRegistryPage() {
                     <label className="flex items-start gap-5 cursor-pointer p-6 hover:bg-white rounded-3xl transition-all border border-transparent hover:border-rose-100"><input type="checkbox" required checked={formData.consent_privacy} onChange={(e) => setFormData({ ...formData, consent_privacy: e.target.checked })} className="mt-1 w-7 h-7 rounded-xl text-rose-600 border-rose-200" /><span className="text-sm text-slate-700 font-bold leading-relaxed">I authorize NCSC to process my data per R.A. No. 11982.</span></label>
                   </div>
                 </section>
+                </fieldset>
               </div>
 
               <div className="flex justify-end gap-4 px-10 py-8 border-t border-slate-100 bg-slate-50/50 shrink-0">
-                <button type="button" onClick={() => setIsModalOpen(false)} className="px-8 py-4 text-slate-400 font-black uppercase tracking-widest text-[10px]">Close</button>
-                <button
-                  type="submit"
-                  disabled={isSubmitting}
-                  className={`flex items-center gap-2 px-8 py-4 text-white rounded-2xl font-black text-sm uppercase tracking-widest transition-all shadow-xl disabled:opacity-50 ${returnedCorrectionInfo
-                    ? 'bg-amber-600 hover:bg-amber-700 shadow-amber-200'
-                    : 'bg-indigo-600 hover:bg-indigo-700 shadow-indigo-200'
-                    }`}
-                >
-                  {isSubmitting ? 'Uploading...' : (isEditMode ? (returnedCorrectionInfo ? 'Resubmit for Verification' : 'Save Changes') : 'Complete Entry')}
-                  {returnedCorrectionInfo ? <RotateCcw size={18} /> : <CheckSquare size={18} />}
-                </button>
+                <button type="button" onClick={() => setIsModalOpen(false)} className="px-8 py-4 text-slate-500 hover:text-slate-900 font-black uppercase tracking-widest text-[10px]">Close</button>
+                {!isViewOnly && (
+                  <button
+                    type="submit"
+                    disabled={isSubmitting}
+                    className={`flex items-center gap-2 px-8 py-4 text-white rounded-2xl font-black text-sm uppercase tracking-widest transition-all shadow-xl disabled:opacity-50 ${returnedCorrectionInfo
+                      ? 'bg-amber-600 hover:bg-amber-700 shadow-amber-200'
+                      : 'bg-indigo-600 hover:bg-indigo-700 shadow-indigo-200'
+                      }`}
+                  >
+                    {isSubmitting ? 'Uploading...' : (isEditMode ? (returnedCorrectionInfo ? 'Resubmit for Verification' : 'Save Changes') : 'Complete Entry')}
+                    {returnedCorrectionInfo ? <RotateCcw size={18} /> : <CheckSquare size={18} />}
+                  </button>
+                )}
               </div>
             </form>
           </div>
@@ -2598,7 +2739,7 @@ export default function SeniorRegistryPage() {
       )}
 
       {/* --- STATUS UPDATE MODAL (MISSING COMPONENT RESTORED) --- */}
-      {isStatusModalOpen && selectedSeniorForStatus && (
+      {isStatusModalOpen && selectedSeniorForStatus && isAdmin && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-900/60 backdrop-blur-md p-4 animate-in zoom-in duration-200">
           <div className="bg-white rounded-[40px] shadow-2xl w-full max-w-md overflow-hidden border border-slate-200">
             <div className="p-10 text-center space-y-6">
@@ -2635,7 +2776,7 @@ export default function SeniorRegistryPage() {
       )}
 
       {/* --- ANTI-GHOST PENSIONER: REPORT DECEASED MODAL --- */}
-      {isDeceasedModalOpen && selectedSeniorForStatus && (
+      {isDeceasedModalOpen && selectedSeniorForStatus && isAdmin && (
         <div className="fixed inset-0 z-[220] flex items-center justify-center bg-slate-900/70 backdrop-blur-md p-4 animate-in zoom-in-95 duration-200">
           <div className="bg-white rounded-[36px] shadow-2xl w-full max-w-lg overflow-hidden border border-slate-200">
             <form onSubmit={handleReportDeceased} className="flex flex-col">

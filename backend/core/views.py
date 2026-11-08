@@ -276,6 +276,28 @@ class SeniorViewSet(viewsets.ModelViewSet):
         data = request.data.dict() if hasattr(request.data, 'dict') else request.data.copy()
         instance = self.get_object()
 
+        # RBAC Check: Only Admin can update profile or status (Staff only allowed if record was RETURNED for correction)
+        is_admin = False
+        if request.user and request.user.is_authenticated:
+            try:
+                is_admin = (request.user.profile.role == 'ADMIN')
+            except Exception:
+                is_admin = False
+
+        was_returned = instance.registration_status == 'RETURNED'
+
+        if not is_admin:
+            if not was_returned:
+                return Response(
+                    {'error': 'Permission denied. Only administrators can update senior records.'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+            if 'status' in data and data['status'] != instance.status:
+                return Response(
+                    {'error': 'Permission denied. Only administrators can change record status.'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+
         if 'annex_a_data' in data and isinstance(data['annex_a_data'], str):
             import json
             try:
@@ -391,11 +413,26 @@ class SeniorViewSet(viewsets.ModelViewSet):
     # === REVIEW WORKFLOW ACTIONS ===
 
     def get_permissions(self):
-        if self.action in ['review_queue', 'submit_review']:
+        if self.action in ['review_queue', 'submit_review', 'destroy', 'report_deceased', 'batch_approve_verified']:
             permission_classes = [IsAuthenticated, IsAdmin]
         else:
             permission_classes = [IsAuthenticated]
         return [permission() for permission in permission_classes]
+
+    def destroy(self, request, *args, **kwargs):
+        is_admin = False
+        if request.user and request.user.is_authenticated:
+            try:
+                is_admin = (request.user.profile.role == 'ADMIN')
+            except Exception:
+                is_admin = False
+
+        if not is_admin:
+            return Response(
+                {'error': 'Permission denied. Only administrators can delete senior records.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        return super().destroy(request, *args, **kwargs)
 
     @action(detail=False, methods=['get'], url_path='review-queue')
     def review_queue(self, request):
@@ -505,6 +542,19 @@ class SeniorViewSet(viewsets.ModelViewSet):
         - Automatically cancels all PENDING disbursements to freeze public funds.
         - Creates a tamper-evident AuditLog entry.
         """
+        is_admin = False
+        if request.user and request.user.is_authenticated:
+            try:
+                is_admin = (request.user.profile.role == 'ADMIN')
+            except Exception:
+                is_admin = False
+
+        if not is_admin:
+            return Response(
+                {'error': 'Permission denied. Only administrators can report a senior as deceased.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
         senior = self.get_object()
         date_of_death = request.data.get('date_of_death')
         death_cert_file = request.FILES.get('death_cert_file')
