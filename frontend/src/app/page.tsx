@@ -1373,7 +1373,7 @@ export default function Dashboard() {
                   ))}
                 </ul>
               ) : (
-                <span>✔ SYSTEM SECURE: Mortality rates and survival density ratios are within normal national statistics.</span>
+                <span>SYSTEM SECURE: Mortality rates and survival density ratios are within normal national statistics.</span>
               )}
             </div>
 
@@ -1390,14 +1390,14 @@ export default function Dashboard() {
                   ))}
                 </ul>
               ) : (
-                <span>✔ SYSTEM SECURE: No suspicious shared or duplicate representative claim patterns detected in registry.</span>
+                <span>SYSTEM SECURE: No suspicious shared or duplicate representative claim patterns detected in registry.</span>
               )}
             </div>
 
             <div className="print-footer-signature">
               <div style={{ width: '45%', borderTop: '1.5px solid #000', marginTop: '40px', paddingTop: '5px', textAlign: 'center', fontSize: '9.5pt' }}>
                 <strong>CENTENARYO SYSTEM ENGINE</strong><br />
-                Authorized AI Intelligence Generator
+                Automated Registry Verification System
               </div>
               <div style={{ width: '45%', borderTop: '1.5px solid #000', marginTop: '40px', paddingTop: '5px', textAlign: 'center', fontSize: '9.5pt' }}>
                 <strong>LGU ADMINISTRATOR / DECISION MAKER</strong><br />

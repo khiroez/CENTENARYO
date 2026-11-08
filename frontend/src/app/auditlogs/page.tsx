@@ -306,23 +306,23 @@ export default function AuditLogsPage() {
   const renderActionBadge = (action: string) => {
     switch (action?.toUpperCase()) {
       case 'CREATE':
-        return <span className="px-2.5 py-1 bg-emerald-50 text-emerald-600 border border-emerald-200 rounded-lg text-[10px] font-black tracking-widest uppercase flex items-center gap-1 w-fit"><CheckCircle2 size={11} /> CREATE</span>;
+        return <span className="px-2.5 py-1 bg-emerald-50 text-emerald-600 border border-emerald-200 rounded-lg text-[10px] font-black tracking-widest uppercase inline-block">CREATE</span>;
       case 'UPDATE':
-        return <span className="px-2.5 py-1 bg-blue-50 text-blue-600 border border-blue-200 rounded-lg text-[10px] font-black tracking-widest uppercase flex items-center gap-1 w-fit"><Database size={11} /> UPDATE</span>;
+        return <span className="px-2.5 py-1 bg-blue-50 text-blue-600 border border-blue-200 rounded-lg text-[10px] font-black tracking-widest uppercase inline-block">UPDATE</span>;
       case 'DELETE':
-        return <span className="px-2.5 py-1 bg-rose-50 text-rose-600 border border-rose-200 rounded-lg text-[10px] font-black tracking-widest uppercase flex items-center gap-1 w-fit"><AlertTriangle size={11} /> DELETE</span>;
+        return <span className="px-2.5 py-1 bg-rose-50 text-rose-600 border border-rose-200 rounded-lg text-[10px] font-black tracking-widest uppercase inline-block">DELETE</span>;
       case 'LOGIN':
-        return <span className="px-2.5 py-1 bg-indigo-50 text-indigo-600 border border-indigo-200 rounded-lg text-[10px] font-black tracking-widest uppercase flex items-center gap-1 w-fit"><Lock size={11} /> LOGIN</span>;
+        return <span className="px-2.5 py-1 bg-indigo-50 text-indigo-600 border border-indigo-200 rounded-lg text-[10px] font-black tracking-widest uppercase inline-block">LOGIN</span>;
       case 'LOGOUT':
-        return <span className="px-2.5 py-1 bg-slate-100 text-slate-600 border border-slate-200 rounded-lg text-[10px] font-black tracking-widest uppercase flex items-center gap-1 w-fit">LOGOUT</span>;
+        return <span className="px-2.5 py-1 bg-slate-100 text-slate-600 border border-slate-200 rounded-lg text-[10px] font-black tracking-widest uppercase inline-block">LOGOUT</span>;
       case 'REVIEW':
-        return <span className="px-2.5 py-1 bg-purple-50 text-purple-700 border border-purple-200 rounded-lg text-[10px] font-black tracking-widest uppercase flex items-center gap-1 w-fit"><CheckSquare size={11} /> REVIEW</span>;
+        return <span className="px-2.5 py-1 bg-purple-50 text-purple-700 border border-purple-200 rounded-lg text-[10px] font-black tracking-widest uppercase inline-block">REVIEW</span>;
       case 'REPORT_DECEASED':
-        return <span className="px-2.5 py-1 bg-zinc-900 text-white border border-zinc-700 rounded-lg text-[10px] font-black tracking-widest uppercase flex items-center gap-1 w-fit">† DECEASED</span>;
+        return <span className="px-2.5 py-1 bg-zinc-900 text-white border border-zinc-700 rounded-lg text-[10px] font-black tracking-widest uppercase inline-block">DECEASED</span>;
       case 'RESUBMIT':
-        return <span className="px-2.5 py-1 bg-amber-50 text-amber-800 border border-amber-300 rounded-lg text-[10px] font-black tracking-widest uppercase flex items-center gap-1 w-fit"><RotateCcw size={11} /> RESUBMIT</span>;
+        return <span className="px-2.5 py-1 bg-amber-50 text-amber-800 border border-amber-300 rounded-lg text-[10px] font-black tracking-widest uppercase inline-block">RESUBMIT</span>;
       default:
-        return <span className="px-2.5 py-1 bg-slate-100 text-slate-600 border border-slate-200 rounded-lg text-[10px] font-black tracking-widest uppercase">{action || 'SYSTEM'}</span>;
+        return <span className="px-2.5 py-1 bg-slate-100 text-slate-600 border border-slate-200 rounded-lg text-[10px] font-black tracking-widest uppercase inline-block">{action || 'SYSTEM'}</span>;
     }
   };
 

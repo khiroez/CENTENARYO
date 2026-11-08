@@ -68,7 +68,7 @@ export default function Header() {
               ? 'bg-emerald-50 text-emerald-700 border-emerald-200 shadow-sm' 
               : 'bg-blue-50 text-blue-700 border-blue-200 shadow-sm'
           }`}>
-            {isAdmin ? '🕵️ Admin Mode' : '👨‍💻 Staff Mode'}
+            {isAdmin ? 'Admin Mode' : 'Staff Mode'}
           </span>
         )}
 

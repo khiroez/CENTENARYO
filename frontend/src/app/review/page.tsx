@@ -180,7 +180,7 @@ export default function ReviewQueuePage() {
         if (action === 'RETURN') {
           addNotification({
             type: 'DOCUMENT',
-            title: '⚠️ Returned for Correction',
+            title: 'Returned for Correction',
             description: `Admin returned registration for ${selectedSenior.first_name} ${selectedSenior.last_name}: "${finalRemarks}"`,
             link: `/seniors?regStatus=RETURNED&highlight=${selectedSenior.id}`,
             targetId: selectedSenior.id
@@ -276,8 +276,8 @@ export default function ReviewQueuePage() {
             disabled={isBatchApproving}
             className="flex items-center gap-2.5 px-6 py-3.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white rounded-2xl font-black text-sm shadow-xl shadow-emerald-500/25 transition-all hover:scale-[1.02] active:scale-[0.98]"
           >
-            <Zap size={18} className="animate-pulse" />
-            {isBatchApproving ? "Processing Batch..." : `⚡ Batch Approve Pre-Verified (${preVerifiedCount})`}
+            <Zap size={18} />
+            {isBatchApproving ? "Processing Batch..." : `Batch Approve Pre-Verified (${preVerifiedCount})`}
           </button>
         )}
       </div>
@@ -362,15 +362,15 @@ export default function ReviewQueuePage() {
                   {/* Pre-Screening Badges */}
                   <div className="mt-4 flex flex-wrap gap-1.5">
                     {autoChecks.can_auto_approve || autoChecks.overall_verdict === 'PASS' ? (
-                      <span className="px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider bg-emerald-100 text-emerald-800 border border-emerald-200 flex items-center gap-1">
-                        ⭐ 100% Pre-Verified
+                      <span className="px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider bg-emerald-100 text-emerald-800 border border-emerald-200">
+                        100% Pre-Verified
                       </span>
                     ) : null}
 
                     {faceScore !== undefined ? (
-                      <span className={`px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider flex items-center gap-1 ${faceScore >= 70 ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' : (faceScore >= 50 ? 'bg-amber-50 text-amber-700 border border-amber-100' : 'bg-rose-50 text-rose-700 border border-rose-100')
+                      <span className={`px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider ${faceScore >= 70 ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' : (faceScore >= 50 ? 'bg-amber-50 text-amber-700 border border-amber-100' : 'bg-rose-50 text-rose-700 border border-rose-100')
                         }`}>
-                        🎯 Face: {faceScore}%
+                        Face: {faceScore}%
                       </span>
                     ) : (
                       <span className="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-slate-50 text-slate-500 border border-slate-100">
@@ -380,17 +380,17 @@ export default function ReviewQueuePage() {
 
                     {autoChecks.psa_check?.status === 'PASS' || autoChecks.ocr_psa?.name_found ? (
                       <span className="px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider bg-emerald-50 text-emerald-700 border border-emerald-100">
-                        ✓ PSA: Name & DOB
+                        PSA: Name & DOB
                       </span>
                     ) : autoChecks.psa_check?.status === 'REJECTED' ? (
                       <span className="px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider bg-rose-50 text-rose-700 border border-rose-100">
-                        ⚠️ Invalid PSA
+                        Invalid PSA
                       </span>
                     ) : null}
 
                     {autoChecks.hash_check?.status === 'PASS' ? (
                       <span className="px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider bg-slate-50 text-slate-600 border border-slate-100">
-                        🛡️ Unique Hash
+                        Unique Hash
                       </span>
                     ) : null}
                   </div>
@@ -759,7 +759,6 @@ export default function ReviewQueuePage() {
                     {/* OCR Check */}
                     <div className="p-3 bg-slate-50 border border-slate-100 rounded-2xl flex items-center justify-between">
                       <div className="flex items-center gap-2.5">
-                        <span className="text-base">📄</span>
                         <div>
                           <div className="text-[10px] font-black uppercase tracking-wider text-slate-700">PSA Document OCR Check</div>
                           <div className="text-[11px] font-medium text-slate-500">
@@ -778,7 +777,6 @@ export default function ReviewQueuePage() {
                     {/* PSA QR Code Cross-Check (Given Name, Date of Birth, CRS Copy Number) */}
                     <div className="p-3 bg-slate-50 border border-slate-100 rounded-2xl flex items-center justify-between">
                       <div className="flex items-center gap-2.5">
-                        <span className="text-base">🔳</span>
                         <div>
                           <div className="text-[10px] font-black uppercase tracking-wider text-slate-700">PSA QR Code 3-Field Verification</div>
                           <div className="text-[11px] font-medium text-slate-500">
@@ -806,7 +804,6 @@ export default function ReviewQueuePage() {
                     {/* OSCA ID Two-Tier Validation & 5-Field Cross-Verification Check */}
                     <div className="p-3 bg-slate-50 border border-slate-100 rounded-2xl flex items-center justify-between">
                       <div className="flex items-center gap-2.5">
-                        <span className="text-base">🪪</span>
                         <div>
                           <div className="text-[10px] font-black uppercase tracking-wider text-slate-700">OSCA ID Two-Tier &amp; 5-Field Cross-Check</div>
                           <div className="text-[11px] font-medium text-slate-500">
@@ -852,7 +849,6 @@ export default function ReviewQueuePage() {
                     {/* Hash Uniqueness */}
                     <div className="p-3 bg-slate-50 border border-slate-100 rounded-2xl flex items-center justify-between">
                       <div className="flex items-center gap-2.5">
-                        <span className="text-base">🛡️</span>
                         <div>
                           <div className="text-[10px] font-black uppercase tracking-wider text-slate-700">SHA-256 Deduplication Check</div>
                           <div className="text-[11px] font-medium text-slate-500">
@@ -1045,7 +1041,7 @@ export default function ReviewQueuePage() {
                             rel="noreferrer"
                             className="text-indigo-600 hover:text-indigo-800 text-xs font-black mt-2 underline"
                           >
-                            🔗 Open High-Res Image in New Tab
+                            Open High-Res Image in New Tab
                           </a>
                         </div>
                       );

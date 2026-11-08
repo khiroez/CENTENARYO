@@ -89,7 +89,7 @@ export default function Sidebar() {
               <p className={`text-[10px] font-bold uppercase tracking-wider ${
                 isAdmin ? 'text-emerald-400' : 'text-blue-400'
               }`}>
-                {user.role === 'ADMIN' ? '🕵️ Admin' : '👨‍💻 Staff'}
+                {user.role === 'ADMIN' ? 'Admin' : 'Staff'}
               </p>
             </div>
           </div>

@@ -2054,7 +2054,7 @@ export default function SeniorRegistryPage() {
                         <div className="flex flex-col gap-0.5 mt-0.5">
                           {senior.date_of_death && (
                             <span className="text-[9px] font-black text-rose-700">
-                              † {senior.date_of_death}
+                              Deceased: {senior.date_of_death}
                             </span>
                           )}
                           {senior.death_cert_file && (
@@ -2064,7 +2064,7 @@ export default function SeniorRegistryPage() {
                               rel="noreferrer"
                               className="text-[9px] font-black text-rose-700 underline hover:text-rose-900"
                             >
-                              📄 Death Cert
+                              Death Certificate
                             </a>
                           )}
                         </div>
@@ -2208,7 +2208,7 @@ export default function SeniorRegistryPage() {
                           "{returnedCorrectionInfo.remarks || 'Please replace unreadable document attachments or correct field discrepancies.'}"
                         </p>
                         <p className="text-[11px] text-amber-800 font-semibold mt-2 flex items-center gap-1.5">
-                          <span>💡</span> Update or re-upload the defective document below, then click <strong className="text-amber-950 underline">"Resubmit for Verification"</strong> to return this record to the queue.
+                          Update or re-upload the defective document below, then click <strong className="text-amber-950 underline">"Resubmit for Verification"</strong> to return this record to the queue.
                         </p>
                       </div>
                     </div>

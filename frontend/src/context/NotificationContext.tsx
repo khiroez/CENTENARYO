@@ -47,8 +47,8 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
             {
                 id: '1',
                 type: 'ML_FLAG',
-                title: 'AI Anomaly Detected',
-                description: "AI detected a potential duplicate record in Brgy. San Jose.",
+                title: 'Potential Duplicate Flagged',
+                description: "System detected a potential duplicate record in Brgy. San Jose.",
                 time: 'Just now',
                 link: '/anomalies',
                 isRead: false,
