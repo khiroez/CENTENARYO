@@ -238,37 +238,17 @@ class SeniorViewSet(viewsets.ModelViewSet):
         
         # Process deep document verification, OCR & deduplication
         from .document_verifier import perform_complete_document_verification
-        from django.utils import timezone
+        if 'auto_check_results' not in data or not isinstance(data['auto_check_results'], dict):
+            data['auto_check_results'] = {}
         v_res = perform_complete_document_verification(data, request.FILES)
         data['auto_check_results'].update(v_res)
 
-        # Straight-Through Processing (STP): If 100% verified across all layers, auto-approve
-        can_auto = v_res.get('can_auto_approve', False)
-        if can_auto:
-            data['registration_status'] = 'APPROVED'
-            data['reviewed_at'] = timezone.now()
-        else:
-            data['registration_status'] = 'PENDING_REVIEW'
+        # All new registrations go to the Document Review Queue first before appearing in Senior Registry
+        data['registration_status'] = 'PENDING_REVIEW'
         
         serializer = self.get_serializer(data=data)
         serializer.is_valid(raise_exception=True)
-        senior = serializer.save()
-
-        if can_auto:
-            ReviewLog.objects.create(
-                senior=senior,
-                reviewer=request.user if request.user.is_authenticated else None,
-                action='APPROVE',
-                remarks='Awtomatikong inaprubahan sa pamamagitan ng AI Automated Verification (100% Passed)',
-                checklist_results={'name_match': True, 'dob_match': True, 'photo_match': True, 'document_authentic': True}
-            )
-            AuditLog.objects.create(
-                user=request.user if request.user.is_authenticated else None,
-                action='REVIEW',
-                target_model='Senior',
-                target_id=str(senior.id),
-                details=f"AI Straight-Through Auto-Approved Senior {senior.first_name} {senior.last_name} ({senior.osca_id})."
-            )
+        serializer.save()
 
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
@@ -313,44 +293,25 @@ class SeniorViewSet(viewsets.ModelViewSet):
             except json.JSONDecodeError:
                 data['auto_check_results'] = {}
 
-        # Process deep document verification for updated files
-        from .document_verifier import perform_complete_document_verification
-        from django.utils import timezone
-        v_res = perform_complete_document_verification(data, request.FILES, instance_id=instance.id)
-        if 'auto_check_results' not in data or not isinstance(data['auto_check_results'], dict):
-            data['auto_check_results'] = {}
-        data['auto_check_results'].update(v_res)
+        # Process deep document verification if new files were uploaded or record is being resubmitted
+        if request.FILES or was_returned:
+            from .document_verifier import perform_complete_document_verification
+            v_res = perform_complete_document_verification(data, request.FILES, instance_id=instance.id)
+            if 'auto_check_results' not in data or not isinstance(data['auto_check_results'], dict):
+                data['auto_check_results'] = {}
+            data['auto_check_results'].update(v_res)
 
-        was_returned = instance.registration_status == 'RETURNED'
-
-        can_auto = v_res.get('can_auto_approve', False)
-        if can_auto:
-            data['registration_status'] = 'APPROVED'
-            data['reviewed_at'] = timezone.now()
-        else:
+        if was_returned:
             data['registration_status'] = 'PENDING_REVIEW'
+        else:
+            data['registration_status'] = instance.registration_status
 
         partial = kwargs.pop('partial', False)
         serializer = self.get_serializer(instance, data=data, partial=partial)
         serializer.is_valid(raise_exception=True)
         self.perform_update(serializer)
 
-        if can_auto:
-            ReviewLog.objects.create(
-                senior=instance,
-                reviewer=request.user if request.user.is_authenticated else None,
-                action='APPROVE',
-                remarks='Awtomatikong inaprubahan sa pamamagitan ng AI Automated Verification (100% Passed)',
-                checklist_results={'name_match': True, 'dob_match': True, 'photo_match': True, 'document_authentic': True}
-            )
-            AuditLog.objects.create(
-                user=request.user if request.user.is_authenticated else None,
-                action='REVIEW',
-                target_model='Senior',
-                target_id=str(instance.id),
-                details=f"AI Straight-Through Auto-Approved Senior {instance.first_name} {instance.last_name} ({instance.osca_id})."
-            )
-        elif was_returned:
+        if was_returned:
             resubmit_remarks = data.get('resubmission_notes', f"Staff {request.user.username if request.user.is_authenticated else 'User'} corrected documents and resubmitted for review.")
             ReviewLog.objects.create(
                 senior=instance,

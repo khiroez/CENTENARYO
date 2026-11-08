@@ -846,9 +846,11 @@ export default function SeniorRegistryPage() {
           isEditMode
             ? (wasReturned ? "Resubmitted for Verification" : "Record Updated")
             : "Registration Submitted for Review",
-          wasReturned
-            ? `The corrected record for ${formData.given_name} ${formData.last_name} has been resubmitted to the Admin Review Queue.`
-            : `The record for ${formData.given_name} ${formData.last_name} has been successfully submitted and is pending review.`
+          isEditMode
+            ? (wasReturned
+              ? `The corrected record for ${formData.given_name} ${formData.last_name} has been resubmitted to the Document Review Queue.`
+              : `The beneficiary profile for ${formData.given_name} ${formData.last_name} has been updated successfully.`)
+            : `The application for ${formData.given_name} ${formData.last_name} has been submitted to the Document Review Queue for verification.`
         );
 
         // TRIGGER GLOBAL NOTIFICATION
