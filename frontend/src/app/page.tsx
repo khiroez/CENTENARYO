@@ -366,7 +366,7 @@ export default function Dashboard() {
         </div>
 
         {/* Main Stats Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+        <div className={`grid grid-cols-1 md:grid-cols-2 ${isAdmin ? 'lg:grid-cols-4' : 'lg:grid-cols-3'} gap-8`}>
           {/* Seniors Card */}
           <div className="group bg-white p-8 rounded-[40px] border border-slate-100 shadow-sm hover:shadow-xl hover:shadow-indigo-500/5 transition-all duration-500 relative overflow-hidden">
             <div className="absolute top-0 right-0 p-8 text-indigo-50 group-hover:text-indigo-100 transition-colors">
@@ -405,40 +405,63 @@ export default function Dashboard() {
             </div>
           </div>
 
-          {/* Anomalies Card (Admin) or Milestones (Staff) */}
+          {/* For Admin: Pending Reviews AND Anomaly Detections. For Staff: Active Beneficiaries */}
           {isAdmin ? (
-            <div className="group bg-white p-8 rounded-[40px] border border-slate-100 shadow-sm hover:shadow-xl hover:shadow-rose-500/5 transition-all duration-500 relative overflow-hidden">
-              <div className="absolute top-0 right-0 p-8 text-rose-50 group-hover:text-rose-100 transition-colors">
-                <AlertTriangle size={80} strokeWidth={1} />
-              </div>
-              <div className="relative z-10 space-y-6">
-                <div className="bg-rose-50 text-rose-600 w-14 h-14 rounded-2xl flex items-center justify-center shadow-inner">
-                  <AlertTriangle size={24} strokeWidth={2.5} />
+            <>
+              {/* Pending Reviews Card (Admin Only) */}
+              <div className="group bg-white p-8 rounded-[40px] border border-slate-100 shadow-sm hover:shadow-xl hover:shadow-amber-500/5 transition-all duration-500 relative overflow-hidden">
+                <div className="absolute top-0 right-0 p-8 text-amber-50 group-hover:text-amber-100 transition-colors">
+                  <CheckSquare size={80} strokeWidth={1} />
                 </div>
-                <div>
-                  <h3 className="text-slate-400 font-black uppercase tracking-widest text-[10px]">Anomaly Detections</h3>
-                  <p className="text-5xl font-black text-slate-900 mt-1 tabular-nums">{isLoading ? '...' : stats.active_anomalies}</p>
+                <div className="relative z-10 space-y-6">
+                  <div className="bg-amber-50 text-amber-600 w-14 h-14 rounded-2xl flex items-center justify-center shadow-inner">
+                    <CheckSquare size={24} strokeWidth={2.5} />
+                  </div>
+                  <div>
+                    <h3 className="text-slate-400 font-black uppercase tracking-widest text-[10px]">Pending Reviews</h3>
+                    <p className="text-5xl font-black text-slate-900 mt-1 tabular-nums">{isLoading ? '...' : stats.pending_reviews}</p>
+                  </div>
+                  <Link href="/review" className="flex items-center gap-2 text-amber-600 font-black uppercase tracking-widest text-[10px] group-hover:gap-3 transition-all">
+                    Verify Documents <ArrowUpRight size={14} />
+                  </Link>
                 </div>
-                <Link href="/anomalies" className="flex items-center gap-2 text-rose-600 font-black uppercase tracking-widest text-[10px] group-hover:gap-3 transition-all">
-                  Fraud Review <ArrowUpRight size={14} />
-                </Link>
               </div>
-            </div>
+
+              {/* Anomaly Detections Card (Admin Only) */}
+              <div className="group bg-white p-8 rounded-[40px] border border-slate-100 shadow-sm hover:shadow-xl hover:shadow-rose-500/5 transition-all duration-500 relative overflow-hidden">
+                <div className="absolute top-0 right-0 p-8 text-rose-50 group-hover:text-rose-100 transition-colors">
+                  <AlertTriangle size={80} strokeWidth={1} />
+                </div>
+                <div className="relative z-10 space-y-6">
+                  <div className="bg-rose-50 text-rose-600 w-14 h-14 rounded-2xl flex items-center justify-center shadow-inner">
+                    <AlertTriangle size={24} strokeWidth={2.5} />
+                  </div>
+                  <div>
+                    <h3 className="text-slate-400 font-black uppercase tracking-widest text-[10px]">Anomaly Detections</h3>
+                    <p className="text-5xl font-black text-slate-900 mt-1 tabular-nums">{isLoading ? '...' : stats.active_anomalies}</p>
+                  </div>
+                  <Link href="/anomalies" className="flex items-center gap-2 text-rose-600 font-black uppercase tracking-widest text-[10px] group-hover:gap-3 transition-all">
+                    Fraud Review <ArrowUpRight size={14} />
+                  </Link>
+                </div>
+              </div>
+            </>
           ) : (
-            <div className="group bg-white p-8 rounded-[40px] border border-slate-100 shadow-sm hover:shadow-xl hover:shadow-amber-500/5 transition-all duration-500 relative overflow-hidden">
-              <div className="absolute top-0 right-0 p-8 text-amber-50 group-hover:text-amber-100 transition-colors">
-                <CheckSquare size={80} strokeWidth={1} />
+            /* Active Beneficiaries Card (Staff) */
+            <div className="group bg-white p-8 rounded-[40px] border border-slate-100 shadow-sm hover:shadow-xl hover:shadow-blue-500/5 transition-all duration-500 relative overflow-hidden">
+              <div className="absolute top-0 right-0 p-8 text-blue-50 group-hover:text-blue-100 transition-colors">
+                <UserCheck size={80} strokeWidth={1} />
               </div>
               <div className="relative z-10 space-y-6">
-                <div className="bg-amber-50 text-amber-600 w-14 h-14 rounded-2xl flex items-center justify-center shadow-inner">
-                  <CheckSquare size={24} strokeWidth={2.5} />
+                <div className="bg-blue-50 text-blue-600 w-14 h-14 rounded-2xl flex items-center justify-center shadow-inner">
+                  <UserCheck size={24} strokeWidth={2.5} />
                 </div>
                 <div>
-                  <h3 className="text-slate-400 font-black uppercase tracking-widest text-[10px]">Pending Reviews</h3>
-                  <p className="text-5xl font-black text-slate-900 mt-1 tabular-nums">{isLoading ? '...' : stats.pending_reviews}</p>
+                  <h3 className="text-slate-400 font-black uppercase tracking-widest text-[10px]">Active Beneficiaries</h3>
+                  <p className="text-5xl font-black text-slate-900 mt-1 tabular-nums">{isLoading ? '...' : (stats.status_breakdown?.active || stats.total_seniors)}</p>
                 </div>
-                <Link href="/review" className="flex items-center gap-2 text-amber-600 font-black uppercase tracking-widest text-[10px] group-hover:gap-3 transition-all">
-                  Verify Documents <ArrowUpRight size={14} />
+                <Link href="/seniors?status=ACTIVE" className="flex items-center gap-2 text-blue-600 font-black uppercase tracking-widest text-[10px] group-hover:gap-3 transition-all">
+                  Active Registry <ArrowUpRight size={14} />
                 </Link>
               </div>
             </div>
@@ -1044,10 +1067,10 @@ export default function Dashboard() {
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="p-6 bg-slate-50 rounded-3xl border border-slate-100 space-y-4">
-                  <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center text-indigo-600 shadow-sm"><FileText size={20} /></div>
-                  <p className="text-[10px] font-black text-slate-400 uppercase">Documents</p>
-                  <p className="text-xl font-black text-slate-900 tabular-nums">{stats.verified_percentage}%</p>
-                  <p className="text-[10px] font-bold text-emerald-500 uppercase tracking-widest">Verified</p>
+                  <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center text-indigo-600 shadow-sm"><Users size={20} /></div>
+                  <p className="text-[10px] font-black text-slate-400 uppercase">Upcoming Eligible</p>
+                  <p className="text-xl font-black text-slate-900 tabular-nums">{stats.upcoming_seniors}</p>
+                  <p className="text-[10px] font-bold text-indigo-500 uppercase tracking-widest">Age 78-79</p>
                 </div>
                 <div className="p-6 bg-slate-50 rounded-3xl border border-slate-100 space-y-4">
                   <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center text-emerald-600 shadow-sm"><CheckCircle size={20} /></div>
