@@ -204,7 +204,7 @@ export default function Dashboard() {
     if (actionName === "PSA Mortality Audit") {
       statuses = [
         "Initializing secure channel to Philippine Statistics Authority...",
-        "Authenticating LGU credentials...",
+        "Authenticating credentials...",
         "Querying national death certificate registry...",
         "Cross-referencing names, OSCA IDs, and dates of birth...",
         "Auditing survival rates per barangay and age cohort (dynamic 3-sigma bands)...",
@@ -212,13 +212,13 @@ export default function Dashboard() {
         "Syncing results... 2 outdated records successfully updated.",
         "Audit Completed! All records verified."
       ];
-    } else if (actionName === "LGU Efficiency Commendations") {
+    } else if (actionName === "Efficiency Commendations") {
       statuses = [
         "Analyzing encoder database transaction speed...",
         "Retrieving document verification benchmarks...",
         "Drafting certificates of efficiency for operational staff...",
         "Applying cryptographic digital stamp of commendation...",
-        "Logging action to LGU administrative ledger...",
+        "Logging action to administrative ledger...",
         "Awards generated successfully! E-mail notifications dispatched."
       ];
     } else if (actionName === "PhilHealth Registry Integration") {
@@ -350,7 +350,7 @@ export default function Dashboard() {
                 className="px-8 py-4 bg-slate-900 hover:bg-black text-white rounded-2xl shadow-xl shadow-slate-200 transition-all hover:-translate-y-1 flex items-center gap-3 font-black uppercase tracking-widest text-[10px]"
               >
                 <FileBarChart size={18} />
-                Generate Intelligence Briefing
+                Generate Decision Advisor
               </button>
             )}
             {!isAdmin && (
@@ -644,8 +644,8 @@ export default function Dashboard() {
               <div className="absolute top-0 right-0 w-64 h-64 bg-emerald-500/10 rounded-full blur-3xl opacity-50 -translate-y-1/2 translate-x-1/3"></div>
               <div className="p-4 bg-emerald-500/20 text-emerald-300 rounded-2xl relative z-10"><FileBarChart size={28} /></div>
               <div className="relative z-10">
-                <h2 className="text-2xl font-black uppercase tracking-wider">Advanced LGU Demographic & Hotspot Intelligence</h2>
-                <p className="text-slate-400 text-xs font-semibold mt-1">Real-time geographical density matching and registry demography indicators for LGU administrators.</p>
+                <h2 className="text-2xl font-black uppercase tracking-wider">Advanced Demographic & Hotspot Intelligence</h2>
+                <p className="text-slate-400 text-xs font-semibold mt-1">Real-time geographical density matching and registry demography indicators for administrators.</p>
               </div>
             </div>
 
@@ -825,7 +825,7 @@ export default function Dashboard() {
               <div className="p-4 bg-white/10 text-indigo-200 rounded-2xl relative z-10"><Calculator size={28} /></div>
               <div className="relative z-10 flex-1">
                 <h2 className="text-2xl font-black uppercase tracking-wider">R.A. 11982 Milestone Appropriation &amp; Budget Forecast</h2>
-                <p className="text-indigo-300 text-xs font-semibold mt-1">Expanded Centenarian Act · Automated quarterly cash gift projection for LGU budget planning &amp; DBM supplemental funding requests.</p>
+                <p className="text-indigo-300 text-xs font-semibold mt-1">Expanded Centenarian Act · Automated quarterly cash gift projection for budget planning &amp; DBM supplemental funding requests.</p>
               </div>
               {/* Horizon Selector */}
               <div className="relative z-10 flex gap-2">
@@ -1086,14 +1086,14 @@ export default function Dashboard() {
         )}
       </div>
 
-      {/* --- AI INTELLIGENCE BRIEFING MODAL --- */}
+      {/* --- AI DECISION ADVISOR MODAL --- */}
       {isModalOpen && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-900/60 backdrop-blur-md p-4 animate-in fade-in duration-300">
           <div className="bg-white rounded-[50px] shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden border border-slate-200 flex flex-col">
             <div className="px-12 py-10 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
               <div className="flex items-center gap-4">
                 <div className="w-14 h-14 bg-slate-900 text-white rounded-2xl flex items-center justify-center shadow-lg"><FileText size={28} /></div>
-                <div><h2 className="text-2xl font-black text-slate-900 tracking-tight uppercase">AI Intelligence Briefing</h2><p className="text-xs font-black text-slate-400 uppercase tracking-widest mt-1">Prescriptive Recommendations for LGU Decision Makers</p></div>
+                <div><h2 className="text-2xl font-black text-slate-900 tracking-tight uppercase">AI DECISION ADVISOR</h2><p className="text-xs font-black text-slate-400 uppercase tracking-widest mt-1">Prescriptive Recommendations</p></div>
               </div>
               <button onClick={() => setIsModalOpen(false)} className="p-3 text-slate-400 hover:text-slate-900 hover:bg-slate-100 rounded-2xl transition-all"><X size={24} /></button>
             </div>
@@ -1270,7 +1270,7 @@ export default function Dashboard() {
                 {activeActionModal}
               </h2>
               <p className="text-slate-400 text-[10px] font-black uppercase tracking-widest">
-                LGU Decision Maker Command Execution
+                Decision Maker Command Execution
               </p>
             </div>
 
@@ -1322,7 +1322,7 @@ export default function Dashboard() {
             <div className="print-header-logo">REPUBLIC OF THE PHILIPPINES</div>
             <div className="print-subtitle">National Commission of Senior Citizens (NCSC)</div>
             <div style={{ textAlign: 'center', fontWeight: 'bold', fontSize: '13pt', marginBottom: '20px', textTransform: 'uppercase' }}>
-              R.A. 11982 COMPLIANCE AUDIT & AI INTELLIGENCE BRIEFING
+              R.A. 11982 COMPLIANCE AUDIT & AI DECISION ADVISOR
             </div>
 
             <table style={{ marginBottom: '20px' }}>
@@ -1336,7 +1336,7 @@ export default function Dashboard() {
                 <tr>
                   <td style={{ fontWeight: 'bold' }}>SYSTEM STATUS</td>
                   <td>SECURE & COMPLIANT (R.A. 10173)</td>
-                  <td style={{ fontWeight: 'bold' }}>LGU REGISTRY</td>
+                  <td style={{ fontWeight: 'bold' }}>REGISTRY</td>
                   <td>ACTIVE COHORTS (80-100 YRS)</td>
                 </tr>
               </tbody>
@@ -1405,7 +1405,7 @@ export default function Dashboard() {
                 Automated Registry Verification System
               </div>
               <div style={{ width: '45%', borderTop: '1.5px solid #000', marginTop: '40px', paddingTop: '5px', textAlign: 'center', fontSize: '9.5pt' }}>
-                <strong>LGU ADMINISTRATOR / DECISION MAKER</strong><br />
+                <strong>ADMINISTRATOR / DECISION MAKER</strong><br />
                 Signature over Printed Name / Date
               </div>
             </div>

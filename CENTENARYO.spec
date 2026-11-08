@@ -1,29 +1,35 @@
 # -*- mode: python ; coding: utf-8 -*-
+import os
 from PyInstaller.utils.hooks import collect_all
 
-datas = [('backend', 'backend'), ('frontend\\out', 'frontend\\out')]
+datas = [
+    ('backend\\config', 'backend\\config'),
+    ('backend\\core', 'backend\\core'),
+    ('backend\\db.sqlite3', 'backend'),
+    ('backend\\manage.py', 'backend'),
+    ('frontend\\out', 'frontend\\out'),
+]
+if os.path.exists('backend\\media'):
+    datas.append(('backend\\media', 'backend\\media'))
+
 binaries = []
 hiddenimports = []
-tmp_ret = collect_all('rest_framework')
-datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
-tmp_ret = collect_all('rest_framework_simplejwt')
-datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
-tmp_ret = collect_all('corsheaders')
-datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
-tmp_ret = collect_all('whitenoise')
-datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
-tmp_ret = collect_all('rapidfuzz')
-datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
-tmp_ret = collect_all('pypdf')
-datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
-tmp_ret = collect_all('pypdfium2')
-datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
-tmp_ret = collect_all('winocr')
-datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
-tmp_ret = collect_all('winrt')
-datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
-tmp_ret = collect_all('zxingcpp')
-datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
+for pkg in [
+    'rest_framework',
+    'rest_framework_simplejwt',
+    'corsheaders',
+    'whitenoise',
+    'rapidfuzz',
+    'pypdf',
+    'pypdfium2',
+    'winocr',
+    'winrt',
+    'zxingcpp',
+]:
+    tmp_ret = collect_all(pkg)
+    datas += tmp_ret[0]
+    binaries += tmp_ret[1]
+    hiddenimports += tmp_ret[2]
 
 
 a = Analysis(

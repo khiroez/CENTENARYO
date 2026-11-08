@@ -347,7 +347,7 @@ export default function AuditLogsPage() {
             <div className="bg-slate-900 p-2.5 rounded-xl mr-4 text-white shadow-sm">
               <History size={28} />
             </div>
-            System Audit & Compliance Logs
+            System Audit Logs
             <ShieldCheck size={20} className="text-emerald-500 ml-3" />
           </h1>
           <p className="text-slate-500 mt-2 font-medium max-w-xl text-sm">
