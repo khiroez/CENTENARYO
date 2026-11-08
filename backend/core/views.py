@@ -8,6 +8,7 @@ from rest_framework.pagination import PageNumberPagination
 from .models import Senior, Disbursement, AuditLog, AnomalyFlag, UserProfile, ReviewLog
 from rest_framework_simplejwt.views import TokenObtainPairView
 from .serializers import SeniorSerializer, SeniorListSerializer, DisbursementSerializer, AuditLogSerializer, AnomalyFlagSerializer, ReviewLogSerializer
+from .mortality_audit import run_registry_audit, HIGH_SURVIVAL, EXCESS_MORTALITY
 
 class CustomTokenObtainPairView(TokenObtainPairView):
     """
@@ -1327,7 +1328,7 @@ def ai_report_data(request):
         from collections import Counter
 
         # 1. Fetch all senior data in a single highly-optimized values query
-        seniors_data = list(Senior.objects.values('id', 'status', 'barangay', 'annex_a_data', 'date_of_birth'))
+        seniors_data = list(Senior.objects.values('id', 'status', 'barangay', 'annex_a_data', 'date_of_birth', 'date_of_death'))
 
         # 2. Budget Deficit Early Warning (Next 24 Months)
         today = date.today()
@@ -1365,18 +1366,6 @@ def ai_report_data(request):
         # CLEAR OLD SURVIVAL FLAGS FIRST
         AnomalyFlag.objects.filter(flag_reason__icontains="Survival Rate").delete()
 
-        try:
-            date_90_years_ago = today.replace(year=today.year - 90)
-        except ValueError:
-            date_90_years_ago = today.replace(year=today.year - 90, month=2, day=28)
-
-        oldest_seniors = [
-            s for s in seniors_data
-            if s['status'] == 'ACTIVE' and s['date_of_birth'] and s['date_of_birth'] <= date_90_years_ago
-        ]
-        brgy_counts = Counter(s['barangay'] for s in oldest_seniors)
-        deceased_barangays = {s['barangay'] for s in seniors_data if s['status'] == 'DECEASED'}
-
         ghost_warnings = []
         new_flags = []
 
@@ -1387,28 +1376,49 @@ def ai_report_data(request):
             flag_reason__icontains="Syndicate Risk"
         ).values_list('senior_id', 'flag_reason'))
 
-        for barangay, count in brgy_counts.items():
-            if count >= 2:
-                if barangay not in deceased_barangays:
-                    reason = f"Unnatural Survival Rate: {count} seniors aged 90+ in this barangay with 0 reported deaths."
+        # Dynamic binomial 3-sigma audit per barangay x age milestone (see core/mortality_audit.py)
+        audit_results = run_registry_audit(seniors_data, today=today)
+        for r in audit_results:
+            if r['status'] not in (HIGH_SURVIVAL, EXCESS_MORTALITY):
+                continue
 
-                    brgy_old_seniors = [s for s in oldest_seniors if s['barangay'] == barangay]
-                    for s in brgy_old_seniors:
-                        if (s['id'], reason) not in created_pairs:
-                            new_flags.append(
-                                AnomalyFlag(
-                                    senior_id=s['id'],
-                                    flag_reason=reason,
-                                    confidence_score=0.85
-                                )
-                            )
-                            created_pairs.add((s['id'], reason))
+            if r['status'] == HIGH_SURVIVAL:
+                reason = (
+                    f"Suspiciously High Survival Rate ({r['milestone']}): {r['actual']}% survived "
+                    f"(N={r['n']}, deaths={r['d']}) vs. expected {r['expected']}%, upper limit {r['max']}%."
+                )
+            else:
+                reason = (
+                    f"Excess Mortality / Low Survival Rate ({r['milestone']}): {r['actual']}% survived "
+                    f"(N={r['n']}, deaths={r['d']}) vs. expected {r['expected']}%, lower limit {r['min']}%."
+                )
 
-                    ghost_warnings.append({
-                        'barangay': barangay,
-                        'count_95plus': count,
-                        'message': reason
-                    })
+            # Confidence grows with how far outside the band the cohort sits
+            band = max(r['max'] - r['expected'], 0.01)
+            distance = abs(r['actual'] - r['expected']) / band  # 1.0 == exactly at 3 sigma
+            confidence = round(min(0.99, 0.80 + 0.05 * (distance - 1)), 2)
+
+            for sid in r['flag_ids']:
+                if (sid, reason) not in created_pairs:
+                    new_flags.append(AnomalyFlag(senior_id=sid, flag_reason=reason, confidence_score=confidence))
+                    created_pairs.add((sid, reason))
+
+            ghost_warnings.append({
+                'barangay': r['barangay'],
+                'milestone': r['milestone'],
+                'status': r['status'],
+                'n': r['n'],
+                'deaths': r['d'],
+                'actual_survival': r['actual'],
+                'expected_survival': r['expected'],
+                'min_survival': r['min'],
+                'max_survival': r['max'],
+                'message': reason,
+                'notes': r['notes'],
+            })
+
+        # Most severe first: larger cohorts outside the band are the strongest signals
+        ghost_warnings.sort(key=lambda w: (-w['n'], w['barangay']))
 
         # 5. Syndicate / Shared Representative Detection
         AnomalyFlag.objects.filter(flag_reason__icontains="Syndicate Risk").delete()

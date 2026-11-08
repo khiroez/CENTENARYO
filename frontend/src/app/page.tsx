@@ -207,7 +207,7 @@ export default function Dashboard() {
         "Authenticating LGU credentials...",
         "Querying national death certificate registry...",
         "Cross-referencing names, OSCA IDs, and dates of birth...",
-        "Auditing 90+ survival rates in current active registry...",
+        "Auditing survival rates per barangay and age cohort (dynamic 3-sigma bands)...",
         "Identifying deceased citizens not yet marked...",
         "Syncing results... 2 outdated records successfully updated.",
         "Audit Completed! All records verified."
@@ -1163,12 +1163,25 @@ export default function Dashboard() {
                       </h4>
                       {aiReport.ghost_warnings.length > 0 ? (
                         <div className="space-y-3">
-                          {aiReport.ghost_warnings.slice(0, 10).map((w: any) => (
-                            <div key={w.barangay} className="bg-white p-4 rounded-2xl border border-slate-300 shadow-sm">
-                              <p className="text-xs font-black text-slate-900 uppercase">Brgy. {w.barangay}</p>
-                              <p className="text-[10px] font-bold text-rose-600 uppercase tracking-widest mt-1">Warning: {w.message}</p>
-                            </div>
-                          ))}
+                          {aiReport.ghost_warnings.slice(0, 10).map((w: any) => {
+                            const isHigh = w.status !== 'FLAG_EXCESS_MORTALITY';
+                            return (
+                              <div key={`${w.barangay}-${w.milestone}`} className="bg-white p-4 rounded-2xl border border-slate-300 shadow-sm">
+                                <div className="flex items-center justify-between gap-2">
+                                  <p className="text-xs font-black text-slate-900 uppercase">Brgy. {w.barangay}</p>
+                                  <span className={`px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider ${isHigh ? 'bg-rose-50 text-rose-700' : 'bg-amber-50 text-amber-700'}`}>
+                                    {isHigh ? 'High Survival' : 'Excess Mortality'} · {w.milestone}
+                                  </span>
+                                </div>
+                                <p className="text-[11px] font-bold text-slate-700 mt-2 tabular-nums">
+                                  {w.actual_survival}% survived <span className="text-slate-400">(N={w.n}, deaths={w.deaths})</span>
+                                </p>
+                                <p className="text-[10px] font-semibold text-slate-500 mt-0.5 tabular-nums">
+                                  Expected {w.expected_survival}% · normal band {w.min_survival}%–{w.max_survival}%
+                                </p>
+                              </div>
+                            );
+                          })}
                           {aiReport.ghost_warnings.length > 10 && (
                             <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest text-center animate-pulse pt-2">
                               + {aiReport.ghost_warnings.length - 10} more anomalies (Click to Investigate)
