@@ -20,7 +20,6 @@ export default function ReviewQueuePage() {
   const [queue, setQueue] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
-  const [isBatchApproving, setIsBatchApproving] = useState(false);
 
   // Review Modal State
   const [selectedSenior, setSelectedSenior] = useState<any | null>(null);
@@ -230,42 +229,6 @@ export default function ReviewQueuePage() {
     );
   }
 
-  const preVerifiedCount = queue.filter(s => {
-    const checks = s.auto_check_results || {};
-    if (checks.can_auto_approve) return true;
-    const psaOk = checks.psa_check?.status === 'PASS';
-    const idOk = checks.id_check?.status === 'PASS';
-    const faceOk = checks.face_match?.status === 'PASS';
-    const hashOk = checks.hash_check?.status === 'PASS';
-    return psaOk && idOk && faceOk && hashOk;
-  }).length;
-
-  const handleBatchApprove = async () => {
-    setIsBatchApproving(true);
-    try {
-      const res = await authFetch(`${API_BASE}/seniors/batch-approve-verified/`, {
-        method: 'POST'
-      });
-      const { ok, data, errorMessage } = await safeParseResponse(res);
-      if (ok && data) {
-        showModal("success", "Batch Approval Successful", data.message || `Approved ${data.approved_count} seniors.`);
-        addNotification({
-          type: 'DOCUMENT',
-          title: 'Batch Auto-Approval',
-          description: `${data.approved_count} fully verified seniors were automatically approved.`,
-          link: '/seniors'
-        });
-        fetchQueue();
-      } else {
-        showModal("error", "Batch Approval Failed", errorMessage || "Unable to batch approve records.");
-      }
-    } catch (e: any) {
-      showModal("error", "Network Error", e.message || "Failed to contact server.");
-    } finally {
-      setIsBatchApproving(false);
-    }
-  };
-
   return (
     <div className="p-8 pb-20 max-w-7xl mx-auto min-h-screen pt-24">
       {/* Header */}
@@ -279,16 +242,6 @@ export default function ReviewQueuePage() {
             Assisted automated pre-screening & four-eyes administrative verification under R.A. 11982.
           </p>
         </div>
-        {preVerifiedCount > 0 && (
-          <button
-            onClick={handleBatchApprove}
-            disabled={isBatchApproving}
-            className="flex items-center gap-2.5 px-6 py-3.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white rounded-2xl font-black text-sm shadow-xl shadow-emerald-500/25 transition-all hover:scale-[1.02] active:scale-[0.98]"
-          >
-            <Zap size={18} />
-            {isBatchApproving ? "Processing Batch..." : `Batch Approve Pre-Verified (${preVerifiedCount})`}
-          </button>
-        )}
       </div>
 
       {/* Filter Bar */}
@@ -950,21 +903,18 @@ export default function ReviewQueuePage() {
 
                     if (isImage) {
                       return (
-                        <div className="flex flex-col items-center justify-center w-full h-full p-6 gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setPreviewImageModal({ title: 'PSA Birth Certificate — Full View', url })}
+                          title="Click to view full PSA Birth Certificate image"
+                          className="flex flex-col items-center justify-center w-full h-full p-6 cursor-pointer group"
+                        >
                           <img
                             src={url}
                             alt="Document Preview"
-                            className="max-w-full max-h-[88%] object-contain rounded-xl shadow-sm"
+                            className="max-w-full max-h-[92%] object-contain rounded-xl shadow-sm border border-transparent group-hover:border-indigo-400 group-hover:shadow-md transition-all"
                           />
-                          <a
-                            href={url}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="text-indigo-600 hover:text-indigo-800 text-xs font-black mt-2 underline"
-                          >
-                            Open High-Res Image in New Tab
-                          </a>
-                        </div>
+                        </button>
                       );
                     } else {
                       return (
