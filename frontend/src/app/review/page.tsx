@@ -4,7 +4,8 @@ import React, { useState, useEffect } from 'react';
 import {
   Search, CheckCircle, XCircle, AlertTriangle, FileText, ChevronRight,
   Eye, Calendar, User, CheckSquare, RefreshCcw, Image as ImageIcon, X,
-  ShieldCheck, RotateCcw, AlertCircle, Sparkles, UserCheck, Phone, Users, Zap
+  ShieldCheck, RotateCcw, AlertCircle, Sparkles, UserCheck, Phone, Users, Zap,
+  ZoomIn, ZoomOut
 } from 'lucide-react';
 import { useAuth } from "@/context/AuthContext";
 import { useNotifications } from "@/context/NotificationContext";
@@ -27,6 +28,12 @@ export default function ReviewQueuePage() {
   const [remarks, setRemarks] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [previewImageModal, setPreviewImageModal] = useState<{ title: string; url: string } | null>(null);
+  const [previewZoom, setPreviewZoom] = useState<number>(1);
+
+  const openImagePreview = (title: string, url: string) => {
+    setPreviewZoom(1);
+    setPreviewImageModal({ title, url });
+  };
 
   // Rejection Modal State
   const [isRejectModalOpen, setIsRejectModalOpen] = useState(false);
@@ -127,7 +134,7 @@ export default function ReviewQueuePage() {
 
     // Automatically run complete deep document verification if not yet done
     if (!autoChecks.psa_check && (senior.psa_cert_file || senior.primary_id_file)) {
-      authFetch(`${process.env.NEXT_PUBLIC_API_URL}/seniors/${senior.id}/verify-documents/`, {
+      authFetch(`${API_BASE}/seniors/${senior.id}/verify-documents/?registration_status=ALL`, {
         method: 'POST',
       }).then(async (res) => {
         if (res.ok) {
@@ -163,7 +170,7 @@ export default function ReviewQueuePage() {
 
     setIsSubmitting(true);
     try {
-      const res = await authFetch(`${process.env.NEXT_PUBLIC_API_URL}/seniors/${selectedSenior.id}/review/`, {
+      const res = await authFetch(`${API_BASE}/seniors/${selectedSenior.id}/review/?registration_status=ALL`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -313,14 +320,8 @@ export default function ReviewQueuePage() {
                     <FileText size={13} /> {senior.osca_id}
                   </p>
 
-                  {/* Pre-Screening Badges */}
+                  {/* Verification Status Badges */}
                   <div className="mt-4 flex flex-wrap gap-1.5">
-                    {autoChecks.can_auto_approve || autoChecks.overall_verdict === 'PASS' ? (
-                      <span className="px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider bg-emerald-100 text-emerald-800 border border-emerald-200">
-                        100% Pre-Verified
-                      </span>
-                    ) : null}
-
                     {faceScore !== undefined ? (
                       <span className={`px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider ${faceScore >= 70 ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' : (faceScore >= 50 ? 'bg-amber-50 text-amber-700 border border-amber-100' : 'bg-rose-50 text-rose-700 border border-rose-100')
                         }`}>
@@ -331,16 +332,6 @@ export default function ReviewQueuePage() {
                         Face: Manual
                       </span>
                     )}
-
-                    {autoChecks.psa_check?.status === 'PASS' || autoChecks.ocr_psa?.name_found ? (
-                      <span className="px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider bg-emerald-50 text-emerald-700 border border-emerald-100">
-                        PSA: Name & DOB
-                      </span>
-                    ) : autoChecks.psa_check?.status === 'REJECTED' ? (
-                      <span className="px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider bg-rose-50 text-rose-700 border border-rose-100">
-                        Invalid PSA
-                      </span>
-                    ) : null}
 
                     {autoChecks.hash_check?.status === 'PASS' ? (
                       <span className="px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider bg-slate-50 text-slate-600 border border-slate-100">
@@ -629,7 +620,7 @@ export default function ReviewQueuePage() {
                       onClick={() => {
                         const fullUrl = getCleanFileUrl(selectedSenior.primary_id_file) || selectedSenior.auto_check_results?.osca_face_crop;
                         if (fullUrl) {
-                          setPreviewImageModal({ title: 'OSCA ID Card — Full View', url: fullUrl });
+                          openImagePreview('OSCA ID Card — Full View', fullUrl);
                         }
                       }}
                       title="Click to view full OSCA ID image"
@@ -678,7 +669,7 @@ export default function ReviewQueuePage() {
                       onClick={() => {
                         const fullUrl = getCleanFileUrl(selectedSenior.picture_2x2_file) || selectedSenior.auto_check_results?.photo_face_crop;
                         if (fullUrl) {
-                          setPreviewImageModal({ title: '2x2 Applicant Photo — Full View', url: fullUrl });
+                          openImagePreview('2x2 Applicant Photo — Full View', fullUrl);
                         }
                       }}
                       title="Click to view full 2x2 Photo"
@@ -905,9 +896,9 @@ export default function ReviewQueuePage() {
                       return (
                         <button
                           type="button"
-                          onClick={() => setPreviewImageModal({ title: 'PSA Birth Certificate — Full View', url })}
-                          title="Click to view full PSA Birth Certificate image"
-                          className="flex flex-col items-center justify-center w-full h-full p-6 cursor-pointer group"
+                          onClick={() => openImagePreview('PSA Birth Certificate — Full View', url)}
+                          title="Click to view and zoom full PSA Birth Certificate image"
+                          className="flex flex-col items-center justify-center w-full h-full p-6 cursor-zoom-in group"
                         >
                           <img
                             src={url}
@@ -977,7 +968,7 @@ export default function ReviewQueuePage() {
         </div>
       )}
 
-      {/* Full Image Lightbox Modal for OSCA ID and 2x2 Photo */}
+      {/* Full Image Lightbox Modal with Zoom Controls */}
       {previewImageModal && (
         <div
           onClick={() => setPreviewImageModal(null)}
@@ -985,7 +976,7 @@ export default function ReviewQueuePage() {
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            className="bg-white rounded-[32px] w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden shadow-2xl border border-slate-200 animate-in zoom-in-95 duration-200"
+            className="bg-white rounded-[32px] w-full max-w-5xl max-h-[92vh] flex flex-col overflow-hidden shadow-2xl border border-slate-200 animate-in zoom-in-95 duration-200"
           >
             <div className="px-6 py-4 border-b border-slate-100 bg-slate-50 flex items-center justify-between shrink-0">
               <div className="flex items-center gap-2.5">
@@ -994,25 +985,74 @@ export default function ReviewQueuePage() {
                   {previewImageModal.title}
                 </h3>
               </div>
-              <button
-                type="button"
-                onClick={() => setPreviewImageModal(null)}
-                className="w-9 h-9 bg-white border border-slate-200 rounded-xl flex items-center justify-center text-slate-400 hover:text-rose-500 hover:border-rose-200 transition-all"
-              >
-                <X size={18} />
-              </button>
+
+              <div className="flex items-center gap-2">
+                {!previewImageModal.url.toLowerCase().endsWith('.pdf') && (
+                  <div className="flex items-center gap-1.5 bg-white border border-slate-200 rounded-xl px-2 py-1 shadow-sm mr-2">
+                    <button
+                      type="button"
+                      onClick={() => setPreviewZoom((z) => Math.max(0.5, Number((z - 0.25).toFixed(2))))}
+                      title="Zoom Out"
+                      className="p-1.5 text-slate-600 hover:text-indigo-600 hover:bg-slate-100 rounded-lg transition-colors"
+                    >
+                      <ZoomOut size={16} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPreviewZoom(1)}
+                      title="Reset Zoom to 100%"
+                      className="px-2 py-0.5 text-xs font-black text-slate-700 hover:text-indigo-600 min-w-[52px] text-center"
+                    >
+                      {Math.round(previewZoom * 100)}%
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPreviewZoom((z) => Math.min(4, Number((z + 0.25).toFixed(2))))}
+                      title="Zoom In"
+                      className="p-1.5 text-slate-600 hover:text-indigo-600 hover:bg-slate-100 rounded-lg transition-colors"
+                    >
+                      <ZoomIn size={16} />
+                    </button>
+                  </div>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => setPreviewImageModal(null)}
+                  className="w-9 h-9 bg-white border border-slate-200 rounded-xl flex items-center justify-center text-slate-400 hover:text-rose-500 hover:border-rose-200 transition-all"
+                >
+                  <X size={18} />
+                </button>
+              </div>
             </div>
-            <div className="p-6 bg-slate-950 flex-grow flex items-center justify-center overflow-auto min-h-[380px]">
+            <div
+              onWheel={(e) => {
+                if (previewImageModal.url.toLowerCase().endsWith('.pdf')) return;
+                e.preventDefault();
+                const delta = e.deltaY < 0 ? 0.2 : -0.2;
+                setPreviewZoom((z) => Math.min(4, Math.max(0.5, Number((z + delta).toFixed(2)))));
+              }}
+              className="p-6 bg-slate-950 flex-grow overflow-auto min-h-[420px] flex"
+            >
               {previewImageModal.url.toLowerCase().endsWith('.pdf') ? (
-                <div className="w-full h-[70vh] bg-white rounded-2xl overflow-hidden">
+                <div className="w-full h-[72vh] bg-white rounded-2xl overflow-hidden m-auto">
                   <PdfViewer url={previewImageModal.url} />
                 </div>
               ) : (
-                <img
-                  src={previewImageModal.url}
-                  alt={previewImageModal.title}
-                  className="max-w-full max-h-[75vh] object-contain rounded-2xl shadow-lg"
-                />
+                <div className="m-auto flex items-center justify-center">
+                  <img
+                    src={previewImageModal.url}
+                    alt={previewImageModal.title}
+                    onClick={() => setPreviewZoom((z) => (z < 2 ? Number((z + 0.5).toFixed(2)) : 1))}
+                    style={{
+                      width: previewZoom === 1 ? 'auto' : `${previewZoom * 100}%`,
+                      maxWidth: previewZoom === 1 ? '100%' : 'none',
+                      maxHeight: previewZoom === 1 ? '75vh' : 'none',
+                    }}
+                    title="Click image or scroll mouse wheel to zoom"
+                    className={`object-contain rounded-2xl shadow-lg transition-all duration-150 ${previewZoom < 2 ? 'cursor-zoom-in' : 'cursor-zoom-out'}`}
+                  />
+                </div>
               )}
             </div>
           </div>

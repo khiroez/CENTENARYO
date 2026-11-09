@@ -833,7 +833,7 @@ export default function SeniorRegistryPage() {
         fd.append('resubmission_notes', 'Staff addressed flagged defects and resubmitted record for review.');
       }
 
-      const url = isEditMode ? `${API_BASE}/seniors/${editingId}/` : `${API_BASE}/seniors/`;
+      const url = isEditMode ? `${API_BASE}/seniors/${editingId}/?registration_status=ALL` : `${API_BASE}/seniors/`;
       const res = await authFetch(url, { method: isEditMode ? 'PATCH' : 'POST', body: fd });
       const { ok, data: result, errorMessage } = await safeParseResponse(res);
 
