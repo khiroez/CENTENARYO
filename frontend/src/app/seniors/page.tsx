@@ -41,14 +41,16 @@ const normalizeName = (s: string) =>
   (s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z\s]/g, ' ').replace(/\s+/g, ' ').trim();
 
 const normalizeCrsCopyNumber = (s: string | null | undefined): string =>
-  (s || '').trim().toUpperCase().replace(/\s+/g, '');
+  (s || '').trim().toUpperCase().replace(/\s+/g, '').replace(/-B1(\d{3})$/, '-BI$1');
 
 const extractCrsCopyNumberFromText = (raw: string | null | undefined): string | null => {
-  const text = (raw || '').toUpperCase();
+  const text = (raw || '')
+    .toUpperCase()
+    .replace(/(\b\d{4,6}-[A-Z0-9])\s+([A-Z0-9]-[A-Z0-9]{3,8}-\d{4,6}-[A-Z0-9]{4,6}\b)/g, '$1$2');
   const m = text.match(/\b(\d{4,6}-[A-Z0-9]{2,3}-[A-Z0-9]{4,8}-\d{4,6}-[A-Z0-9]{4,6})\b/);
-  if (m) return m[1].trim();
+  if (m) return m[1].trim().replace(/-B1(\d{3})$/, '-BI$1');
   const mKv = text.match(/(?:CRS\s*COPY\s*(?:NUMBER|NO\.?)|COPY\s*(?:NUMBER|NO\.?)|CRS\s*(?:NUMBER|NO\.?))\s*[:=\-#]?\s*([A-Z0-9][A-Z0-9\-]{6,34})/);
-  if (mKv) return mKv[1].trim();
+  if (mKv) return mKv[1].trim().replace(/-B1(\d{3})$/, '-BI$1');
   return null;
 };
 
@@ -1147,7 +1149,7 @@ export default function SeniorRegistryPage() {
     let extractedDob: string | null = qrExtractedDob || null;
     let extractedCrsCopyNumber: string | null = qrExtractedCrsCopyNumber || null;
 
-    if (!extractedGivenName || !extractedDob || !extractedCrsCopyNumber) {
+    if (!isBinarySeal && (!extractedGivenName || !extractedDob || !extractedCrsCopyNumber)) {
       const parsed = parsePsaQrPayload(payload);
       if (!extractedGivenName && parsed.firstName) {
         extractedGivenName = parsed.firstName.toUpperCase();
@@ -1168,10 +1170,6 @@ export default function SeniorRegistryPage() {
       }
     }
 
-    if (!extractedDob && ocrText) {
-      const ocrDates = findDatesInText(ocrText);
-      if (ocrDates.length > 0) extractedDob = ocrDates[0];
-    }
     if (!extractedCrsCopyNumber && ocrText) {
       const ocrCrs = extractCrsCopyNumberFromText(ocrText);
       if (ocrCrs) extractedCrsCopyNumber = ocrCrs;
@@ -1186,7 +1184,13 @@ export default function SeniorRegistryPage() {
     const givenNameMatch = Boolean(
       givenTokens.length > 0 &&
       qrGivenTokens.length > 0 &&
-      (normFormGiven === normQrGiven || givenTokens.every(tok => qrGivenTokens.includes(tok)))
+      (
+        normFormGiven === normQrGiven ||
+        givenTokens.every(tok =>
+          qrGivenTokens.includes(tok) ||
+          (tok.length >= 6 && qrGivenTokens.some(qt => qt.startsWith(tok.slice(0, -1))))
+        )
+      )
     );
 
     // (b) Date of Birth (ISO YYYY-MM-DD)
@@ -1262,7 +1266,7 @@ export default function SeniorRegistryPage() {
   const resetPsaQr = () => {
     psaQrRef.current = null;
     setAutoCheckResults((prev: any) => {
-      const { psa_qr: _removed, ...rest } = prev || {};
+      const { psa_qr: _removed, ocr_psa: _removedOcr, ...rest } = prev || {};
       return rest;
     });
   };
@@ -1549,6 +1553,11 @@ export default function SeniorRegistryPage() {
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>, field: string) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
+      if (field === 'psa_cert_file') {
+        resetPsaQr();
+      } else if (field === 'primary_id_file') {
+        resetOscaCard();
+      }
       setFormData(prev => ({ ...prev, [field]: file }));
 
       const fileSizeStr = file.size > 1024 * 1024

@@ -192,7 +192,8 @@ def _extract_text_and_image_from_file(file_input) -> Tuple[str, Optional[Image.I
 def _normalize_crs_copy_number(val: Optional[str]) -> str:
     if not val:
         return ""
-    return re.sub(r'\s+', '', str(val).strip().upper())
+    s = re.sub(r'\s+', '', str(val).strip().upper())
+    return re.sub(r'-B1(\d{3})$', r'-BI\1', s)
 
 
 def verify_psa_document(
@@ -253,11 +254,17 @@ def verify_psa_document(
 
     if ext_given:
         ext_given_clean = " ".join(re.sub(r'[^A-Z\s]', ' ', ext_given).split())
+        ext_tokens = ext_given_clean.split()
+        form_tokens = f_name_clean.split()
         given_name_matched = bool(
             f_name_clean
             and (
                 f_name_clean == ext_given_clean
-                or all(tok in ext_given_clean.split() for tok in f_name_clean.split())
+                or all(
+                    tok in ext_tokens
+                    or (len(tok) >= 6 and any(et.startswith(tok[:-1]) for et in ext_tokens))
+                    for tok in form_tokens
+                )
             )
         )
         token_score = 100.0 if given_name_matched else float(fuzz.ratio(f_name_clean, ext_given_clean))

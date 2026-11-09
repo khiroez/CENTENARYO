@@ -135,6 +135,74 @@ def _winocr_worker_task(rgba_bytes: bytes, width: int, height: int) -> str:
     return text
 
 
+def _winocr_lines_worker_task(rgba_bytes: bytes, width: int, height: int) -> Tuple[str, List[Dict[str, Any]]]:
+    import asyncio
+    from winrt.windows.media.ocr import OcrEngine
+    from winrt.windows.globalization import Language
+    from winrt.windows.storage.streams import DataWriter
+    from winrt.windows.graphics.imaging import SoftwareBitmap, BitmapPixelFormat
+
+    if _WINOCR_STATE["engine"] is None:
+        lang_obj = Language("en-US")
+        _WINOCR_STATE["lang"] = lang_obj
+        _WINOCR_STATE["engine"] = OcrEngine.try_create_from_language(lang_obj)
+
+    engine = _WINOCR_STATE["engine"]
+    if engine is None:
+        return "", []
+
+    writer = DataWriter()
+    writer.write_bytes(rgba_bytes)
+    buf = writer.detach_buffer()
+    sb = SoftwareBitmap.create_copy_from_buffer(buf, BitmapPixelFormat.RGBA8, width, height)
+
+    async def _run():
+        return await engine.recognize_async(sb)
+
+    res = asyncio.run(_run())
+    text = str(res.text) if (res and hasattr(res, "text") and res.text) else ""
+    out_lines: List[Dict[str, Any]] = []
+    if res and hasattr(res, "lines") and width > 0 and height > 0:
+        for ln in res.lines:
+            wds = []
+            for wd in ln.words:
+                r = wd.bounding_rect
+                wds.append({
+                    "text": str(wd.text),
+                    "x": round(r.x / width, 3),
+                    "y": round(r.y / height, 3),
+                    "w": round(r.width / width, 3),
+                    "h": round(r.height / height, 3),
+                })
+            out_lines.append({
+                "text": str(ln.text),
+                "words": wds,
+                "x": min(wd["x"] for wd in wds) if wds else 0.0,
+                "y": min(wd["y"] for wd in wds) if wds else 0.0,
+            })
+    del res, sb, buf, writer
+    return text, out_lines
+
+
+def safe_winocr_lines_bgr(bgr_img: np.ndarray) -> Tuple[str, List[Dict[str, Any]]]:
+    """Thread-safe WinRT OCR wrapper returning (full_text, lines_with_normalized_word_boxes)."""
+    try:
+        if bgr_img is None or bgr_img.size == 0:
+            return "", []
+        if bgr_img.ndim == 2:
+            rgba = cv2.cvtColor(bgr_img, cv2.COLOR_GRAY2RGBA)
+        elif bgr_img.shape[2] == 4:
+            rgba = cv2.cvtColor(bgr_img, cv2.COLOR_BGRA2RGBA)
+        else:
+            rgba = cv2.cvtColor(bgr_img, cv2.COLOR_BGR2RGBA)
+        h, w = rgba.shape[:2]
+        future = _WINOCR_EXECUTOR.submit(_winocr_lines_worker_task, rgba.tobytes(), w, h)
+        return future.result(timeout=10.0)
+    except Exception as e:
+        print(f"[WinOCR Lines] Notice: {e}")
+        return "", []
+
+
 def safe_winocr_recognize_pil(pil_img: Image.Image) -> str:
     """Thread-safe WinRT OCR wrapper that prevents 0xC0000005 COM apartment crashes in Django."""
     try:
