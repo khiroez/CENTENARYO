@@ -407,13 +407,12 @@ class SeniorViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['get'], url_path='review-queue')
     def review_queue(self, request):
         """GET /api/seniors/review-queue/ — Returns all records pending review."""
-        from .serializers import SeniorReviewQueueSerializer
         pending = Senior.objects.filter(
             registration_status__in=['PENDING_REVIEW', 'UNDER_REVIEW']
         ).select_related('reviewed_by').prefetch_related(
-            'review_logs__reviewer'
+            'disbursements__senior', 'anomalies__senior', 'review_logs__reviewer'
         ).order_by('-created_at')
-        serializer = SeniorReviewQueueSerializer(pending, many=True, context=self.get_serializer_context())
+        serializer = self.get_serializer(pending, many=True)
         return Response(serializer.data)
 
     @action(detail=True, methods=['post'], url_path='review')
@@ -1039,9 +1038,7 @@ def budget_forecast(request):
         end_date = add_months_to_date(today, 12)
 
     milestones = [80, 85, 90, 95, 100]
-    active_seniors = list(Senior.objects.filter(status='ACTIVE').values(
-        'id', 'first_name', 'last_name', 'middle_name', 'osca_id', 'barangay', 'date_of_birth', 'is_indigent'
-    ))
+    active_seniors = Senior.objects.filter(status='ACTIVE')
     
     celebrants = []
     quarter_buckets = {}
@@ -1073,7 +1070,7 @@ def budget_forecast(request):
         temp_q = add_months_to_date(temp_q, 3)
 
     for senior in active_seniors:
-        dob = senior['date_of_birth']
+        dob = senior.date_of_birth
         if not dob:
             continue
             
@@ -1089,15 +1086,15 @@ def budget_forecast(request):
                 grant_amt = 100000 if m == 100 else 10000
                 
                 celebrants.append({
-                    'senior_id': senior['id'],
-                    'name': f"{senior['last_name']}, {senior['first_name']} {senior['middle_name'] or ''}".strip(),
-                    'osca_id': senior['osca_id'],
-                    'barangay': senior['barangay'] or 'General LGU',
+                    'senior_id': senior.id,
+                    'name': f"{senior.last_name}, {senior.first_name} {senior.middle_name or ''}".strip(),
+                    'osca_id': senior.osca_id,
+                    'barangay': senior.barangay or 'General LGU',
                     'milestone_age': m,
                     'milestone_date': m_date.isoformat(),
                     'quarter': q_key,
                     'amount': grant_amt,
-                    'is_indigent': senior['is_indigent']
+                    'is_indigent': senior.is_indigent
                 })
                 
                 if q_key not in quarter_buckets:
@@ -1118,7 +1115,7 @@ def budget_forecast(request):
                 milestone_summary[m_str]['count'] += 1
                 milestone_summary[m_str]['amount'] += grant_amt
                 
-                brgy = senior['barangay'].upper() if senior['barangay'] else 'CENTRAL'
+                brgy = senior.barangay.upper() if senior.barangay else 'CENTRAL'
                 if brgy not in barangay_map:
                     barangay_map[brgy] = {'name': brgy, 'count': 0, 'amount': 0}
                 barangay_map[brgy]['count'] += 1
@@ -1160,7 +1157,52 @@ def dashboard_stats(request):
         date_80_years_ago = today.replace(year=today.year - 80, month=2, day=28)
         date_78_years_ago = today.replace(year=today.year - 78, month=2, day=28)
 
-    from django.db.models import Q, Count, Sum
+    total_seniors = Senior.objects.count()
+    total_payouts = Disbursement.objects.filter(status='RELEASED').count()
+    pending_payouts = Disbursement.objects.filter(status='PENDING').count()
+    active_anomalies = AnomalyFlag.objects.filter(is_resolved=False).count()
+    pending_reviews = Senior.objects.filter(registration_status__in=['PENDING_REVIEW', 'UNDER_REVIEW']).count()
+    
+    # 1. Document Verification Percentage
+    # A senior is "Verified" if they have PSA, ID, and Photo
+    from django.db.models import Q
+    verified_seniors = Senior.objects.filter(
+        ~Q(psa_cert_file='') & ~Q(psa_cert_file__isnull=True) &
+        ~Q(primary_id_file='') & ~Q(primary_id_file__isnull=True) &
+        ~Q(picture_2x2_file='') & ~Q(picture_2x2_file__isnull=True)
+    ).count()
+    
+    verified_percentage = round((verified_seniors / total_seniors * 100), 1) if total_seniors > 0 else 0
+    
+    # 2. Last Sync (based on latest Audit Log or Senior Update)
+    last_audit = AuditLog.objects.order_by('-created_at').first()
+    last_sync = last_audit.created_at.isoformat() if last_audit else today.isoformat()
+
+    # Prescriptive Analytics: Budget Forecast
+    upcoming_seniors = Senior.objects.filter(
+        date_of_birth__gt=date_80_years_ago, 
+        date_of_birth__lte=date_78_years_ago
+    ).count()
+    
+    estimated_budget = upcoming_seniors * 10000
+
+    # --- ADVANCED STATS FOR CHARTS & GRAPHS ---
+    # A. Status Breakdown (for Mortality/Registry "Death Chart")
+    active_count = Senior.objects.filter(status='ACTIVE').count()
+    deceased_count = Senior.objects.filter(status='DECEASED').count()
+    suspended_count = Senior.objects.filter(status='SUSPENDED').count()
+    transferred_count = Senior.objects.filter(status='TRANSFERRED').count()
+    
+    status_breakdown = {
+        'active': active_count,
+        'deceased': deceased_count,
+        'suspended': suspended_count,
+        'transferred': transferred_count,
+    }
+
+    # B. Active Milestones Breakdown — computed at DB level to avoid loading all seniors into Python
+    from django.db.models import Case, When, IntegerField
+    from datetime import date as _date
 
     def _cutoff(years):
         """Return the date 'years' years ago (handles Feb 29)."""
@@ -1169,99 +1211,51 @@ def dashboard_stats(request):
         except ValueError:
             return today.replace(year=today.year - years, month=2, day=28)
 
-    c100, c95, c90, c85, c80 = _cutoff(100), _cutoff(95), _cutoff(90), _cutoff(85), _cutoff(80)
-
-    # Consolidate Senior counts into a single SQL query instead of 19 separate queries
-    s_agg = Senior.objects.aggregate(
-        total_seniors=Count('id'),
-        pending_reviews=Count('id', filter=Q(registration_status__in=['PENDING_REVIEW', 'UNDER_REVIEW'])),
-        verified_seniors=Count(
-            'id',
-            filter=~Q(psa_cert_file='') & ~Q(psa_cert_file__isnull=True)
-            & ~Q(primary_id_file='') & ~Q(primary_id_file__isnull=True)
-            & ~Q(picture_2x2_file='') & ~Q(picture_2x2_file__isnull=True)
-        ),
-        upcoming_seniors=Count('id', filter=Q(date_of_birth__gt=date_80_years_ago, date_of_birth__lte=date_78_years_ago)),
-        active_count=Count('id', filter=Q(status='ACTIVE')),
-        deceased_count=Count('id', filter=Q(status='DECEASED')),
-        suspended_count=Count('id', filter=Q(status='SUSPENDED')),
-        transferred_count=Count('id', filter=Q(status='TRANSFERRED')),
-        m100=Count('id', filter=Q(status='ACTIVE', date_of_birth__lte=c100)),
-        m95=Count('id', filter=Q(status='ACTIVE', date_of_birth__lte=c95, date_of_birth__gt=c100)),
-        m90=Count('id', filter=Q(status='ACTIVE', date_of_birth__lte=c90, date_of_birth__gt=c95)),
-        m85=Count('id', filter=Q(status='ACTIVE', date_of_birth__lte=c85, date_of_birth__gt=c90)),
-        m80=Count('id', filter=Q(status='ACTIVE', date_of_birth__lte=c80, date_of_birth__gt=c85)),
-        male_count=Count('id', filter=Q(sex='Male')),
-        female_count=Count('id', filter=Q(sex='Female')),
-        cs_single=Count('id', filter=Q(civil_status='SINGLE')),
-        cs_married=Count('id', filter=Q(civil_status='MARRIED')),
-        cs_widowed=Count('id', filter=Q(civil_status='WIDOWED')),
-        cs_separated=Count('id', filter=Q(civil_status='SEPARATED')),
-        cs_divorced=Count('id', filter=Q(civil_status='DIVORCED')),
-    )
-
-    # Consolidate Disbursement counts & sums into a single SQL query instead of 5 separate queries
-    d_agg = Disbursement.objects.aggregate(
-        total_payouts=Count('id', filter=Q(status='RELEASED')),
-        pending_payouts=Count('id', filter=Q(status='PENDING')),
-        released_amount=Sum('amount', filter=Q(status='RELEASED')),
-        pending_amount=Sum('amount', filter=Q(status='PENDING')),
-        cancelled_amount=Sum('amount', filter=Q(status='CANCELLED')),
-    )
-
-    total_seniors = s_agg['total_seniors'] or 0
-    total_payouts = d_agg['total_payouts'] or 0
-    pending_payouts = d_agg['pending_payouts'] or 0
-    pending_reviews = s_agg['pending_reviews'] or 0
-    verified_seniors = s_agg['verified_seniors'] or 0
-    upcoming_seniors = s_agg['upcoming_seniors'] or 0
-
-    active_anomalies = AnomalyFlag.objects.filter(is_resolved=False).count()
-    verified_percentage = round((verified_seniors / total_seniors * 100), 1) if total_seniors > 0 else 0
-
-    last_audit = AuditLog.objects.only('created_at').order_by('-created_at').first()
-    last_sync = last_audit.created_at.isoformat() if last_audit else today.isoformat()
-    estimated_budget = upcoming_seniors * 10000
-
-    status_breakdown = {
-        'active': s_agg['active_count'] or 0,
-        'deceased': s_agg['deceased_count'] or 0,
-        'suspended': s_agg['suspended_count'] or 0,
-        'transferred': s_agg['transferred_count'] or 0,
-    }
-
+    active_qs = Senior.objects.filter(status='ACTIVE')
     milestone_breakdown = {
-        'm100': s_agg['m100'] or 0,
-        'm95': s_agg['m95'] or 0,
-        'm90': s_agg['m90'] or 0,
-        'm85': s_agg['m85'] or 0,
-        'm80': s_agg['m80'] or 0,
+        'm100': active_qs.filter(date_of_birth__lte=_cutoff(100)).count(),
+        'm95':  active_qs.filter(date_of_birth__lte=_cutoff(95),  date_of_birth__gt=_cutoff(100)).count(),
+        'm90':  active_qs.filter(date_of_birth__lte=_cutoff(90),  date_of_birth__gt=_cutoff(95)).count(),
+        'm85':  active_qs.filter(date_of_birth__lte=_cutoff(85),  date_of_birth__gt=_cutoff(90)).count(),
+        'm80':  active_qs.filter(date_of_birth__lte=_cutoff(80),  date_of_birth__gt=_cutoff(85)).count(),
     }
 
+    # C. Financial Stats Summary
+    from django.db.models import Sum
+    released_amount = Disbursement.objects.filter(status='RELEASED').aggregate(total=Sum('amount'))['total'] or 0
+    pending_amount = Disbursement.objects.filter(status='PENDING').aggregate(total=Sum('amount'))['total'] or 0
+    cancelled_amount = Disbursement.objects.filter(status='CANCELLED').aggregate(total=Sum('amount'))['total'] or 0
+    
     financial_stats = {
-        'released_amount': float(d_agg['released_amount'] or 0),
-        'pending_amount': float(d_agg['pending_amount'] or 0),
-        'cancelled_amount': float(d_agg['cancelled_amount'] or 0),
+        'released_amount': float(released_amount),
+        'pending_amount': float(pending_amount),
+        'cancelled_amount': float(cancelled_amount),
     }
 
+    # D. Top Barangays Breakdown (for LGU Volume Hotspots)
+    from django.db.models import Count
     top_barangays = Senior.objects.values('barangay').annotate(count=Count('id')).order_by('-count')[:5]
     barangay_breakdown = [
         {'name': b['barangay'].upper() if b['barangay'] else 'CENTRAL LGU', 'count': b['count']}
         for b in top_barangays
     ]
 
+    # E. Sex breakdown (real database queries from new sex column)
+    male_count = Senior.objects.filter(sex='Male').count()
+    female_count = Senior.objects.filter(sex='Female').count()
     sex_breakdown = {
-        'male': s_agg['male_count'] or 0,
-        'female': s_agg['female_count'] or 0,
+        'male': male_count,
+        'female': female_count,
         'other': 0
     }
 
+    # F. Civil Status breakdown (real database queries from new civil_status column)
     civil_status_breakdown = {
-        'single': s_agg['cs_single'] or 0,
-        'married': s_agg['cs_married'] or 0,
-        'widowed': s_agg['cs_widowed'] or 0,
-        'separated': s_agg['cs_separated'] or 0,
-        'divorced': s_agg['cs_divorced'] or 0,
+        'single': Senior.objects.filter(civil_status='SINGLE').count(),
+        'married': Senior.objects.filter(civil_status='MARRIED').count(),
+        'widowed': Senior.objects.filter(civil_status='WIDOWED').count(),
+        'separated': Senior.objects.filter(civil_status='SEPARATED').count(),
+        'divorced': Senior.objects.filter(civil_status='DIVORCED').count(),
     }
 
     return Response({
@@ -1536,9 +1530,9 @@ def scan_psa_qr(request):
     Accepts:
     - 'file': multipart image file
     - 'image_base64': base64 data URL or raw base64 string
-    Decodes the QR code and extracts document OCR text (if present) for cross-checking.
+    Scans the PSA Birth Certificate to extract its CRS Copy Number via OCR.
     """
-    from .qr_engine import decode_qr, extract_crs_copy_number_from_text
+    from .qr_engine import scan_psa_crs, extract_crs_copy_number_from_text
     from .document_verifier import _extract_text_and_image_from_file
 
     img_input = None
@@ -1549,27 +1543,30 @@ def scan_psa_qr(request):
 
     if not img_input:
         return Response(
-            {'qr_detected': False, 'payload': '', 'message': 'No image file or image_base64 provided.'},
+            {'qr_detected': False, 'crs_detected': False, 'payload': '', 'message': 'No image file or image_base64 provided.'},
             status=status.HTTP_400_BAD_REQUEST
         )
 
-    qr_res = decode_qr(img_input)
+    qr_res = scan_psa_crs(img_input)
 
-    # Only run full-page OCR fallback if QR was detected and CRS Copy Number was not already extracted
+    # Fallback full-document OCR extraction if needed
     ocr_text = ""
-    if qr_res.get('qr_detected') and not qr_res.get('extracted_crs_copy_number'):
-        try:
-            if hasattr(img_input, 'seek'):
-                img_input.seek(0)
-            extracted, _ = _extract_text_and_image_from_file(img_input)
-            ocr_text = extracted or ""
-        except Exception as e:
-            print(f"[ScanPsaQr] OCR extraction notice: {e}")
+    try:
+        if hasattr(img_input, 'seek'):
+            img_input.seek(0)
+        extracted, _ = _extract_text_and_image_from_file(img_input)
+        ocr_text = extracted or ""
+    except Exception as e:
+        print(f"[ScanPsaCrs] OCR extraction notice: {e}")
 
-        if ocr_text:
-            ocr_crs = extract_crs_copy_number_from_text(ocr_text)
-            if ocr_crs:
-                qr_res['extracted_crs_copy_number'] = ocr_crs
+    if ocr_text and not qr_res.get('extracted_crs_copy_number'):
+        ocr_crs = extract_crs_copy_number_from_text(ocr_text)
+        if ocr_crs:
+            qr_res['qr_detected'] = True
+            qr_res['crs_detected'] = True
+            qr_res['payload'] = ocr_crs
+            qr_res['extracted_crs_copy_number'] = ocr_crs
+            qr_res['message'] = f'PSA Birth Certificate verified. Scanned CRS Copy Number: {ocr_crs}'
 
     qr_res['ocr_text'] = ocr_text
     qr_res['has_ocr_text'] = bool(ocr_text and len(ocr_text.strip()) > 15)

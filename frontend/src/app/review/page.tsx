@@ -31,20 +31,16 @@ export default function ReviewQueuePage() {
   const [previewZoom, setPreviewZoom] = useState<number>(1);
   const [previewPan, setPreviewPan] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [isDraggingImage, setIsDraggingImage] = useState<boolean>(false);
-  const previewImgRef = React.useRef<HTMLImageElement | null>(null);
-  const dragOriginRef = React.useRef<{ startX: number; startY: number; panX: number; panY: number; curX: number; curY: number }>({
+  const dragOriginRef = React.useRef<{ startX: number; startY: number; panX: number; panY: number }>({
     startX: 0,
     startY: 0,
     panX: 0,
     panY: 0,
-    curX: 0,
-    curY: 0,
   });
 
   const openImagePreview = (title: string, url: string) => {
     setPreviewZoom(1);
     setPreviewPan({ x: 0, y: 0 });
-    dragOriginRef.current = { startX: 0, startY: 0, panX: 0, panY: 0, curX: 0, curY: 0 };
     setIsDraggingImage(false);
     setPreviewImageModal({ title, url });
   };
@@ -68,20 +64,19 @@ export default function ReviewQueuePage() {
   const [customReturnReason, setCustomReturnReason] = useState('');
 
   const COMMON_REJECTION_REASONS = [
-    "PSA Birth Certificate has no valid QR code (only modern PSA copies with QR are accepted)",
-    "Uploaded ID is not an official Quezon City QCitizen Senior Citizen Card",
-    "Biometric face comparison indicates a different individual (fraud risk)",
-    "Document uploaded belongs to another person in registry",
-    "Applicant does not meet the minimum age requirement (under 78)",
-    "Missing vital civil registry signatures or official seal",
+    "Suspected forgery, digital tampering, or altered entries on PSA Birth Certificate",
+    "PSA Birth Certificate belongs to a completely different individual",
+    "Birthdate on PSA Birth Certificate confirms applicant is ineligible (under 78 years old)",
+    "Biometric face comparison between OSCA ID and 2x2 Photo confirms different individuals (impersonation/fraud)",
+    "Duplicate registration or document file already used by another registered beneficiary",
   ];
 
   const COMMON_RETURN_REASONS = [
-    "Uploaded PSA Birth Certificate is missing official QR code or is blurry/unreadable",
-    "QC QCitizen Card photo, layout, or 14-digit serial is truncated or poorly scanned",
+    "Uploaded PSA Birth Certificate is blurry, cut off, or has an unreadable CRS Copy Number",
+    "Inputted Full Name or Date of Birth in Application Form does not match PSA Birth Certificate",
+    "Entered CRS Copy Number in Application Form does not match the PSA Birth Certificate",
+    "Biometric face mismatch or unclear portrait between OSCA ID and 2x2 Photo",
     "2x2 Photo does not follow required plain white background",
-    "Discrepancy in Given Name, Birthdate, or CRS Copy Number against PSA QR code",
-    "Authorized representative authorization letter or ID requires resubmission",
   ];
 
   // Four-Eyes COA Audit Checklist
@@ -154,8 +149,8 @@ export default function ReviewQueuePage() {
       document_authentic: false,
     });
 
-    // Only run background document verification if files exist and no verification results are present yet
-    if (!autoChecks.psa_check && !autoChecks.ocr_psa && !autoChecks.psa_qr && senior.psa_cert_file) {
+    // Automatically run complete deep document verification if not yet done
+    if (!autoChecks.psa_check && (senior.psa_cert_file || senior.primary_id_file)) {
       authFetch(`${API_BASE}/seniors/${senior.id}/verify-documents/?registration_status=ALL`, {
         method: 'POST',
       }).then(async (res) => {
@@ -862,7 +857,7 @@ export default function ReviewQueuePage() {
                 {/* Document Header Pill */}
                 <div className="flex gap-2 mb-4 p-1.5 bg-slate-200/70 rounded-2xl w-fit">
                   <div className="px-5 py-2.5 rounded-xl text-xs font-black bg-white text-indigo-600 shadow-sm">
-                    PSA Birth Certificate (QR)
+                    PSA Birth Certificate
                   </div>
                 </div>
 
@@ -991,8 +986,6 @@ export default function ReviewQueuePage() {
                       onClick={() => {
                         setPreviewZoom(1);
                         setPreviewPan({ x: 0, y: 0 });
-                        dragOriginRef.current.curX = 0;
-                        dragOriginRef.current.curY = 0;
                       }}
                       title="Reset Zoom & Position to 100%"
                       className="px-2 py-0.5 text-xs font-black text-slate-700 hover:text-indigo-600 min-w-[52px] text-center"
@@ -1029,32 +1022,19 @@ export default function ReviewQueuePage() {
                   startY: e.clientY,
                   panX: previewPan.x,
                   panY: previewPan.y,
-                  curX: previewPan.x,
-                  curY: previewPan.y,
                 };
               }}
               onMouseMove={(e) => {
                 if (!isDraggingImage) return;
-                const nx = dragOriginRef.current.panX + (e.clientX - dragOriginRef.current.startX);
-                const ny = dragOriginRef.current.panY + (e.clientY - dragOriginRef.current.startY);
-                dragOriginRef.current.curX = nx;
-                dragOriginRef.current.curY = ny;
-                if (previewImgRef.current) {
-                  previewImgRef.current.style.transform = `translate3d(${nx}px, ${ny}px, 0) scale(${previewZoom})`;
-                }
+                const dx = e.clientX - dragOriginRef.current.startX;
+                const dy = e.clientY - dragOriginRef.current.startY;
+                setPreviewPan({
+                  x: dragOriginRef.current.panX + dx,
+                  y: dragOriginRef.current.panY + dy,
+                });
               }}
-              onMouseUp={() => {
-                if (isDraggingImage) {
-                  setIsDraggingImage(false);
-                  setPreviewPan({ x: dragOriginRef.current.curX, y: dragOriginRef.current.curY });
-                }
-              }}
-              onMouseLeave={() => {
-                if (isDraggingImage) {
-                  setIsDraggingImage(false);
-                  setPreviewPan({ x: dragOriginRef.current.curX, y: dragOriginRef.current.curY });
-                }
-              }}
+              onMouseUp={() => setIsDraggingImage(false)}
+              onMouseLeave={() => setIsDraggingImage(false)}
               className={`p-6 bg-slate-950 flex-grow overflow-hidden min-h-[420px] flex items-center justify-center select-none ${
                 previewImageModal.url.toLowerCase().endsWith('.pdf')
                   ? ''
@@ -1069,14 +1049,12 @@ export default function ReviewQueuePage() {
                 </div>
               ) : (
                 <img
-                  ref={previewImgRef}
                   src={previewImageModal.url}
                   alt={previewImageModal.title}
                   draggable={false}
                   style={{
-                    transform: `translate3d(${previewPan.x}px, ${previewPan.y}px, 0) scale(${previewZoom})`,
+                    transform: `translate(${previewPan.x}px, ${previewPan.y}px) scale(${previewZoom})`,
                     transformOrigin: 'center center',
-                    willChange: 'transform',
                   }}
                   title="Hold and drag mouse to move image"
                   className="max-w-full max-h-[75vh] object-contain rounded-2xl shadow-lg pointer-events-none"

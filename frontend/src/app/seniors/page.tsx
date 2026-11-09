@@ -713,7 +713,7 @@ export default function SeniorRegistryPage() {
     const hasPhoto = !!(formData.picture_2x2_file || formData.picture_2x2_url);
 
     if (!hasPsa || !hasPrimaryId || !hasPhoto) {
-      openWarning("Missing Documents", "Please upload all three required documents (PSA QR Code, OSCA ID, and 2x2 Photo) before saving changes.");
+      openWarning("Missing Documents", "Please upload all three required documents (PSA Birth Certificate, OSCA ID, and 2x2 Photo) before saving changes.");
       return;
     }
 
@@ -1160,7 +1160,7 @@ export default function SeniorRegistryPage() {
     const verificationStatus: PsaQrComparison['verificationStatus'] = 'VERIFIED';
     const message = extractedCrsCopyNumber
       ? `PSA Birth Certificate verified. Scanned CRS Copy Number: ${extractedCrsCopyNumber}`
-      : 'PSA Birth Certificate QR code verified and queued for manual review.';
+      : 'PSA Birth Certificate verified and queued for manual review.';
 
     return {
       status,
@@ -1305,11 +1305,74 @@ export default function SeniorRegistryPage() {
     });
   };
 
-  // Whenever any of the 5 OSCA ID fields (Full Name, OSCA ID Number, Date of Birth, Sex, Civil Status)
-  // is edited while the OSCA ID verification modal is actively open, update its cross-check preview
+  // Whenever the applicant's Given Name, Date of Birth, or CRS Copy Number is edited in the form,
+  // re-compare against the temporarily stored PSA QR payload (stored in psaQrRef.current)
   useEffect(() => {
-    if (!oscaCardRef.current || !verificationState?.isOpen || verificationState.fieldName !== 'primary_id_file') return;
+    if (!psaQrRef.current) return;
+    const cmp = comparePsaQrWithForm(
+      psaQrRef.current.payload,
+      formData,
+      psaQrRef.current.isBinarySeal,
+      psaQrRef.current.ocrText,
+      psaQrRef.current.extractedGivenName,
+      psaQrRef.current.extractedName,
+      psaQrRef.current.extractedDob,
+      psaQrRef.current.extractedCrsCopyNumber
+    );
+    setAutoCheckResults((prev: any) => ({
+      ...prev,
+      psa_qr: buildPsaQrCheck(psaQrRef.current!, cmp),
+      ocr_psa: {
+        status: cmp.status,
+        verification_status: cmp.verificationStatus,
+        name_found: cmp.givenNameMatch,
+        dob_found: cmp.dobMatch,
+        crs_found: cmp.crsCopyNumberMatch,
+        message: cmp.message,
+      }
+    }));
+    setVerificationState(prev => {
+      if (!prev || prev.fieldName !== 'psa_cert_file') return prev;
+      return {
+        ...prev,
+        matchNote: cmp.message,
+        psaQr: {
+          detected: true,
+          status: cmp.status,
+          verificationStatus: cmp.verificationStatus,
+          givenNameMatch: cmp.givenNameMatch,
+          dobMatch: cmp.dobMatch,
+          crsCopyNumberMatch: cmp.crsCopyNumberMatch,
+          extractedGivenName: cmp.extractedGivenName,
+          extractedName: cmp.extractedName,
+          extractedDob: cmp.extractedDob,
+          extractedCrsCopyNumber: cmp.extractedCrsCopyNumber,
+          engine: psaQrRef.current?.engine,
+          isBinarySeal: psaQrRef.current?.isBinarySeal,
+          bytesLen: psaQrRef.current?.bytesLen,
+        }
+      };
+    });
+  }, [formData.given_name, formData.date_of_birth, formData.crs_copy_number]);
+
+  // Whenever any of the 5 OSCA ID fields (Full Name, OSCA ID Number, Date of Birth, Sex, Civil Status)
+  // is edited in the Application Form, re-compare against the stored OSCA ID card extraction
+  useEffect(() => {
+    if (!oscaCardRef.current) return;
     const oscaCmp = compareOscaIdWithForm(oscaCardRef.current, formData);
+    setAutoCheckResults((prev: any) => ({
+      ...prev,
+      osca_cross_check: oscaCmp,
+      ocr_osca: {
+        status: oscaCmp.status,
+        name_match: oscaCmp.nameMatch,
+        osca_id_match: oscaCmp.oscaIdMatch,
+        dob_match: oscaCmp.dobMatch,
+        sex_match: oscaCmp.sexMatch,
+        civil_status_match: oscaCmp.civilStatusMatch,
+        message: oscaCmp.message,
+      },
+    }));
     setVerificationState(prev => {
       if (!prev || prev.fieldName !== 'primary_id_file') return prev;
       return {
@@ -1318,8 +1381,6 @@ export default function SeniorRegistryPage() {
       };
     });
   }, [
-    verificationState?.isOpen,
-    verificationState?.fieldName,
     formData.last_name,
     formData.given_name,
     formData.middle_name,
@@ -1374,62 +1435,26 @@ export default function SeniorRegistryPage() {
 
       if (res && res.ok && res.headers.get('content-type')?.includes('application/json')) {
         const data = await res.json().catch(() => null);
-        if (data?.qr_detected && (data.payload || data.payload_hex)) {
-          return {
-            payload: String(data.payload || data.payload_hex),
-            engine: data.engine || 'ZXing_Deep_QR',
-            isBinarySeal: Boolean(data.is_binary_seal),
-            bytesLen: data.bytes_len,
-            ocrText: data.ocr_text || '',
-            hasOcrText: Boolean(data.has_ocr_text),
-            extractedGivenName: data.extracted_given_name || null,
-            extractedName: data.extracted_name || null,
-            extractedDob: data.extracted_dob || null,
-            extractedCrsCopyNumber: data.extracted_crs_copy_number || null,
-          };
-        }
-      }
-    } catch (backendErr) {
-      console.warn("Backend PSA QR scan unavailable, attempting browser fallback:", backendErr);
-    }
-
-    try {
-      const jsQR = (await import('jsqr')).default;
-      let canvas: HTMLCanvasElement | null = null;
-      if (canvasOrImg && 'getContext' in canvasOrImg && typeof (canvasOrImg as any).getContext === 'function') {
-        canvas = canvasOrImg as HTMLCanvasElement;
-      } else if (canvasOrImg) {
-        canvas = document.createElement('canvas');
-        canvas.width = 'naturalWidth' in canvasOrImg ? (canvasOrImg.naturalWidth || canvasOrImg.width) : canvasOrImg.width;
-        canvas.height = 'naturalHeight' in canvasOrImg ? (canvasOrImg.naturalHeight || canvasOrImg.height) : canvasOrImg.height;
-        const ctx = canvas.getContext('2d');
-        if (ctx) ctx.drawImage(canvasOrImg, 0, 0);
-      }
-      if (canvas) {
-        const ctx = canvas.getContext('2d');
-        if (ctx) {
-          const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-          const code = jsQR(imageData.data, imageData.width, imageData.height, { inversionAttempts: 'attemptBoth' });
-          if (code?.data) {
-            const parsed = parsePsaQrPayload(code.data);
-            const extName = [parsed.firstName, parsed.middleName, parsed.lastName].filter(Boolean).join(' ') || parsed.fullName || null;
-            const extGiven = parsed.firstName || (extName ? extName.split(/\s+/)[0] : null) || null;
-            const extDob = (parsed.dob ? findDatesInText(parsed.dob)[0] : null) || findDatesInText(code.data)[0] || null;
-            const extCrs = parsed.crsCopyNumber || null;
+        if (data?.extracted_crs_copy_number || data?.crs_detected || (data?.qr_detected && (data.payload || data.payload_hex))) {
+          const crsVal = data.extracted_crs_copy_number || extractCrsCopyNumberFromText(data.ocr_text || data.payload || '') || null;
+          if (crsVal) {
             return {
-              payload: code.data,
-              engine: 'jsQR_Browser',
+              payload: String(crsVal),
+              engine: data.engine || 'PSA_CRS_OCR',
               isBinarySeal: false,
-              extractedGivenName: extGiven,
-              extractedName: extName,
-              extractedDob: extDob,
-              extractedCrsCopyNumber: extCrs,
+              bytesLen: String(crsVal).length,
+              ocrText: data.ocr_text || '',
+              hasOcrText: Boolean(data.has_ocr_text),
+              extractedGivenName: data.extracted_given_name || null,
+              extractedName: data.extracted_name || null,
+              extractedDob: data.extracted_dob || null,
+              extractedCrsCopyNumber: crsVal,
             };
           }
         }
       }
-    } catch (err) {
-      console.warn("Browser PSA QR scan failed:", err);
+    } catch (backendErr) {
+      console.warn("Backend PSA CRS scan unavailable:", backendErr);
     }
     return null;
   };
@@ -1516,9 +1541,9 @@ export default function SeniorRegistryPage() {
         let oscaValidationRes: VerificationState['oscaValidation'] = undefined;
         let oscaCrossCheckResult: VerificationState['oscaCrossCheck'] = undefined;
 
-        // 1. PSA QR Code
+        // 1. PSA Birth Certificate
         if (field === 'psa_cert_file') {
-          detectedType = 'PSA QR Code';
+          detectedType = 'PSA Birth Certificate';
           let qrCanvasOrImg: HTMLCanvasElement | HTMLImageElement | null = null;
 
           if (isPdf) {
@@ -1530,7 +1555,7 @@ export default function SeniorRegistryPage() {
             } catch (err) {
               console.error("PSA PDF read error:", err);
               finalStatus = 'FAIL';
-              errorMessage = 'Rejected: Could not read PSA document PDF.';
+              errorMessage = 'Rejected: Could not read PSA Birth Certificate PDF.';
             }
           } else if (isImage) {
             try {
@@ -1543,11 +1568,11 @@ export default function SeniorRegistryPage() {
             } catch (err) {
               console.error("PSA Image read error:", err);
               finalStatus = 'FAIL';
-              errorMessage = 'Rejected: Could not load QR code image.';
+              errorMessage = 'Rejected: Could not load PSA Birth Certificate image.';
             }
           } else {
             finalStatus = 'FAIL';
-            errorMessage = 'Rejected: Must be an image (PNG, JPG) or PDF of the PSA QR code.';
+            errorMessage = 'Rejected: Must be an image (PNG, JPG) or PDF of the PSA Birth Certificate.';
           }
 
           if (finalStatus === 'PASS' && qrCanvasOrImg) {
@@ -1597,15 +1622,15 @@ export default function SeniorRegistryPage() {
               psaQrRef.current = null;
               psaQrResult = { detected: false, status: 'FLAGGED' };
               finalStatus = 'FAIL';
-              errorMessage = 'Rejected: Only modern PSA Birth Certificates with an official QR code are accepted. Older versions without a QR code are not supported.';
-              matchNote = 'No official PSA QR code detected on the document. Older non-QR versions are not accommodated.';
+              errorMessage = 'Rejected: Could not read the CRS Copy Number on the uploaded PSA Birth Certificate. Please ensure the CRS Copy Number is clearly visible.';
+              matchNote = 'No readable CRS Copy Number detected on the document.';
               setAutoCheckResults((prev: any) => ({
                 ...prev,
                 psa_hash: fileHash,
                 psa_qr: {
                   status: 'FLAGGED',
                   qr_detected: false,
-                  message: 'Only modern PSA Birth Certificates with an official QR code are accepted. Older certificates without a QR code are not supported.'
+                  message: 'Could not read the CRS Copy Number on the uploaded PSA Birth Certificate.'
                 }
               }));
             }
@@ -2433,17 +2458,17 @@ export default function SeniorRegistryPage() {
                           </div>
                           <div>
                             <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-700 flex items-center gap-1.5 justify-center">
-                              PSA Birth Certificate (With QR)
+                              PSA Birth Certificate
                               <div className="group relative">
                                 <Info size={10} className="text-slate-300" />
                                 <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-52 p-2 bg-slate-800 text-white text-[9px] rounded-lg opacity-0 group-hover:opacity-100 transition-opacity z-20 font-medium text-center">
-                                  Modern PSA Birth Certificate with official QR code. Older versions without QR code are not supported.
+                                  Official PSA Certificate of Live Birth with a readable CRS Copy Number.
                                 </div>
                               </div>
                             </h4>
                             <div className="flex flex-col items-center">
                               <p className="text-[9px] font-bold text-slate-400 mt-1 truncate max-w-[150px]">
-                                {formData.psa_cert_file ? formData.psa_cert_file.name : (formData.psa_cert_url ? getFileNameFromUrl(formData.psa_cert_url) : 'Upload PSA QR Code')}
+                                {formData.psa_cert_file ? formData.psa_cert_file.name : (formData.psa_cert_url ? getFileNameFromUrl(formData.psa_cert_url) : 'Upload PSA Certificate')}
                               </p>
                               {(formData.psa_cert_file || formData.psa_cert_url) && (
                                 <button
@@ -2455,7 +2480,7 @@ export default function SeniorRegistryPage() {
                                     setPdfPreviewSrc({
                                       url: file ? undefined : resolveMediaUrl(url),
                                       file: file || null,
-                                      title: 'PSA Birth Certificate / QR Code'
+                                      title: 'PSA Birth Certificate'
                                     });
                                   }}
                                   className="mt-2 px-3 py-1 bg-indigo-50 text-indigo-600 rounded-lg text-[9px] font-black uppercase tracking-widest hover:bg-indigo-100 transition-all relative z-20 cursor-pointer pointer-events-auto shadow-sm"
@@ -2795,11 +2820,11 @@ export default function SeniorRegistryPage() {
                   </div>
                   <div className="text-center space-y-2">
                     <h4 className="text-sm font-black uppercase tracking-widest text-slate-800 animate-pulse">
-                      {verificationState.fieldName === 'psa_cert_file' ? 'Scanning & Decoding PSA QR Code...' : 'Analyzing Document Layout & Biometrics...'}
+                      {verificationState.fieldName === 'psa_cert_file' ? 'Scanning PSA Birth Certificate...' : 'Analyzing Document Layout & Biometrics...'}
                     </h4>
                     <p className="text-xs text-slate-400 font-medium max-w-sm mx-auto">
                       {verificationState.fieldName === 'psa_cert_file'
-                        ? 'Scanning PSA Birth Certificate QR seal and extracting CRS Copy Number.'
+                        ? 'Scanning PSA Birth Certificate and extracting CRS Copy Number.'
                         : 'Running multi-scale CNN face landmark isolation, SHA-256 integrity hashing, and security framing checks.'}
                     </p>
                   </div>
@@ -2835,7 +2860,7 @@ export default function SeniorRegistryPage() {
                           <p className="text-xs font-bold opacity-80 mt-0.5 uppercase tracking-wider">
                             {verificationState.errorMessage
                               ? verificationState.errorMessage
-                              : (verificationState.matchNote || 'Official PSA QR code detected and CRS Copy Number extracted for manual review.')}
+                              : (verificationState.matchNote || 'PSA Birth Certificate verified and CRS Copy Number extracted for manual review.')}
                           </p>
                         </div>
                       </div>
@@ -2947,7 +2972,7 @@ export default function SeniorRegistryPage() {
                                 {verificationState.psaQr.detected
                                   ? <CheckCircle2 size={16} className="text-emerald-600 shrink-0" />
                                   : <AlertCircle size={16} className="text-rose-600 shrink-0" />}
-                                <span>{verificationState.psaQr.detected ? 'QR CODE DECODED' : 'QR CODE NOT READABLE'}</span>
+                                <span>{verificationState.psaQr.detected ? 'CRS COPY NUMBER SCANNED' : 'CRS COPY NUMBER NOT READABLE'}</span>
                               </div>
                               <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${verificationState.psaQr.detected
                                 ? 'bg-emerald-100 text-emerald-700'
@@ -2975,7 +3000,7 @@ export default function SeniorRegistryPage() {
                               </div>
                             ) : (
                               <p className="text-[11px] text-rose-900/90 leading-relaxed font-medium">
-                                No readable QR code detected. Please ensure the QR code on the PSA certificate is clearly visible and not cut off.
+                                No readable CRS Copy Number detected. Please ensure the CRS Copy Number at the bottom-left of the PSA Birth Certificate is clearly visible and not cut off.
                               </p>
                             )}
                           </div>

@@ -55,33 +55,41 @@ def _try_decode(detector, image: np.ndarray) -> Optional[str]:
 
 def extract_crs_copy_number_from_text(text: str) -> Optional[str]:
     """
-    Extracts the PSA CRS Copy Number from QR or OCR text dynamically.
+    Extracts the PSA CRS Copy Number from OCR text dynamically.
     Handles common OCR spacing or character confusions around hyphens.
     """
     import re
     if not text:
         return None
     upper = text.upper()
+    # Normalize spaces around hyphens
+    upper = re.sub(r'\s*-\s*', '-', upper)
     # Fix OCR space inside second segment
     upper = re.sub(
-        r'(\b\d{4,6}-[A-Z0-9])\s+([A-Z0-9]-[A-Z0-9]{3,8}-\d{4,6}-[A-Z0-9]{4,6}\b)',
+        r'(\b\d{4,6}-[A-Z0-9])\s+([A-Z0-9]-[A-Z0-9]{3,8}-\d{4,6}-[A-Z0-9]{3,6}\b)',
         r'\1\2',
         upper,
     )
-    # 1. Official PSA boxed CRS reference format: 5 digits - 2 alnum - 5..7 alnum - 4..6 digits - 4..6 alnum
-    m = re.search(r'\b(\d{4,6}-[A-Z0-9]{2,3}-[A-Z0-9]{4,8}-\d{4,6}-[A-Z0-9]{4,6})\b', upper)
+    # 1. Official PSA boxed CRS reference format: 5 digits - 2 alnum - 4..8 alnum - 4..6 digits - 3..6 alnum (e.g. BI003 or B004)
+    m = re.search(r'\b(\d{4,6}-[A-Z0-9]{2,3}-[A-Z0-9]{4,8}-\d{4,6}-[A-Z0-9]{3,6})\b', upper)
     if m:
         crs = m.group(1).strip()
         return re.sub(r'-B1(\d{3})$', r'-BI\1', crs)
     # 2. Fallback when OCR drops hyphen between segment 2 and 3
-    m_merged = re.search(r'\b(\d{4,6})-([A-Z0-9]{2})[A-Z0-9]{1,2}([A-Z0-9]{3})-(\d{4,6})-(B[I1]\d{3})\b', upper)
+    m_merged = re.search(r'\b(\d{4,6})-([A-Z0-9]{2})[A-Z0-9]{1,2}([A-Z0-9]{3})-(\d{4,6})-(B[I1]?\d{3})\b', upper)
     if m_merged:
         s1, s2, s3_tail, s4, s5 = m_merged.groups()
         s5 = re.sub(r'^B1', 'BI', s5)
         m_trk = re.search(rf'{s1}(\d{{3}}){s4}', re.sub(r'\s+', '', upper))
         s3_num = m_trk.group(1) if m_trk else '003'
         return f"{s1}-{s2}-{s3_num}{s3_tail}-{s4}-{s5}"
-    # 3. Explicit key-value label (e.g. CRS Copy Number: ..., Copy No: ...)
+    # 3. Fallback when OCR drops hyphen between segment 4 and 5
+    m_merged_tail = re.search(r'\b(\d{4,6}-[A-Z0-9]{2,3}-[A-Z0-9]{4,8}-\d{4,6})(B[I1]?\d{3})\b', upper)
+    if m_merged_tail:
+        head, s5 = m_merged_tail.groups()
+        s5 = re.sub(r'^B1', 'BI', s5)
+        return f"{head}-{s5}"
+    # 4. Explicit key-value label (e.g. CRS Copy Number: ..., Copy No: ...)
     m_kv = re.search(r'(?:CRS\s*COPY\s*(?:NUMBER|NO\.?)|COPY\s*(?:NUMBER|NO\.?)|CRS\s*(?:NUMBER|NO\.?))\s*[:=\-#]?\s*([A-Z0-9][A-Z0-9\-]{6,34})', upper)
     if m_kv:
         crs = m_kv.group(1).strip()
@@ -156,29 +164,7 @@ def extract_psa_fields_from_image(img: np.ndarray) -> Dict[str, Optional[str]]:
         return {'extracted_given_name': None, 'extracted_dob': None, 'extracted_crs_copy_number': None}
 
     h, w = img.shape[:2]
-
-    # Fast-path: crop the bottom-left CRS Copy Number region first (~30ms instead of full-page multi-pass OCR)
-    fast_crop = img[int(h * 0.76):int(h * 0.96), int(w * 0.05):int(w * 0.55)]
-    if fast_crop.size > 0:
-        for sc in (1.0, 1.5):
-            up_fast = cv2.resize(fast_crop, None, fx=sc, fy=sc, interpolation=cv2.INTER_CUBIC) if sc != 1.0 else fast_crop
-            fast_text, _ = safe_winocr_lines_bgr(up_fast)
-            fast_crs = extract_crs_copy_number_from_text(fast_text)
-            if fast_crs:
-                return {
-                    'extracted_given_name': None,
-                    'extracted_dob': None,
-                    'extracted_crs_copy_number': fast_crs,
-                }
-
     full_text, full_lines = safe_winocr_lines_bgr(img)
-    extracted_crs = extract_crs_copy_number_from_text(full_text)
-    if extracted_crs:
-        return {
-            'extracted_given_name': None,
-            'extracted_dob': None,
-            'extracted_crs_copy_number': extracted_crs,
-        }
 
     name_y = None
     dob_y = None
@@ -200,18 +186,29 @@ def extract_psa_fields_from_image(img: np.ndarray) -> Dict[str, Optional[str]]:
     # 1. CRS Copy Number (bottom-left box above BEST POSSIBLE IMAGE)
     extracted_crs = extract_crs_copy_number_from_text(full_text)
     if not extracted_crs:
-        y1 = max(0, int(h * (bpi_y - 0.04)))
-        y2 = min(h, int(h * (bpi_y + 0.05)))
-        x1 = int(w * 0.06)
-        x2 = int(w * 0.52)
-        crs_crop = img[y1:y2, x1:x2]
-        if crs_crop.size > 0:
+        crop_boxes = [
+            (max(0, int(h * (bpi_y - 0.05))), min(h, int(h * (bpi_y + 0.05))), int(w * 0.05), int(w * 0.56)),
+            (int(h * 0.72), int(h * 0.96), int(w * 0.04), int(w * 0.60)),
+        ]
+        for y1, y2, x1, x2 in crop_boxes:
+            crs_crop = img[y1:y2, x1:x2]
+            if crs_crop.size == 0:
+                continue
             for sc in (1.0, 1.5, 2.0):
                 up = cv2.resize(crs_crop, None, fx=sc, fy=sc, interpolation=cv2.INTER_CUBIC) if sc != 1.0 else crs_crop
                 ct, _ = safe_winocr_lines_bgr(up)
                 extracted_crs = extract_crs_copy_number_from_text(ct)
                 if extracted_crs:
                     break
+            if not extracted_crs:
+                gray_c = cv2.cvtColor(crs_crop, cv2.COLOR_BGR2GRAY) if crs_crop.ndim == 3 else crs_crop
+                clahe_c = cv2.createCLAHE(clipLimit=2.5, tileGridSize=(8, 8)).apply(gray_c)
+                clahe_bgr = cv2.cvtColor(clahe_c, cv2.COLOR_GRAY2BGR)
+                up_clahe = cv2.resize(clahe_bgr, None, fx=2.0, fy=2.0, interpolation=cv2.INTER_CUBIC)
+                ct, _ = safe_winocr_lines_bgr(up_clahe)
+                extracted_crs = extract_crs_copy_number_from_text(ct)
+            if extracted_crs:
+                break
 
     # 2. Given Name (Box 1. NAME -> (First)) and DOB (Box 3. DATE OF BIRTH)
     hy1 = max(0, int(h * (name_y - 0.005)))
@@ -436,30 +433,53 @@ def _extract_qr_details(
     return extracted_given_name, extracted_name, extracted_dob, extracted_crs_copy_number
 
 
+def scan_psa_crs(img_input) -> Dict[str, Any]:
+    """
+    Scans a PSA Birth Certificate image (file, bytes, base64 data URL, or path)
+    to extract its CRS Copy Number via OCR (does not require a QR code).
+    """
+    img = _load_image(img_input)
+    if img is None:
+        return {'qr_detected': False, 'crs_detected': False, 'payload': '', 'message': 'Invalid or unreadable image data'}
+
+    dyn = extract_psa_fields_from_image(img)
+    ext_crs = dyn.get('extracted_crs_copy_number')
+    ext_given = dyn.get('extracted_given_name')
+    ext_dob = dyn.get('extracted_dob')
+
+    if ext_crs:
+        return {
+            'qr_detected': True,
+            'crs_detected': True,
+            'payload': ext_crs,
+            'payload_hex': ext_crs.encode('utf-8').hex(),
+            'bytes_len': len(ext_crs),
+            'is_binary_seal': False,
+            'engine': 'PSA_CRS_OCR',
+            'extracted_given_name': ext_given,
+            'extracted_name': ext_given,
+            'extracted_dob': ext_dob,
+            'extracted_crs_copy_number': ext_crs,
+            'message': f'PSA Birth Certificate verified. Scanned CRS Copy Number: {ext_crs}'
+        }
+
+    return {
+        'qr_detected': False,
+        'crs_detected': False,
+        'payload': '',
+        'extracted_crs_copy_number': None,
+        'message': 'No readable CRS Copy Number found on the PSA Birth Certificate.'
+    }
+
+
 def decode_qr(img_input) -> Dict[str, Any]:
     """
     Detects and decodes a QR code from an image (file, bytes, base64 data URL, or path).
-    Uses high-performance zxing-cpp (C++ ZXing) first, followed by OpenCV detectors.
-    Returns:
-      {
-        'qr_detected': bool,
-        'payload': str,
-        'payload_hex': str,
-        'bytes_len': int,
-        'is_binary_seal': bool,
-        'engine': str,
-        'extracted_given_name': Optional[str],
-        'extracted_name': Optional[str],
-        'extracted_dob': Optional[str],
-        'extracted_crs_copy_number': Optional[str],
-        'message': str
-      }
     """
     img = _load_image(img_input)
     if img is None:
         return {'qr_detected': False, 'payload': '', 'message': 'Invalid or unreadable image data'}
 
-    # 1. Primary Engine: zxing-cpp (Excels at dense, official PSA security paper QR codes)
     try:
         import zxingcpp
         result = zxingcpp.read_barcode(img)
@@ -468,7 +488,6 @@ def decode_qr(img_input) -> Dict[str, Any]:
                 result = zxingcpp.read_barcode(candidate)
                 if result:
                     break
-
         if result:
             raw_b = bytes(result.bytes)
             hex_data = raw_b.hex()
@@ -478,19 +497,7 @@ def decode_qr(img_input) -> Dict[str, Any]:
                 text_payload = raw_b.decode('utf-8')
             except Exception:
                 text_payload = result.text or hex_data
-
             ext_given, ext_name, ext_dob, ext_crs = _extract_qr_details(text_payload, raw_b, is_binary)
-            if not (ext_given and ext_dob and ext_crs):
-                dyn = extract_psa_fields_from_image(img)
-                if not ext_given:
-                    ext_given = dyn.get('extracted_given_name')
-                if not ext_name and ext_given:
-                    ext_name = ext_given
-                if not ext_dob:
-                    ext_dob = dyn.get('extracted_dob')
-                if not ext_crs:
-                    ext_crs = dyn.get('extracted_crs_copy_number')
-
             return {
                 'qr_detected': True,
                 'payload': text_payload,
@@ -502,12 +509,11 @@ def decode_qr(img_input) -> Dict[str, Any]:
                 'extracted_name': ext_name,
                 'extracted_dob': ext_dob,
                 'extracted_crs_copy_number': ext_crs,
-                'message': 'Official PSA QR code successfully decoded.'
+                'message': 'QR code successfully decoded.'
             }
-    except Exception as e:
-        print(f"[QREngine] zxing-cpp notice: {e}")
+    except Exception:
+        pass
 
-    # 2. Secondary Engine: OpenCV QRCodeDetector / QRCodeDetectorAruco
     detectors = []
     if hasattr(cv2, 'QRCodeDetectorAruco'):
         try:
@@ -522,16 +528,6 @@ def decode_qr(img_input) -> Dict[str, Any]:
             if text:
                 raw_b = text.encode('utf-8')
                 ext_given, ext_name, ext_dob, ext_crs = _extract_qr_details(text, raw_b, False)
-                if not (ext_given and ext_dob and ext_crs):
-                    dyn = extract_psa_fields_from_image(img)
-                    if not ext_given:
-                        ext_given = dyn.get('extracted_given_name')
-                    if not ext_name and ext_given:
-                        ext_name = ext_given
-                    if not ext_dob:
-                        ext_dob = dyn.get('extracted_dob')
-                    if not ext_crs:
-                        ext_crs = dyn.get('extracted_crs_copy_number')
                 return {
                     'qr_detected': True,
                     'payload': text,
@@ -543,11 +539,11 @@ def decode_qr(img_input) -> Dict[str, Any]:
                     'extracted_name': ext_name,
                     'extracted_dob': ext_dob,
                     'extracted_crs_copy_number': ext_crs,
-                    'message': 'PSA QR code successfully decoded.'
+                    'message': 'QR code successfully decoded.'
                 }
 
     return {
         'qr_detected': False,
         'payload': '',
-        'message': 'No readable QR code found on the PSA document.'
+        'message': 'No readable QR code found.'
     }
