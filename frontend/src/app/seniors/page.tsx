@@ -2183,7 +2183,7 @@ export default function SeniorRegistryPage() {
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
                       <div className="space-y-2">
                         <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-1.5">
-                          OSCA ID Number *
+                          <span>OSCA ID Number <span className="text-rose-500">*</span></span>
                           <div className="group relative">
                             <Info size={12} className="text-slate-300 cursor-help" />
                             <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-56 p-2 bg-slate-800 text-white text-[10px] rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-20 font-medium text-center shadow-xl">
@@ -2204,7 +2204,7 @@ export default function SeniorRegistryPage() {
                       </div>
                       <div className="space-y-2">
                         <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-1.5">
-                          CRS Copy Number *
+                          <span>CRS Copy Number <span className="text-rose-500">*</span></span>
                           <div className="group relative">
                             <Info size={12} className="text-slate-300 cursor-help" />
                             <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-60 p-2 bg-slate-800 text-white text-[10px] rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-20 font-medium text-center shadow-xl">
@@ -2241,7 +2241,7 @@ export default function SeniorRegistryPage() {
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
                       <div className="space-y-2">
                         <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-1.5">
-                          Last Name *
+                          <span>Last Name <span className="text-rose-500">*</span></span>
                           <div className="group relative">
                             <Info size={12} className="text-slate-300 cursor-help" />
                             <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 p-2 bg-slate-800 text-white text-[10px] rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-20 font-medium text-center">
@@ -2254,7 +2254,7 @@ export default function SeniorRegistryPage() {
                       </div>
                       <div className="space-y-2">
                         <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-1.5">
-                          Given Name *
+                          <span>Given Name <span className="text-rose-500">*</span></span>
                           <div className="group relative">
                             <Info size={12} className="text-slate-300 cursor-help" />
                             <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 p-2 bg-slate-800 text-white text-[10px] rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-20 font-medium text-center">
@@ -2283,7 +2283,7 @@ export default function SeniorRegistryPage() {
                     <div className="grid grid-cols-1 md:grid-cols-5 gap-6 mb-12">
                       <div className="col-span-2 space-y-2">
                         <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-1.5">
-                          Birthdate *
+                          <span>Birthdate <span className="text-rose-500">*</span></span>
                           <div className="group relative">
                             <Info size={12} className="text-slate-300 cursor-help" />
                             <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 p-2 bg-slate-800 text-white text-[10px] rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-20 font-medium text-center shadow-xl">
@@ -2314,7 +2314,7 @@ export default function SeniorRegistryPage() {
                       </div>
                       <div className="space-y-2">
                         <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-1.5">
-                          Sex
+                          <span>Sex <span className="text-rose-500">*</span></span>
                           <div className="group relative">
                             <Info size={12} className="text-slate-300 cursor-help" />
                             <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 p-2 bg-slate-800 text-white text-[10px] rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-20 font-medium text-center shadow-xl">
@@ -2327,7 +2327,7 @@ export default function SeniorRegistryPage() {
                       </div>
                       <div className="space-y-2">
                         <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-1.5">
-                          Civil Status
+                          <span>Civil Status <span className="text-rose-500">*</span></span>
                           <div className="group relative">
                             <Info size={12} className="text-slate-300 cursor-help" />
                             <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 p-2 bg-slate-800 text-white text-[10px] rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-20 font-medium text-center shadow-xl">
@@ -2353,25 +2353,25 @@ export default function SeniorRegistryPage() {
                       </h4>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div className="space-y-1.5">
-                          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">District *</label>
+                          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">District <span className="text-rose-500">*</span></label>
                           <select required value={formData.res_district} onChange={(e) => setFormData({ ...formData, res_district: e.target.value, res_brgy: '' })} className="w-full px-4 py-3.5 bg-white border border-slate-200 rounded-xl text-sm font-bold appearance-none cursor-pointer">
                             <option value="">Select District...</option>
                             {Object.keys(QUEZON_CITY_BARANGAYS).map(d => <option key={d} value={d}>{d}</option>)}
                           </select>
                         </div>
                         <div className="space-y-1.5">
-                          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Barangay *</label>
+                          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Barangay <span className="text-rose-500">*</span></label>
                           <select required value={formData.res_brgy} onChange={(e) => setFormData({ ...formData, res_brgy: e.target.value })} disabled={!formData.res_district} className="w-full px-4 py-3.5 bg-white border border-slate-200 rounded-xl text-sm font-bold appearance-none cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed">
                             <option value="">{formData.res_district ? 'Select Barangay...' : 'Select a district first'}</option>
                             {formData.res_district && [...QUEZON_CITY_BARANGAYS[formData.res_district]].sort((a, b) => a.localeCompare(b)).map(b => <option key={b} value={b}>{b}</option>)}
                           </select>
                         </div>
                         <div className="space-y-1.5">
-                          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">House / Unit # *</label>
+                          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">House / Unit # <span className="text-rose-500">*</span></label>
                           <input required type="text" placeholder="e.g. 123 / Blk 5 Lot 10" value={formData.res_house} onChange={(e) => setFormData({ ...formData, res_house: e.target.value })} className="w-full px-4 py-3.5 bg-white border border-slate-200 rounded-xl text-sm font-medium" />
                         </div>
                         <div className="space-y-1.5">
-                          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Street *</label>
+                          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Street <span className="text-rose-500">*</span></label>
                           <input required type="text" placeholder="e.g. Sampaguita St." value={formData.res_street} onChange={(e) => setFormData({ ...formData, res_street: e.target.value })} className="w-full px-4 py-3.5 bg-white border border-slate-200 rounded-xl text-sm font-medium" />
                         </div>
                       </div>
@@ -2734,7 +2734,7 @@ export default function SeniorRegistryPage() {
                 {/* Date of Death Input */}
                 <div className="space-y-1.5">
                   <label className="text-xs font-black uppercase tracking-widest text-slate-600 ml-1">
-                    Date of Death *
+                    Date of Death <span className="text-rose-500">*</span>
                   </label>
                   <input
                     type="date"

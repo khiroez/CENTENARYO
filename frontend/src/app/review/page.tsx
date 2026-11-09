@@ -96,26 +96,34 @@ export default function ReviewQueuePage() {
     fetchQueue();
   }, []);
 
+  const getCalculatedAge = (dob?: string, fallbackAge?: number | string) => {
+    if (fallbackAge !== undefined && fallbackAge !== null && fallbackAge !== '') {
+      return `${fallbackAge} yrs old`;
+    }
+    if (!dob) return '—';
+    const birthDate = new Date(dob);
+    if (isNaN(birthDate.getTime())) return '—';
+    const today = new Date();
+    let age = today.getFullYear() - birthDate.getFullYear();
+    const m = today.getMonth() - birthDate.getMonth();
+    if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) {
+      age--;
+    }
+    return `${age} yrs old`;
+  };
+
   const handleOpenReview = (senior: any) => {
     setSelectedSenior(senior);
     setActiveTab('psa');
     setRemarks('');
 
-    // Pre-fill checklist items based on deep automated verification
+    // Keep all 4 COA Compliance Audit Checklist items unchecked by default for manual verification
     const autoChecks = senior.auto_check_results || {};
-    const psaCheck = autoChecks.psa_check || {};
-    const psaQr = autoChecks.psa_qr || {};
-    const ocrMatch = psaCheck.name_match ?? (psaQr.name_match || (autoChecks.ocr_psa?.name_found ?? false));
-    const dobMatch = psaCheck.dob_match ?? (psaQr.dob_match || (autoChecks.ocr_psa?.dob_found ?? false));
-    const faceMatch = autoChecks.face_match?.status === 'PASS';
-    const hashUnique = autoChecks.hash_check?.status !== 'FLAGGED';
-    const isPsaAuth = psaCheck.is_authentic_psa ?? Boolean(hashUnique);
-
     setChecklist({
-      name_match: Boolean(ocrMatch),
-      dob_match: Boolean(dobMatch),
-      photo_match: Boolean(faceMatch),
-      document_authentic: Boolean(isPsaAuth && hashUnique),
+      name_match: false,
+      dob_match: false,
+      photo_match: false,
+      document_authentic: false,
     });
 
     // Automatically run complete deep document verification if not yet done
@@ -329,16 +337,8 @@ export default function ReviewQueuePage() {
               >
                 <div>
                   <div className="flex justify-between items-start mb-4">
-                    <div className="w-14 h-14 bg-indigo-50 rounded-2xl flex items-center justify-center text-indigo-600 font-black text-lg overflow-hidden border border-indigo-100">
-                      {senior.picture_2x2_file ? (
-                        <img
-                          src={getCleanFileUrl(senior.picture_2x2_file)}
-                          alt="Senior"
-                          className="w-full h-full object-cover"
-                        />
-                      ) : (
-                        `${senior.first_name[0]}${senior.last_name[0]}`
-                      )}
+                    <div className="w-14 h-14 bg-indigo-50 rounded-2xl flex items-center justify-center text-indigo-600 font-black text-lg overflow-hidden border border-indigo-100 uppercase">
+                      {`${senior.first_name?.[0] || ''}${senior.last_name?.[0] || ''}`}
                     </div>
                     <div className="flex flex-col items-end gap-1.5">
                       <div className={`px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5 ${isReturned ? 'bg-amber-50 text-amber-600' : 'bg-indigo-50 text-indigo-600'
@@ -773,6 +773,35 @@ export default function ReviewQueuePage() {
                     <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400 flex items-center gap-1.5">
                       <ShieldCheck size={13} className="text-indigo-600" /> Integrity & Civil Registry Verification
                     </h3>
+                  </div>
+
+                  {/* Form-Inputted Details for Manual PSA Cross-Check */}
+                  <div className="p-3.5 bg-indigo-50/50 border border-indigo-100 rounded-2xl space-y-2.5">
+                    <div className="text-[10px] font-black uppercase tracking-wider text-indigo-900 flex items-center gap-1.5">
+                      <FileText size={12} className="text-indigo-600" /> Application Form Details (Manual PSA Cross-Check)
+                    </div>
+                    <div className="grid grid-cols-1 gap-2 bg-white p-3 rounded-xl border border-indigo-100/80">
+                      <div>
+                        <div className="text-[9px] font-black uppercase tracking-widest text-slate-400">Full Name</div>
+                        <div className="text-xs font-black text-slate-800 uppercase mt-0.5">
+                          {[selectedSenior.first_name, selectedSenior.middle_name, selectedSenior.last_name].filter(Boolean).join(' ')}
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-3 pt-1.5 border-t border-slate-100">
+                        <div>
+                          <div className="text-[9px] font-black uppercase tracking-widest text-slate-400">Date of Birth</div>
+                          <div className="text-xs font-black text-slate-800 font-mono mt-0.5">
+                            {selectedSenior.date_of_birth || '—'}
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-[9px] font-black uppercase tracking-widest text-slate-400">Age</div>
+                          <div className="text-xs font-black text-indigo-600 mt-0.5">
+                            {getCalculatedAge(selectedSenior.date_of_birth, selectedSenior.age)}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
                   </div>
 
                   <div className="grid grid-cols-1 gap-2.5">
