@@ -1305,74 +1305,11 @@ export default function SeniorRegistryPage() {
     });
   };
 
-  // Whenever the applicant's Given Name, Date of Birth, or CRS Copy Number is edited in the form,
-  // re-compare against the temporarily stored PSA QR payload (stored in psaQrRef.current)
-  useEffect(() => {
-    if (!psaQrRef.current) return;
-    const cmp = comparePsaQrWithForm(
-      psaQrRef.current.payload,
-      formData,
-      psaQrRef.current.isBinarySeal,
-      psaQrRef.current.ocrText,
-      psaQrRef.current.extractedGivenName,
-      psaQrRef.current.extractedName,
-      psaQrRef.current.extractedDob,
-      psaQrRef.current.extractedCrsCopyNumber
-    );
-    setAutoCheckResults((prev: any) => ({
-      ...prev,
-      psa_qr: buildPsaQrCheck(psaQrRef.current!, cmp),
-      ocr_psa: {
-        status: cmp.status,
-        verification_status: cmp.verificationStatus,
-        name_found: cmp.givenNameMatch,
-        dob_found: cmp.dobMatch,
-        crs_found: cmp.crsCopyNumberMatch,
-        message: cmp.message,
-      }
-    }));
-    setVerificationState(prev => {
-      if (!prev || prev.fieldName !== 'psa_cert_file') return prev;
-      return {
-        ...prev,
-        matchNote: cmp.message,
-        psaQr: {
-          detected: true,
-          status: cmp.status,
-          verificationStatus: cmp.verificationStatus,
-          givenNameMatch: cmp.givenNameMatch,
-          dobMatch: cmp.dobMatch,
-          crsCopyNumberMatch: cmp.crsCopyNumberMatch,
-          extractedGivenName: cmp.extractedGivenName,
-          extractedName: cmp.extractedName,
-          extractedDob: cmp.extractedDob,
-          extractedCrsCopyNumber: cmp.extractedCrsCopyNumber,
-          engine: psaQrRef.current?.engine,
-          isBinarySeal: psaQrRef.current?.isBinarySeal,
-          bytesLen: psaQrRef.current?.bytesLen,
-        }
-      };
-    });
-  }, [formData.given_name, formData.date_of_birth, formData.crs_copy_number]);
-
   // Whenever any of the 5 OSCA ID fields (Full Name, OSCA ID Number, Date of Birth, Sex, Civil Status)
-  // is edited in the Application Form, re-compare against the stored OSCA ID card extraction
+  // is edited while the OSCA ID verification modal is actively open, update its cross-check preview
   useEffect(() => {
-    if (!oscaCardRef.current) return;
+    if (!oscaCardRef.current || !verificationState?.isOpen || verificationState.fieldName !== 'primary_id_file') return;
     const oscaCmp = compareOscaIdWithForm(oscaCardRef.current, formData);
-    setAutoCheckResults((prev: any) => ({
-      ...prev,
-      osca_cross_check: oscaCmp,
-      ocr_osca: {
-        status: oscaCmp.status,
-        name_match: oscaCmp.nameMatch,
-        osca_id_match: oscaCmp.oscaIdMatch,
-        dob_match: oscaCmp.dobMatch,
-        sex_match: oscaCmp.sexMatch,
-        civil_status_match: oscaCmp.civilStatusMatch,
-        message: oscaCmp.message,
-      },
-    }));
     setVerificationState(prev => {
       if (!prev || prev.fieldName !== 'primary_id_file') return prev;
       return {
@@ -1381,6 +1318,8 @@ export default function SeniorRegistryPage() {
       };
     });
   }, [
+    verificationState?.isOpen,
+    verificationState?.fieldName,
     formData.last_name,
     formData.given_name,
     formData.middle_name,

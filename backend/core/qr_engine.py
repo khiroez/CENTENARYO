@@ -156,7 +156,29 @@ def extract_psa_fields_from_image(img: np.ndarray) -> Dict[str, Optional[str]]:
         return {'extracted_given_name': None, 'extracted_dob': None, 'extracted_crs_copy_number': None}
 
     h, w = img.shape[:2]
+
+    # Fast-path: crop the bottom-left CRS Copy Number region first (~30ms instead of full-page multi-pass OCR)
+    fast_crop = img[int(h * 0.76):int(h * 0.96), int(w * 0.05):int(w * 0.55)]
+    if fast_crop.size > 0:
+        for sc in (1.0, 1.5):
+            up_fast = cv2.resize(fast_crop, None, fx=sc, fy=sc, interpolation=cv2.INTER_CUBIC) if sc != 1.0 else fast_crop
+            fast_text, _ = safe_winocr_lines_bgr(up_fast)
+            fast_crs = extract_crs_copy_number_from_text(fast_text)
+            if fast_crs:
+                return {
+                    'extracted_given_name': None,
+                    'extracted_dob': None,
+                    'extracted_crs_copy_number': fast_crs,
+                }
+
     full_text, full_lines = safe_winocr_lines_bgr(img)
+    extracted_crs = extract_crs_copy_number_from_text(full_text)
+    if extracted_crs:
+        return {
+            'extracted_given_name': None,
+            'extracted_dob': None,
+            'extracted_crs_copy_number': extracted_crs,
+        }
 
     name_y = None
     dob_y = None

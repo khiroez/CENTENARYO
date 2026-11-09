@@ -31,16 +31,20 @@ export default function ReviewQueuePage() {
   const [previewZoom, setPreviewZoom] = useState<number>(1);
   const [previewPan, setPreviewPan] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [isDraggingImage, setIsDraggingImage] = useState<boolean>(false);
-  const dragOriginRef = React.useRef<{ startX: number; startY: number; panX: number; panY: number }>({
+  const previewImgRef = React.useRef<HTMLImageElement | null>(null);
+  const dragOriginRef = React.useRef<{ startX: number; startY: number; panX: number; panY: number; curX: number; curY: number }>({
     startX: 0,
     startY: 0,
     panX: 0,
     panY: 0,
+    curX: 0,
+    curY: 0,
   });
 
   const openImagePreview = (title: string, url: string) => {
     setPreviewZoom(1);
     setPreviewPan({ x: 0, y: 0 });
+    dragOriginRef.current = { startX: 0, startY: 0, panX: 0, panY: 0, curX: 0, curY: 0 };
     setIsDraggingImage(false);
     setPreviewImageModal({ title, url });
   };
@@ -150,8 +154,8 @@ export default function ReviewQueuePage() {
       document_authentic: false,
     });
 
-    // Automatically run complete deep document verification if not yet done
-    if (!autoChecks.psa_check && (senior.psa_cert_file || senior.primary_id_file)) {
+    // Only run background document verification if files exist and no verification results are present yet
+    if (!autoChecks.psa_check && !autoChecks.ocr_psa && !autoChecks.psa_qr && senior.psa_cert_file) {
       authFetch(`${API_BASE}/seniors/${senior.id}/verify-documents/?registration_status=ALL`, {
         method: 'POST',
       }).then(async (res) => {
@@ -987,6 +991,8 @@ export default function ReviewQueuePage() {
                       onClick={() => {
                         setPreviewZoom(1);
                         setPreviewPan({ x: 0, y: 0 });
+                        dragOriginRef.current.curX = 0;
+                        dragOriginRef.current.curY = 0;
                       }}
                       title="Reset Zoom & Position to 100%"
                       className="px-2 py-0.5 text-xs font-black text-slate-700 hover:text-indigo-600 min-w-[52px] text-center"
@@ -1023,19 +1029,32 @@ export default function ReviewQueuePage() {
                   startY: e.clientY,
                   panX: previewPan.x,
                   panY: previewPan.y,
+                  curX: previewPan.x,
+                  curY: previewPan.y,
                 };
               }}
               onMouseMove={(e) => {
                 if (!isDraggingImage) return;
-                const dx = e.clientX - dragOriginRef.current.startX;
-                const dy = e.clientY - dragOriginRef.current.startY;
-                setPreviewPan({
-                  x: dragOriginRef.current.panX + dx,
-                  y: dragOriginRef.current.panY + dy,
-                });
+                const nx = dragOriginRef.current.panX + (e.clientX - dragOriginRef.current.startX);
+                const ny = dragOriginRef.current.panY + (e.clientY - dragOriginRef.current.startY);
+                dragOriginRef.current.curX = nx;
+                dragOriginRef.current.curY = ny;
+                if (previewImgRef.current) {
+                  previewImgRef.current.style.transform = `translate3d(${nx}px, ${ny}px, 0) scale(${previewZoom})`;
+                }
               }}
-              onMouseUp={() => setIsDraggingImage(false)}
-              onMouseLeave={() => setIsDraggingImage(false)}
+              onMouseUp={() => {
+                if (isDraggingImage) {
+                  setIsDraggingImage(false);
+                  setPreviewPan({ x: dragOriginRef.current.curX, y: dragOriginRef.current.curY });
+                }
+              }}
+              onMouseLeave={() => {
+                if (isDraggingImage) {
+                  setIsDraggingImage(false);
+                  setPreviewPan({ x: dragOriginRef.current.curX, y: dragOriginRef.current.curY });
+                }
+              }}
               className={`p-6 bg-slate-950 flex-grow overflow-hidden min-h-[420px] flex items-center justify-center select-none ${
                 previewImageModal.url.toLowerCase().endsWith('.pdf')
                   ? ''
@@ -1050,12 +1069,14 @@ export default function ReviewQueuePage() {
                 </div>
               ) : (
                 <img
+                  ref={previewImgRef}
                   src={previewImageModal.url}
                   alt={previewImageModal.title}
                   draggable={false}
                   style={{
-                    transform: `translate(${previewPan.x}px, ${previewPan.y}px) scale(${previewZoom})`,
+                    transform: `translate3d(${previewPan.x}px, ${previewPan.y}px, 0) scale(${previewZoom})`,
                     transformOrigin: 'center center',
+                    willChange: 'transform',
                   }}
                   title="Hold and drag mouse to move image"
                   className="max-w-full max-h-[75vh] object-contain rounded-2xl shadow-lg pointer-events-none"

@@ -78,6 +78,21 @@ class SeniorListSerializer(serializers.ModelSerializer):
         return None
 
 
+class SeniorReviewQueueSerializer(serializers.ModelSerializer):
+    """Optimized serializer for the Document Review Queue (includes auto_check_results & review_logs, omits disbursements/anomalies)."""
+    review_logs = ReviewLogSerializer(many=True, read_only=True)
+    reviewer_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Senior
+        fields = '__all__'
+
+    def get_reviewer_name(self, obj):
+        if obj.reviewed_by:
+            return f"{obj.reviewed_by.first_name} {obj.reviewed_by.last_name}".strip() or obj.reviewed_by.username
+        return None
+
+
 class SeniorSerializer(serializers.ModelSerializer):
     # Kasama ang related disbursements at anomalies kapag finetch ang Senior!
     disbursements = DisbursementSerializer(many=True, read_only=True)
