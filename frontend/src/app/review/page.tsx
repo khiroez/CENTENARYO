@@ -29,10 +29,28 @@ export default function ReviewQueuePage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [previewImageModal, setPreviewImageModal] = useState<{ title: string; url: string } | null>(null);
   const [previewZoom, setPreviewZoom] = useState<number>(1);
+  const [previewPan, setPreviewPan] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [isDraggingImage, setIsDraggingImage] = useState<boolean>(false);
+  const dragOriginRef = React.useRef<{ startX: number; startY: number; panX: number; panY: number }>({
+    startX: 0,
+    startY: 0,
+    panX: 0,
+    panY: 0,
+  });
 
   const openImagePreview = (title: string, url: string) => {
     setPreviewZoom(1);
+    setPreviewPan({ x: 0, y: 0 });
+    setIsDraggingImage(false);
     setPreviewImageModal({ title, url });
+  };
+
+  const formatProperName = (text?: string) => {
+    if (!text) return '';
+    return text
+      .trim()
+      .toLowerCase()
+      .replace(/\b[a-z]/g, (char) => char.toUpperCase());
   };
 
   // Rejection Modal State
@@ -314,31 +332,11 @@ export default function ReviewQueuePage() {
                   </div>
 
                   <h3 className="text-lg font-black text-slate-800 truncate">
-                    {senior.first_name} {senior.middle_name ? `${senior.middle_name[0]}. ` : ''}{senior.last_name}
+                    {formatProperName(senior.first_name)} {senior.middle_name ? `${senior.middle_name[0].toUpperCase()}. ` : ''}{formatProperName(senior.last_name)}
                   </h3>
                   <p className="text-xs font-bold text-slate-400 mt-0.5 flex items-center gap-1.5">
                     <FileText size={13} /> {senior.osca_id}
                   </p>
-
-                  {/* Verification Status Badges */}
-                  <div className="mt-4 flex flex-wrap gap-1.5">
-                    {faceScore !== undefined ? (
-                      <span className={`px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider ${faceScore >= 70 ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' : (faceScore >= 50 ? 'bg-amber-50 text-amber-700 border border-amber-100' : 'bg-rose-50 text-rose-700 border border-rose-100')
-                        }`}>
-                        Face: {faceScore}%
-                      </span>
-                    ) : (
-                      <span className="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-slate-50 text-slate-500 border border-slate-100">
-                        Face: Manual
-                      </span>
-                    )}
-
-                    {autoChecks.hash_check?.status === 'PASS' ? (
-                      <span className="px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider bg-slate-50 text-slate-600 border border-slate-100">
-                        Unique Hash
-                      </span>
-                    ) : null}
-                  </div>
 
                   <div className="mt-4 space-y-2">
                     <div className="flex items-center justify-between text-xs font-bold bg-slate-50 p-2.5 rounded-xl">
@@ -560,12 +558,12 @@ export default function ReviewQueuePage() {
             {/* Modal Header */}
             <div className="px-8 py-5 border-b border-slate-100 flex justify-between items-center bg-slate-50 shrink-0">
               <div className="flex items-center gap-4">
-                <div className="w-12 h-12 rounded-2xl bg-indigo-600 text-white flex items-center justify-center font-black text-xl shadow-md shadow-indigo-200">
-                  {selectedSenior.first_name[0]}{selectedSenior.last_name[0]}
+                <div className="w-12 h-12 rounded-2xl bg-indigo-600 text-white flex items-center justify-center font-black text-xl shadow-md shadow-indigo-200 uppercase">
+                  {selectedSenior.first_name?.[0]}{selectedSenior.last_name?.[0]}
                 </div>
                 <div>
                   <h2 className="text-2xl font-black text-slate-800">
-                    {selectedSenior.first_name} {selectedSenior.middle_name} {selectedSenior.last_name}
+                    {[selectedSenior.first_name, selectedSenior.middle_name, selectedSenior.last_name].filter(Boolean).map(formatProperName).join(' ')}
                   </h2>
                   <p className="text-xs font-bold text-slate-500 flex items-center gap-2 mt-0.5">
                     <FileText size={14} className="text-indigo-500" /> OSCA ID: {selectedSenior.osca_id}
@@ -727,8 +725,8 @@ export default function ReviewQueuePage() {
                     <div className="grid grid-cols-1 gap-2 bg-white p-3 rounded-xl border border-indigo-100/80">
                       <div>
                         <div className="text-[9px] font-black uppercase tracking-widest text-slate-400">Full Name</div>
-                        <div className="text-xs font-black text-slate-800 uppercase mt-0.5">
-                          {[selectedSenior.first_name, selectedSenior.middle_name, selectedSenior.last_name].filter(Boolean).join(' ')}
+                        <div className="text-xs font-black text-slate-800 mt-0.5">
+                          {[selectedSenior.first_name, selectedSenior.middle_name, selectedSenior.last_name].filter(Boolean).map(formatProperName).join(' ')}
                         </div>
                       </div>
                       <div className="grid grid-cols-2 gap-3 pt-1.5 border-t border-slate-100">
@@ -850,19 +848,6 @@ export default function ReviewQueuePage() {
                       </span>
                     </label>
                   </div>
-                </div>
-
-                {/* 4. Remarks Textarea */}
-                <div className="space-y-2">
-                  <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400">
-                    Administrative Remarks
-                  </h3>
-                  <textarea
-                    value={remarks}
-                    onChange={(e) => setRemarks(e.target.value)}
-                    placeholder="Add certification notes, audit remarks, or defect observations..."
-                    className="w-full h-24 p-4 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-medium text-slate-700 outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all resize-none"
-                  />
                 </div>
 
               </div>
@@ -999,8 +984,11 @@ export default function ReviewQueuePage() {
                     </button>
                     <button
                       type="button"
-                      onClick={() => setPreviewZoom(1)}
-                      title="Reset Zoom to 100%"
+                      onClick={() => {
+                        setPreviewZoom(1);
+                        setPreviewPan({ x: 0, y: 0 });
+                      }}
+                      title="Reset Zoom & Position to 100%"
                       className="px-2 py-0.5 text-xs font-black text-slate-700 hover:text-indigo-600 min-w-[52px] text-center"
                     >
                       {Math.round(previewZoom * 100)}%
@@ -1026,33 +1014,52 @@ export default function ReviewQueuePage() {
               </div>
             </div>
             <div
-              onWheel={(e) => {
+              onMouseDown={(e) => {
                 if (previewImageModal.url.toLowerCase().endsWith('.pdf')) return;
                 e.preventDefault();
-                const delta = e.deltaY < 0 ? 0.2 : -0.2;
-                setPreviewZoom((z) => Math.min(4, Math.max(0.5, Number((z + delta).toFixed(2)))));
+                setIsDraggingImage(true);
+                dragOriginRef.current = {
+                  startX: e.clientX,
+                  startY: e.clientY,
+                  panX: previewPan.x,
+                  panY: previewPan.y,
+                };
               }}
-              className="p-6 bg-slate-950 flex-grow overflow-auto min-h-[420px] flex"
+              onMouseMove={(e) => {
+                if (!isDraggingImage) return;
+                const dx = e.clientX - dragOriginRef.current.startX;
+                const dy = e.clientY - dragOriginRef.current.startY;
+                setPreviewPan({
+                  x: dragOriginRef.current.panX + dx,
+                  y: dragOriginRef.current.panY + dy,
+                });
+              }}
+              onMouseUp={() => setIsDraggingImage(false)}
+              onMouseLeave={() => setIsDraggingImage(false)}
+              className={`p-6 bg-slate-950 flex-grow overflow-hidden min-h-[420px] flex items-center justify-center select-none ${
+                previewImageModal.url.toLowerCase().endsWith('.pdf')
+                  ? ''
+                  : isDraggingImage
+                    ? 'cursor-grabbing'
+                    : 'cursor-grab'
+              }`}
             >
               {previewImageModal.url.toLowerCase().endsWith('.pdf') ? (
                 <div className="w-full h-[72vh] bg-white rounded-2xl overflow-hidden m-auto">
                   <PdfViewer url={previewImageModal.url} />
                 </div>
               ) : (
-                <div className="m-auto flex items-center justify-center">
-                  <img
-                    src={previewImageModal.url}
-                    alt={previewImageModal.title}
-                    onClick={() => setPreviewZoom((z) => (z < 2 ? Number((z + 0.5).toFixed(2)) : 1))}
-                    style={{
-                      width: previewZoom === 1 ? 'auto' : `${previewZoom * 100}%`,
-                      maxWidth: previewZoom === 1 ? '100%' : 'none',
-                      maxHeight: previewZoom === 1 ? '75vh' : 'none',
-                    }}
-                    title="Click image or scroll mouse wheel to zoom"
-                    className={`object-contain rounded-2xl shadow-lg transition-all duration-150 ${previewZoom < 2 ? 'cursor-zoom-in' : 'cursor-zoom-out'}`}
-                  />
-                </div>
+                <img
+                  src={previewImageModal.url}
+                  alt={previewImageModal.title}
+                  draggable={false}
+                  style={{
+                    transform: `translate(${previewPan.x}px, ${previewPan.y}px) scale(${previewZoom})`,
+                    transformOrigin: 'center center',
+                  }}
+                  title="Hold and drag mouse to move image"
+                  className="max-w-full max-h-[75vh] object-contain rounded-2xl shadow-lg pointer-events-none"
+                />
               )}
             </div>
           </div>
