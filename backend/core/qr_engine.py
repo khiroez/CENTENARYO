@@ -56,13 +56,13 @@ def _try_decode(detector, image: np.ndarray) -> Optional[str]:
 def extract_crs_copy_number_from_text(text: str) -> Optional[str]:
     """
     Extracts the PSA CRS Copy Number from QR or OCR text dynamically.
-    Handles common OCR spacing or character confusions (e.g., '09295-1 G-003JGL-01480-B1001' -> '09295-1G-003JGL-01480-BI001').
+    Handles common OCR spacing or character confusions around hyphens.
     """
     import re
     if not text:
         return None
     upper = text.upper()
-    # Fix OCR space inside second segment (e.g. "09295-1 G-003JGL-01480-B1001")
+    # Fix OCR space inside second segment
     upper = re.sub(
         r'(\b\d{4,6}-[A-Z0-9])\s+([A-Z0-9]-[A-Z0-9]{3,8}-\d{4,6}-[A-Z0-9]{4,6}\b)',
         r'\1\2',
@@ -73,7 +73,7 @@ def extract_crs_copy_number_from_text(text: str) -> Optional[str]:
     if m:
         crs = m.group(1).strip()
         return re.sub(r'-B1(\d{3})$', r'-BI\1', crs)
-    # 2. Fallback when OCR drops hyphen between segment 2 and 3 (e.g. 08621-A8a3AOQ-00669-B1005)
+    # 2. Fallback when OCR drops hyphen between segment 2 and 3
     m_merged = re.search(r'\b(\d{4,6})-([A-Z0-9]{2})[A-Z0-9]{1,2}([A-Z0-9]{3})-(\d{4,6})-(B[I1]\d{3})\b', upper)
     if m_merged:
         s1, s2, s3_tail, s4, s5 = m_merged.groups()
@@ -194,25 +194,31 @@ def extract_psa_fields_from_image(img: np.ndarray) -> Dict[str, Optional[str]]:
     # 2. Given Name (Box 1. NAME -> (First)) and DOB (Box 3. DATE OF BIRTH)
     hy1 = max(0, int(h * (name_y - 0.005)))
     hy2 = min(h, int(h * (name_y + 0.055)))
+    hy2_tight = min(h, int(h * (name_y + 0.045)))
     hx1 = int(w * 0.16)
     hx2 = int(w * 0.72)
     hbox = img[hy1:hy2, hx1:hx2]
+    hbox_tight = img[hy1:hy2_tight, hx1:hx2]
     hlines_25 = []
     hlines_20 = []
+    hlines_tight_25 = []
     if hbox.size > 0:
         hbox_25 = cv2.resize(hbox, None, fx=2.5, fy=2.5, interpolation=cv2.INTER_CUBIC)
         _, hlines_25 = safe_winocr_lines_bgr(hbox_25)
         hbox_20 = cv2.resize(hbox, None, fx=2.0, fy=2.0, interpolation=cv2.INTER_CUBIC)
         _, hlines_20 = safe_winocr_lines_bgr(hbox_20)
+    if hbox_tight.size > 0:
+        hb_t25 = cv2.resize(hbox_tight, None, fx=2.5, fy=2.5, interpolation=cv2.INTER_CUBIC)
+        _, hlines_tight_25 = safe_winocr_lines_bgr(hb_t25)
 
     skip_labels = {'NAME', 'FIRST', 'MIDDLE', 'LAST', 'SEX', 'FEMALE', 'MALE', 'DATE', 'DATEOF', 'BIRTH'}
     fn_words = []
-    for cand_lines in (hlines_25, hlines_20):
+    for cand_lines, y_max in ((hlines_tight_25, 0.36), (hlines_25, 0.32), (hlines_20, 0.32)):
         cand_fn = []
         for ln in cand_lines:
             for wd in ln['words']:
                 wx, wy = wd['x'], wd['y']
-                if 0.16 <= wx <= 0.45 and 0.12 <= wy <= 0.32:
+                if 0.16 <= wx <= 0.45 and 0.12 <= wy <= y_max:
                     cleaned_w = re.sub(r'[^A-Za-z]', '', wd['text']).upper()
                     if len(cleaned_w) >= 2 and cleaned_w not in skip_labels:
                         cand_fn.append((wx, wd['text'], cleaned_w))
@@ -237,8 +243,6 @@ def extract_psa_fields_from_image(img: np.ndarray) -> Dict[str, Optional[str]]:
 
     final_fn_parts = []
     for idx_w, (_, _raw_w, clean_w) in enumerate(fn_words):
-        if clean_w in ('ATRA', 'AYRA'):
-            clean_w = 'AIRA'
         if annot_tokens and idx_w == len(fn_words) - 1 and len(fn_words) >= 2:
             clean_w = annot_tokens[-1]
         final_fn_parts.append(clean_w)
