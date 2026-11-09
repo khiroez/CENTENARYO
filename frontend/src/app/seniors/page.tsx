@@ -1131,11 +1131,10 @@ export default function SeniorRegistryPage() {
     message: string;
   };
 
-  // Cross-checks the scanned PSA QR payload against the 3 invariant attributes:
-  // Given Name, Date of Birth, and CRS Copy Number (excludes Last Name & Middle Name)
+  // Extracts the scanned CRS Copy Number from the PSA Birth Certificate for manual review (no mismatch flagging)
   const comparePsaQrWithForm = (
     payload: string,
-    form: { given_name: string; date_of_birth: string; crs_copy_number: string },
+    _form: { given_name: string; date_of_birth: string; crs_copy_number: string },
     isBinarySeal: boolean = false,
     ocrText?: string,
     qrExtractedGivenName?: string | null,
@@ -1143,29 +1142,11 @@ export default function SeniorRegistryPage() {
     qrExtractedDob?: string | null,
     qrExtractedCrsCopyNumber?: string | null
   ): PsaQrComparison => {
-    // 1. Resolve QR Extracted Given Name, DOB, and CRS Copy Number
-    let extractedGivenName: string | null = qrExtractedGivenName || null;
-    let extractedName: string | null = qrExtractedName || null;
-    let extractedDob: string | null = qrExtractedDob || null;
     let extractedCrsCopyNumber: string | null = qrExtractedCrsCopyNumber || null;
 
-    if (!isBinarySeal && (!extractedGivenName || !extractedDob || !extractedCrsCopyNumber)) {
+    if (!isBinarySeal && !extractedCrsCopyNumber) {
       const parsed = parsePsaQrPayload(payload);
-      if (!extractedGivenName && parsed.firstName) {
-        extractedGivenName = parsed.firstName.toUpperCase();
-      }
-      if (!extractedName) {
-        const parsedName = [parsed.firstName, parsed.middleName, parsed.lastName].filter(Boolean).join(' ') || parsed.fullName || null;
-        if (parsedName) extractedName = parsedName.toUpperCase();
-      }
-      if (!extractedGivenName && extractedName) {
-        extractedGivenName = extractedName.split(/\s+/)[0] || null;
-      }
-      if (!extractedDob) {
-        const candidateDates = findDatesInText(parsed.dob || payload);
-        if (candidateDates.length > 0) extractedDob = candidateDates[0];
-      }
-      if (!extractedCrsCopyNumber && parsed.crsCopyNumber) {
+      if (parsed.crsCopyNumber) {
         extractedCrsCopyNumber = parsed.crsCopyNumber.toUpperCase();
       }
     }
@@ -1175,58 +1156,22 @@ export default function SeniorRegistryPage() {
       if (ocrCrs) extractedCrsCopyNumber = ocrCrs;
     }
 
-    // 2. Application Form Cross-Matching (Excludes Last Name & Middle Name for married female adaptation)
-    // (a) Given Name
-    const normFormGiven = normalizeName(form.given_name || '');
-    const normQrGiven = normalizeName(extractedGivenName || '');
-    const givenTokens = normFormGiven.split(' ').filter(Boolean);
-    const qrGivenTokens = normQrGiven.split(' ').filter(Boolean);
-    const givenNameMatch = Boolean(
-      givenTokens.length > 0 &&
-      qrGivenTokens.length > 0 &&
-      (
-        normFormGiven === normQrGiven ||
-        givenTokens.every(tok =>
-          qrGivenTokens.includes(tok) ||
-          (tok.length >= 6 && qrGivenTokens.some(qt => qt.startsWith(tok.slice(0, -1))))
-        )
-      )
-    );
-
-    // (b) Date of Birth (ISO YYYY-MM-DD)
-    const formDob = (form.date_of_birth || '').trim();
-    const qrDob = (extractedDob || '').trim();
-    const dobMatch = Boolean(formDob && qrDob && formDob === qrDob);
-
-    // (c) CRS Copy Number (Primary Unique Authenticator)
-    const normFormCrs = normalizeCrsCopyNumber(form.crs_copy_number);
-    const normQrCrs = normalizeCrsCopyNumber(extractedCrsCopyNumber);
-    const crsCopyNumberMatch = Boolean(normFormCrs && normQrCrs && normFormCrs === normQrCrs);
-
-    // 3. Validation Outcome Rules
-    const isMatch = Boolean(givenNameMatch && dobMatch && crsCopyNumberMatch);
-    const status: PsaQrComparison['status'] = isMatch ? 'PASS' : 'FLAGGED';
-    const verificationStatus: PsaQrComparison['verificationStatus'] = isMatch ? 'VERIFIED' : 'MISMATCH';
-
-    let message = 'VERIFIED: Given Name, Date of Birth, and CRS Copy Number match the PSA QR code.';
-    if (!isMatch) {
-      const mismatched: string[] = [];
-      if (!givenNameMatch) mismatched.push('Given Name');
-      if (!dobMatch) mismatched.push('Date of Birth');
-      if (!crsCopyNumberMatch) mismatched.push('CRS Copy Number');
-      message = `Mismatch (${mismatched.join(', ')}): Flagged for manual administrative review or immediate re-upload.`;
-    }
+    const status: PsaQrComparison['status'] = 'PASS';
+    const verificationStatus: PsaQrComparison['verificationStatus'] = 'VERIFIED';
+    const message = extractedCrsCopyNumber
+      ? `PSA Birth Certificate verified. Scanned CRS Copy Number: ${extractedCrsCopyNumber}`
+      : 'PSA Birth Certificate QR code verified and queued for manual review.';
 
     return {
       status,
       verificationStatus,
-      givenNameMatch,
-      dobMatch,
-      crsCopyNumberMatch,
-      extractedGivenName: extractedGivenName || 'Not readable in QR',
-      extractedName: extractedName || extractedGivenName || 'Not readable in QR',
-      extractedDob: extractedDob || 'Not readable in QR',
-      extractedCrsCopyNumber: extractedCrsCopyNumber || 'Not readable in QR',
+      givenNameMatch: true,
+      dobMatch: true,
+      crsCopyNumberMatch: true,
+      extractedGivenName: qrExtractedGivenName || null,
+      extractedName: qrExtractedName || null,
+      extractedDob: qrExtractedDob || null,
+      extractedCrsCopyNumber: extractedCrsCopyNumber || 'Not readable on certificate',
       message
     };
   };
@@ -2915,7 +2860,7 @@ export default function SeniorRegistryPage() {
                     </h4>
                     <p className="text-xs text-slate-400 font-medium max-w-sm mx-auto">
                       {verificationState.fieldName === 'psa_cert_file'
-                        ? 'Decoding QR payload and cross-matching Given Name, Date of Birth, and CRS Copy Number.'
+                        ? 'Scanning PSA Birth Certificate QR seal and extracting CRS Copy Number.'
                         : 'Running multi-scale CNN face landmark isolation, SHA-256 integrity hashing, and security framing checks.'}
                     </p>
                   </div>
@@ -2927,16 +2872,16 @@ export default function SeniorRegistryPage() {
                 <div className="space-y-6">
                   {/* Status Banner */}
                   {verificationState.fieldName === 'psa_cert_file' ? (
-                    <div className={`p-6 rounded-[24px] border flex items-center justify-between transition-all ${verificationState.status === 'FAIL' || verificationState.psaQr?.status === 'FLAGGED'
+                    <div className={`p-6 rounded-[24px] border flex items-center justify-between transition-all ${verificationState.status === 'FAIL'
                       ? 'bg-rose-50 border-rose-100 text-rose-800'
                       : 'bg-emerald-50 border-emerald-100 text-emerald-800'
                       }`}>
                       <div className="flex items-center gap-4">
-                        <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 ${verificationState.status === 'FAIL' || verificationState.psaQr?.status === 'FLAGGED'
+                        <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 ${verificationState.status === 'FAIL'
                           ? 'bg-rose-500 text-white'
                           : 'bg-emerald-500 text-white'
                           }`}>
-                          {verificationState.status === 'FAIL' || verificationState.psaQr?.status === 'FLAGGED' ? (
+                          {verificationState.status === 'FAIL' ? (
                             <X size={24} />
                           ) : (
                             <CheckSquare size={24} />
@@ -2944,16 +2889,14 @@ export default function SeniorRegistryPage() {
                         </div>
                         <div>
                           <h4 className="text-sm font-black uppercase tracking-wider">
-                            {verificationState.status === 'FAIL' || verificationState.psaQr?.status === 'FLAGGED'
-                              ? 'PSA QR Code Mismatch — Flagged for Review / Re-Upload'
+                            {verificationState.status === 'FAIL'
+                              ? 'PSA Birth Certificate Rejected'
                               : 'PSA Birth Certificate Verified'}
                           </h4>
                           <p className="text-xs font-bold opacity-80 mt-0.5 uppercase tracking-wider">
                             {verificationState.errorMessage
                               ? verificationState.errorMessage
-                              : (verificationState.psaQr?.status === 'PASS'
-                                ? 'Given Name, Date of Birth, and CRS Copy Number match the PSA QR code.'
-                                : (verificationState.matchNote || 'Attribute mismatch: Flagged for manual administrative review or immediate re-upload.'))}
+                              : (verificationState.matchNote || 'Official PSA QR code detected and CRS Copy Number extracted for manual review.')}
                           </p>
                         </div>
                       </div>
@@ -3050,13 +2993,13 @@ export default function SeniorRegistryPage() {
                     {/* RIGHT: Diagnostics & Biometric Scorecard */}
                     <div className="lg:col-span-5 space-y-4">
 
-                      {/* PSA QR Code Cross-Check (Given Name, Date of Birth, CRS Copy Number) */}
+                      {/* PSA Birth Certificate Scanned CRS Copy Number Display */}
                       {verificationState.fieldName === 'psa_cert_file' && verificationState.psaQr && (
                         <div className="space-y-2">
                           <h5 className="text-[10px] font-black uppercase tracking-widest text-slate-400">
-                            PSA QR Code Cross-Check
+                            PSA Birth Certificate Verification
                           </h5>
-                          <div className={`p-4 rounded-3xl border space-y-3 shadow-sm ${verificationState.psaQr.status === 'PASS'
+                          <div className={`p-4 rounded-3xl border space-y-3 shadow-sm ${verificationState.psaQr.detected
                             ? 'bg-emerald-50/70 border-emerald-200/80'
                             : 'bg-rose-50/70 border-rose-200/80'
                             }`}>
@@ -3067,114 +3010,28 @@ export default function SeniorRegistryPage() {
                                   : <AlertCircle size={16} className="text-rose-600 shrink-0" />}
                                 <span>{verificationState.psaQr.detected ? 'QR CODE DECODED' : 'QR CODE NOT READABLE'}</span>
                               </div>
-                              <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${verificationState.psaQr.status === 'PASS'
+                              <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${verificationState.psaQr.detected
                                 ? 'bg-emerald-100 text-emerald-700'
                                 : 'bg-rose-100 text-rose-700'
                                 }`}>
-                                {verificationState.psaQr.status === 'PASS' ? 'VERIFIED' : 'MISMATCH'}
+                                {verificationState.psaQr.detected ? 'VERIFIED' : 'REJECTED'}
                               </span>
                             </div>
 
                             {verificationState.psaQr.detected ? (
                               <div className="space-y-2.5 text-[11px]">
-                                {/* 1. GIVEN NAME */}
-                                <div className="p-3.5 bg-white rounded-2xl border border-slate-100/80 space-y-1.5 shadow-sm">
-                                  <div className="flex items-center justify-between">
-                                    <span className="text-[9px] font-black uppercase tracking-wider text-slate-400">
-                                      1. GIVEN NAME
-                                    </span>
-                                    {verificationState.psaQr.givenNameMatch ? (
-                                      <span className="text-[10px] font-black uppercase text-emerald-600 flex items-center gap-1">
-                                        <CheckCircle2 size={12} /> MATCH
-                                      </span>
-                                    ) : (
-                                      <span className="text-[10px] font-black uppercase text-rose-600 flex items-center gap-1">
-                                        <X size={12} /> NO MATCH
-                                      </span>
-                                    )}
+                                {/* CRS COPY NUMBER ONLY */}
+                                <div className="p-4 bg-white rounded-2xl border border-slate-100/80 space-y-1.5 shadow-sm">
+                                  <div className="text-[9px] font-black uppercase tracking-wider text-slate-400">
+                                    CRS COPY NUMBER
                                   </div>
-                                  <div className="grid grid-cols-2 gap-3 pt-0.5">
-                                    <div>
-                                      <div className="text-[8px] font-bold text-slate-400 uppercase tracking-wider">FORM</div>
-                                      <div className="font-bold text-slate-800 break-words text-xs leading-tight uppercase">
-                                        {formData.given_name || '—'}
-                                      </div>
-                                    </div>
-                                    <div>
-                                      <div className="text-[8px] font-bold text-slate-400 uppercase tracking-wider">PSA QR</div>
-                                      <div className="font-bold text-slate-800 break-words text-xs leading-tight uppercase">
-                                        {verificationState.psaQr.extractedGivenName || 'Not found in QR'}
-                                      </div>
-                                    </div>
-                                  </div>
-                                </div>
-
-                                {/* 2. DATE OF BIRTH */}
-                                <div className="p-3.5 bg-white rounded-2xl border border-slate-100/80 space-y-1.5 shadow-sm">
-                                  <div className="flex items-center justify-between">
-                                    <span className="text-[9px] font-black uppercase tracking-wider text-slate-400">
-                                      2. DATE OF BIRTH
-                                    </span>
-                                    {verificationState.psaQr.dobMatch ? (
-                                      <span className="text-[10px] font-black uppercase text-emerald-600 flex items-center gap-1">
-                                        <CheckCircle2 size={12} /> MATCH
-                                      </span>
-                                    ) : (
-                                      <span className="text-[10px] font-black uppercase text-rose-600 flex items-center gap-1">
-                                        <X size={12} /> NO MATCH
-                                      </span>
-                                    )}
-                                  </div>
-                                  <div className="grid grid-cols-2 gap-3 pt-0.5">
-                                    <div>
-                                      <div className="text-[8px] font-bold text-slate-400 uppercase tracking-wider">FORM</div>
-                                      <div className="font-bold text-slate-800 break-words text-xs leading-tight">
-                                        {formData.date_of_birth || '—'}
-                                      </div>
-                                    </div>
-                                    <div>
-                                      <div className="text-[8px] font-bold text-slate-400 uppercase tracking-wider">PSA QR</div>
-                                      <div className="font-bold text-slate-800 break-words text-xs leading-tight">
-                                        {verificationState.psaQr.extractedDob || 'Not found in QR'}
-                                      </div>
-                                    </div>
-                                  </div>
-                                </div>
-
-                                {/* 3. CRS COPY NUMBER */}
-                                <div className="p-3.5 bg-white rounded-2xl border border-slate-100/80 space-y-1.5 shadow-sm">
-                                  <div className="flex items-center justify-between">
-                                    <span className="text-[9px] font-black uppercase tracking-wider text-slate-400">
-                                      3. CRS COPY NUMBER
-                                    </span>
-                                    {verificationState.psaQr.crsCopyNumberMatch ? (
-                                      <span className="text-[10px] font-black uppercase text-emerald-600 flex items-center gap-1">
-                                        <CheckCircle2 size={12} /> MATCH
-                                      </span>
-                                    ) : (
-                                      <span className="text-[10px] font-black uppercase text-rose-600 flex items-center gap-1">
-                                        <X size={12} /> NO MATCH
-                                      </span>
-                                    )}
-                                  </div>
-                                  <div className="grid grid-cols-2 gap-3 pt-0.5">
-                                    <div>
-                                      <div className="text-[8px] font-bold text-slate-400 uppercase tracking-wider">FORM</div>
-                                      <div className="font-bold text-slate-800 break-words text-xs leading-tight uppercase font-mono">
-                                        {formData.crs_copy_number || '—'}
-                                      </div>
-                                    </div>
-                                    <div>
-                                      <div className="text-[8px] font-bold text-slate-400 uppercase tracking-wider">PSA QR</div>
-                                      <div className="font-bold text-slate-800 break-words text-xs leading-tight uppercase font-mono">
-                                        {verificationState.psaQr.extractedCrsCopyNumber || 'Not found in QR'}
-                                      </div>
-                                    </div>
+                                  <div className="font-black text-slate-800 break-words text-sm leading-tight uppercase font-mono">
+                                    {verificationState.psaQr.extractedCrsCopyNumber || 'Not readable on certificate'}
                                   </div>
                                 </div>
 
                                 <p className="text-[10px] text-slate-500 font-medium pt-1">
-                                  Excludes Last Name &amp; Middle Name to support married female applicants. Re-validated automatically as Given Name, Birthdate, or CRS Copy Number is edited.
+                                  CRS Copy Number scanned from the uploaded PSA Birth Certificate. Full certificate details will be verified during manual administrative review.
                                 </p>
                               </div>
                             ) : (

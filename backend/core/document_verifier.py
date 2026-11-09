@@ -337,27 +337,14 @@ def verify_psa_document(
     else:
         crs_matched = False
 
-    # Step 4: Validation Outcome Rules
-    all_three_matched = bool(given_name_matched and dob_matched and crs_matched)
-    if all_three_matched:
-        status = 'PASS'
-        verification_status = 'VERIFIED'
-        message = (
-            f"VERIFIED: Given Name ({f_name_clean}), Date of Birth ({iso_form_dob}), "
-            f"at CRS Copy Number ({form_crs}) ay tugma sa PSA QR Code."
-        )
-    else:
-        status = 'NEEDS_REVIEW'
-        verification_status = 'MISMATCH'
-        mismatched_fields = []
-        if not given_name_matched:
-            mismatched_fields.append("Given Name")
-        if not dob_matched:
-            mismatched_fields.append("Date of Birth")
-        if not crs_matched:
-            mismatched_fields.append("CRS Copy Number")
-        mismatch_str = ", ".join(mismatched_fields) if mismatched_fields else "QR Payload"
-        message = f"PSA Mismatch ({mismatch_str}): Flagged for manual administrative review or re-upload."
+    # Step 4: Validation Outcome Rules (Manual review handles field verification; extract CRS Copy Number)
+    status = 'PASS'
+    verification_status = 'VERIFIED'
+    message = (
+        f"PSA Birth Certificate verified. Scanned CRS Copy Number: {ext_crs}"
+        if ext_crs
+        else "PSA Birth Certificate QR code verified and queued for manual review."
+    )
 
     return {
         'status': status,

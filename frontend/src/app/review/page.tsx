@@ -27,6 +27,7 @@ export default function ReviewQueuePage() {
   const [activeTab, setActiveTab] = useState<'psa' | 'osca' | 'rep'>('psa');
   const [remarks, setRemarks] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [previewImageModal, setPreviewImageModal] = useState<{ title: string; url: string } | null>(null);
 
   // Rejection Modal State
   const [isRejectModalOpen, setIsRejectModalOpen] = useState(false);
@@ -669,9 +670,19 @@ export default function ReviewQueuePage() {
 
                   {/* Side-by-Side Face Frames */}
                   <div className="grid grid-cols-11 items-center gap-2">
-                    {/* Left: OSCA ID Face Crop */}
-                    <div className="col-span-5 flex flex-col items-center gap-1.5 p-2.5 bg-white rounded-2xl border border-slate-200/80 shadow-sm">
-                      <div className="relative w-20 h-20 rounded-xl overflow-hidden bg-slate-100 border-2 border-indigo-200 flex items-center justify-center">
+                    {/* Left: OSCA ID Face Crop (Clickable for Full Image) */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const fullUrl = getCleanFileUrl(selectedSenior.primary_id_file) || selectedSenior.auto_check_results?.osca_face_crop;
+                        if (fullUrl) {
+                          setPreviewImageModal({ title: 'OSCA ID Card — Full View', url: fullUrl });
+                        }
+                      }}
+                      title="Click to view full OSCA ID image"
+                      className="col-span-5 flex flex-col items-center gap-1.5 p-2.5 bg-white rounded-2xl border border-slate-200/80 hover:border-indigo-400 hover:shadow-md transition-all shadow-sm cursor-pointer group"
+                    >
+                      <div className="relative w-20 h-20 rounded-xl overflow-hidden bg-slate-100 border-2 border-indigo-200 group-hover:border-indigo-500 transition-colors flex items-center justify-center">
                         {selectedSenior.auto_check_results?.osca_face_crop ? (
                           <img
                             src={selectedSenior.auto_check_results.osca_face_crop}
@@ -691,10 +702,10 @@ export default function ReviewQueuePage() {
                           OSCA ID
                         </div>
                       </div>
-                      <span className="text-[9px] font-bold text-slate-500 uppercase tracking-wider">
-                        Document Crop
+                      <span className="text-[9px] font-bold text-slate-500 group-hover:text-indigo-600 uppercase tracking-wider flex items-center gap-1">
+                        <Eye size={10} /> Document Crop
                       </span>
-                    </div>
+                    </button>
 
                     {/* Center Connector Badge */}
                     <div className="col-span-1 flex flex-col items-center justify-center text-center">
@@ -708,9 +719,19 @@ export default function ReviewQueuePage() {
                       </div>
                     </div>
 
-                    {/* Right: 2x2 Photo Face Crop */}
-                    <div className="col-span-5 flex flex-col items-center gap-1.5 p-2.5 bg-white rounded-2xl border border-slate-200/80 shadow-sm">
-                      <div className="relative w-20 h-20 rounded-xl overflow-hidden bg-slate-100 border-2 border-indigo-200 flex items-center justify-center">
+                    {/* Right: 2x2 Photo Face Crop (Clickable for Full Image) */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const fullUrl = getCleanFileUrl(selectedSenior.picture_2x2_file) || selectedSenior.auto_check_results?.photo_face_crop;
+                        if (fullUrl) {
+                          setPreviewImageModal({ title: '2x2 Applicant Photo — Full View', url: fullUrl });
+                        }
+                      }}
+                      title="Click to view full 2x2 Photo"
+                      className="col-span-5 flex flex-col items-center gap-1.5 p-2.5 bg-white rounded-2xl border border-slate-200/80 hover:border-indigo-400 hover:shadow-md transition-all shadow-sm cursor-pointer group"
+                    >
+                      <div className="relative w-20 h-20 rounded-xl overflow-hidden bg-slate-100 border-2 border-indigo-200 group-hover:border-indigo-500 transition-colors flex items-center justify-center">
                         {selectedSenior.auto_check_results?.photo_face_crop ? (
                           <img
                             src={selectedSenior.auto_check_results.photo_face_crop}
@@ -730,10 +751,10 @@ export default function ReviewQueuePage() {
                           2x2 PHOTO
                         </div>
                       </div>
-                      <span className="text-[9px] font-bold text-slate-500 uppercase tracking-wider">
-                        Applicant Anchor
+                      <span className="text-[9px] font-bold text-slate-500 group-hover:text-indigo-600 uppercase tracking-wider flex items-center gap-1">
+                        <Eye size={10} /> Applicant Anchor
                       </span>
-                    </div>
+                    </button>
                   </div>
 
                   {/* Biometric description */}
@@ -771,78 +792,6 @@ export default function ReviewQueuePage() {
                           : 'bg-amber-100 text-amber-800'
                         }`}>
                         {selectedSenior.auto_check_results?.ocr_psa?.status === 'PASS' ? 'Passed' : 'Review'}
-                      </span>
-                    </div>
-
-                    {/* PSA QR Code Cross-Check (Given Name, Date of Birth, CRS Copy Number) */}
-                    <div className="p-3 bg-slate-50 border border-slate-100 rounded-2xl flex items-center justify-between">
-                      <div className="flex items-center gap-2.5">
-                        <div>
-                          <div className="text-[10px] font-black uppercase tracking-wider text-slate-700">PSA QR Code 3-Field Verification</div>
-                          <div className="text-[11px] font-medium text-slate-500">
-                            {selectedSenior.auto_check_results?.psa_qr?.message || "No PSA QR scan recorded for this application"}
-                          </div>
-                          {selectedSenior.auto_check_results?.psa_qr?.qr_detected && (
-                            <div className="text-[10px] font-semibold text-slate-400 mt-0.5">
-                              Given Name: {selectedSenior.auto_check_results.psa_qr.extracted_given_name || selectedSenior.auto_check_results.psa_qr.extracted_name || '—'} • DOB: {selectedSenior.auto_check_results.psa_qr.extracted_dob || '—'} • CRS Copy No.: {selectedSenior.auto_check_results.psa_qr.extracted_crs_copy_number || '—'}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                      <span className={`px-2.5 py-1 rounded-xl text-[10px] font-black uppercase tracking-widest ${selectedSenior.auto_check_results?.psa_qr?.status === 'PASS'
-                          ? 'bg-emerald-100 text-emerald-800'
-                          : selectedSenior.auto_check_results?.psa_qr?.status === 'FLAGGED'
-                            ? 'bg-rose-100 text-rose-800'
-                            : 'bg-amber-100 text-amber-800'
-                        }`}>
-                        {selectedSenior.auto_check_results?.psa_qr?.status === 'PASS'
-                          ? 'Verified'
-                          : selectedSenior.auto_check_results?.psa_qr?.status === 'FLAGGED' ? 'Mismatch' : 'Review'}
-                      </span>
-                    </div>
-
-                    {/* OSCA ID Two-Tier Validation & 5-Field Cross-Verification Check */}
-                    <div className="p-3 bg-slate-50 border border-slate-100 rounded-2xl flex items-center justify-between">
-                      <div className="flex items-center gap-2.5">
-                        <div>
-                          <div className="text-[10px] font-black uppercase tracking-wider text-slate-700">OSCA ID Two-Tier &amp; 5-Field Cross-Check</div>
-                          <div className="text-[11px] font-medium text-slate-500">
-                            {selectedSenior.auto_check_results?.osca_cross_check?.message ||
-                             selectedSenior.auto_check_results?.osca_validation?.summary_message ||
-                             (selectedSenior.auto_check_results?.ocr_osca?.status === 'PASS'
-                               ? "Template layout and personal information fields verified"
-                               : "Pending two-tier template matching and data completeness audit")}
-                          </div>
-                          {selectedSenior.auto_check_results?.osca_validation && (
-                            <div className="text-[10px] font-semibold text-slate-400 mt-0.5">
-                              Stage 1 (Layout): {selectedSenior.auto_check_results.osca_validation.stage1?.passed ? 'Passed' : 'Failed'} • Stage 2 (Data): {selectedSenior.auto_check_results.osca_validation.stage2?.passed ? 'Passed' : 'Incomplete'}
-                              {selectedSenior.auto_check_results?.osca_cross_check && (
-                                <> • Cross-Check: {[
-                                  selectedSenior.auto_check_results.osca_cross_check.nameMatch,
-                                  selectedSenior.auto_check_results.osca_cross_check.oscaIdMatch,
-                                  selectedSenior.auto_check_results.osca_cross_check.dobMatch,
-                                  selectedSenior.auto_check_results.osca_cross_check.sexMatch,
-                                  selectedSenior.auto_check_results.osca_cross_check.civilStatusMatch,
-                                ].filter(Boolean).length}/5 Matched</>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                      <span className={`px-2.5 py-1 rounded-xl text-[10px] font-black uppercase tracking-widest ${
-                        selectedSenior.auto_check_results?.osca_cross_check?.status === 'FLAGGED' || selectedSenior.auto_check_results?.osca_validation?.overall_status === 'FAIL'
-                          ? 'bg-rose-100 text-rose-800'
-                          : (selectedSenior.auto_check_results?.osca_validation?.overall_status === 'PASS' || selectedSenior.auto_check_results?.ocr_osca?.status === 'PASS')
-                            ? 'bg-emerald-100 text-emerald-800'
-                            : 'bg-amber-100 text-amber-800'
-                      }`}>
-                        {selectedSenior.auto_check_results?.osca_cross_check?.status === 'FLAGGED'
-                          ? 'Mismatch'
-                          : selectedSenior.auto_check_results?.osca_validation?.overall_status === 'FAIL'
-                            ? 'Failed'
-                            : (selectedSenior.auto_check_results?.osca_validation?.overall_status === 'PASS' || selectedSenior.auto_check_results?.ocr_osca?.status === 'PASS')
-                              ? 'Passed'
-                              : 'Review'}
                       </span>
                     </div>
 
@@ -948,74 +897,17 @@ export default function ReviewQueuePage() {
               {/* RIGHT COLUMN: High-Resolution Document Viewer */}
               <div className="w-full lg:w-7/12 bg-slate-100 flex flex-col p-6 overflow-hidden">
 
-                {/* Tabs */}
+                {/* Document Header Pill */}
                 <div className="flex gap-2 mb-4 p-1.5 bg-slate-200/70 rounded-2xl w-fit">
-                  <button
-                    onClick={() => setActiveTab('psa')}
-                    className={`px-5 py-2.5 rounded-xl text-xs font-black transition-all ${activeTab === 'psa' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-600 hover:text-slate-800'
-                      }`}
-                  >
+                  <div className="px-5 py-2.5 rounded-xl text-xs font-black bg-white text-indigo-600 shadow-sm">
                     PSA Birth Certificate (QR)
-                  </button>
-                  <button
-                    onClick={() => setActiveTab('osca')}
-                    className={`px-5 py-2.5 rounded-xl text-xs font-black transition-all ${activeTab === 'osca' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-600 hover:text-slate-800'
-                      }`}
-                  >
-                    QC QCitizen Senior Card
-                  </button>
-                  {selectedSenior.annex_a_data?.reps?.length > 0 && selectedSenior.annex_a_data?.reps[0]?.name && (
-                    <button
-                      onClick={() => setActiveTab('rep')}
-                      className={`px-5 py-2.5 rounded-xl text-xs font-black transition-all ${activeTab === 'rep' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-600 hover:text-slate-800'
-                        }`}
-                    >
-                      Proxy / Representative
-                    </button>
-                  )}
+                  </div>
                 </div>
 
                 {/* Viewer Container */}
                 <div className="flex-grow bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden flex items-center justify-center relative">
-                  {activeTab === 'rep' ? (
-                    <div className="p-8 max-w-lg w-full space-y-6 animate-in fade-in">
-                      <div className="flex items-center gap-3">
-                        <div className="w-12 h-12 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center">
-                          <Users size={24} />
-                        </div>
-                        <div>
-                          <h4 className="text-lg font-black text-slate-800">Authorized Representative / Proxy</h4>
-                          <p className="text-xs font-medium text-slate-500">Filed on behalf of senior citizen</p>
-                        </div>
-                      </div>
-
-                      <div className="space-y-3 bg-slate-50 p-6 rounded-2xl border border-slate-100">
-                        <div>
-                          <div className="text-[10px] font-black uppercase tracking-wider text-slate-400">Representative Full Name</div>
-                          <div className="text-sm font-black text-slate-800 mt-0.5">
-                            {selectedSenior.annex_a_data?.reps[0]?.name || "N/A"}
-                          </div>
-                        </div>
-
-                        <div>
-                          <div className="text-[10px] font-black uppercase tracking-wider text-slate-400">Relationship to Senior</div>
-                          <div className="text-sm font-bold text-slate-700 mt-0.5">
-                            {selectedSenior.annex_a_data?.reps[0]?.relation || "N/A"}
-                          </div>
-                        </div>
-
-                        <div>
-                          <div className="text-[10px] font-black uppercase tracking-wider text-slate-400">Contact Number</div>
-                          <div className="text-sm font-bold text-slate-700 mt-0.5 flex items-center gap-1.5">
-                            <Phone size={13} className="text-slate-400" />
-                            {selectedSenior.annex_a_data?.reps[0]?.contact || "N/A"}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  ) : (() => {
-                    const rawUrl = activeTab === 'psa' ? selectedSenior.psa_cert_file : selectedSenior.primary_id_file;
-                    const url = getCleanFileUrl(rawUrl);
+                  {(() => {
+                    const url = getCleanFileUrl(selectedSenior.psa_cert_file);
 
                     if (!url) {
                       return (
@@ -1102,6 +994,48 @@ export default function ReviewQueuePage() {
               </div>
             </div>
 
+          </div>
+        </div>
+      )}
+
+      {/* Full Image Lightbox Modal for OSCA ID and 2x2 Photo */}
+      {previewImageModal && (
+        <div
+          onClick={() => setPreviewImageModal(null)}
+          className="fixed inset-0 bg-slate-900/80 backdrop-blur-md z-[200] flex items-center justify-center p-6 animate-in fade-in duration-150"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white rounded-[32px] w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden shadow-2xl border border-slate-200 animate-in zoom-in-95 duration-200"
+          >
+            <div className="px-6 py-4 border-b border-slate-100 bg-slate-50 flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-2.5">
+                <ImageIcon size={18} className="text-indigo-600" />
+                <h3 className="text-sm font-black uppercase tracking-wider text-slate-800">
+                  {previewImageModal.title}
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPreviewImageModal(null)}
+                className="w-9 h-9 bg-white border border-slate-200 rounded-xl flex items-center justify-center text-slate-400 hover:text-rose-500 hover:border-rose-200 transition-all"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <div className="p-6 bg-slate-950 flex-grow flex items-center justify-center overflow-auto min-h-[380px]">
+              {previewImageModal.url.toLowerCase().endsWith('.pdf') ? (
+                <div className="w-full h-[70vh] bg-white rounded-2xl overflow-hidden">
+                  <PdfViewer url={previewImageModal.url} />
+                </div>
+              ) : (
+                <img
+                  src={previewImageModal.url}
+                  alt={previewImageModal.title}
+                  className="max-w-full max-h-[75vh] object-contain rounded-2xl shadow-lg"
+                />
+              )}
+            </div>
           </div>
         </div>
       )}
